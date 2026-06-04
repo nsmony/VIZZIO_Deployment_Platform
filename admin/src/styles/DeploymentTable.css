@@ -1,0 +1,95 @@
+.deployment-section {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.section-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.section-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-filter,
+.btn-import {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  transition: all 0.2s;
+}
+
+.btn-filter:hover,
+.btn-import:hover {
+  background: var(--bg);
+  border-color: var(--primary);
+}
+
+.deployment-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.deployment-table thead {
+  background: var(--bg);
+}
+
+.deployment-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.deployment-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.deployment-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status.released {
+  background: #d1fae5;
+  color: var(--success);
+}
+
+.status.pending {
+  background: #fef3c7;
+  color: var(--warning);
+}
+
+.status.failed {
+  background: #fee2e2;
+  color: var(--danger);
+}
