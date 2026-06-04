@@ -1,0 +1,32 @@
+.version-page {
+  padding: 2rem;
+}
+
+.version-card {
+  background: #fff;
+  border-radius: 1rem;
+  box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+}
+
+.version-details {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.version-details div {
+  display: flex;
+  justify-content: space-between;
+  padding: 1rem;
+  border: 1px solid #e6e8ed;
+  border-radius: 0.75rem;
+}
+
+.version-details strong {
+  color: #203864;
+}
+
+.version-details span {
+  color: #666;
+}

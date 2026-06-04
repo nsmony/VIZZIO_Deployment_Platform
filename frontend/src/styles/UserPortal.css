@@ -1,0 +1,58 @@
+:root {
+  --primary: #2563eb;
+  --border: #e2e8f0;
+  --bg: #f8fafc;
+  --text: #1f2937;
+}
+
+.user-portal-page {
+  padding: 32px;
+  display: flex;
+  justify-content: center;
+}
+
+.user-portal-card {
+  max-width: 740px;
+  width: 100%;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  padding: 32px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.05);
+}
+
+.user-portal-card h1 {
+  margin: 0 0 16px;
+  color: var(--text);
+}
+
+.user-portal-card p {
+  margin: 0 0 24px;
+  color: #475569;
+  line-height: 1.7;
+}
+
+.user-portal-actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.user-portal-actions .primary-btn,
+.user-portal-actions .secondary-btn {
+  padding: 12px 20px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+.user-portal-actions .primary-btn {
+  border: none;
+  background: var(--primary);
+  color: white;
+}
+
+.user-portal-actions .secondary-btn {
+  background: white;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
