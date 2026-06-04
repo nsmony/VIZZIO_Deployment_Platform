@@ -129,7 +129,7 @@ export default function Users() {
       <section className="users-toolbar">
         <div className="users-filters">
           <div className="search-input">
-            <span>≡ƒöì</span>
+            <span aria-hidden="true">🔎</span>
             <input
               type="text"
               placeholder="Search users"
@@ -197,9 +197,9 @@ export default function Users() {
                 <td>{user.deployments}</td>
                 <td>{user.lastLogin}</td>
                 <td className="controls-cell">
-                  <button className="icon-btn" onClick={() => editUser(user.id)} title="Edit user" aria-label="Edit user">Γ£Å∩╕Å</button>
-                  <button className="icon-btn" onClick={() => addUserToGroup(user.id)} title="Add user to group" aria-label="Add user to group">≡ƒæÑ</button>
-                  <button className="icon-btn danger" onClick={() => deleteUser(user.id)} title="Delete user" aria-label="Delete user">≡ƒùæ∩╕Å</button>
+                  <button className="icon-btn" onClick={() => editUser(user.id)} title="Edit user" aria-label="Edit user">✎</button>
+                  <button className="icon-btn" onClick={() => addUserToGroup(user.id)} title="Add user to group" aria-label="Add user to group">➕</button>
+                  <button className="icon-btn danger" onClick={() => deleteUser(user.id)} title="Delete user" aria-label="Delete user">🗑️</button>
                 </td>
               </tr>
             ))}

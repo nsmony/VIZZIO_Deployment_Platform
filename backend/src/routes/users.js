@@ -1,12 +1,17 @@
 import express from 'express';
+import {
+  createUserHandler,
+  deleteUserHandler,
+  listUsers,
+  updateUserHandler,
+} from '../controllers/userController.js';
 
 const router = express.Router();
 
-router.get('/', async (req, res) => {
-  // TODO: Replace with real database query and permission rules.
-  res.json({ message: 'User list placeholder', user: req.user });
-});
-
+router.get('/', listUsers);
+router.post('/', createUserHandler);
+router.put('/:id', updateUserHandler);
+router.delete('/:id', deleteUserHandler);
 router.get('/me', async (req, res) => {
   res.json({ user: req.user });
 });

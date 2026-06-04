@@ -3,10 +3,21 @@ import '../../styles/Logs.css';
 
 const deployments = ['All Deployments', 'Digital Twin', 'Sensor Hub', 'Auth Gateway'];
 const logTypes = ['All Logs', 'Deployment Logs', 'System Logs', 'Authentication Logs'];
+const lastExportDate = new Date('2026-06-03T11:42:00');
 
 export default function Logs() {
   const [deployment, setDeployment] = useState(deployments[0]);
   const [logType, setLogType] = useState(logTypes[0]);
+
+  const downloadLabel = `${deployment.replace(/\s+/g, '-').toLowerCase()}-${lastExportDate.toISOString().slice(0, 10)}.zip`;
+  const exportDateLabel = new Intl.DateTimeFormat('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(lastExportDate);
 
   const handleDownload = () => {
     alert(`Downloading ${logType} for ${deployment}.`);
@@ -48,11 +59,11 @@ export default function Logs() {
           <div className="summary-row">
             <div>
               <p className="summary-title">Last exported file</p>
-              <strong>logs-deployment-2026-06-03.zip</strong>
+              <strong>{downloadLabel}</strong>
             </div>
             <div>
               <p className="summary-title">Export date</p>
-              <strong>June 3, 2026 ┬╖ 11:42 AM</strong>
+              <strong>{exportDateLabel}</strong>
             </div>
             <div>
               <p className="summary-title">Status</p>

@@ -9,7 +9,6 @@ export default function Sidebar({ isOpen = true }) {
     { label: 'Deployment', href: '/deployment' },
     { label: 'Version', href: '/version' },
     { label: 'Users & Permissions', href: '/users' },
-    { label: 'User Portal', href: '/user' },
   ];
 
   const logItems = [
