@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from 'react';
-import '../styles/Users.css';
+import '../../styles/Users.css';
 
 const initialUsers = [
   {

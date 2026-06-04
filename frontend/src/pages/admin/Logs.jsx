@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react';
-import '../styles/Logs.css';
+import '../../styles/Logs.css';
 
 const deployments = ['All Deployments', 'Digital Twin', 'Sensor Hub', 'Auth Gateway'];
 const logTypes = ['All Logs', 'Deployment Logs', 'System Logs', 'Authentication Logs'];

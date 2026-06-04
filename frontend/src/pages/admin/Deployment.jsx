@@ -1,4 +1,4 @@
-﻿import '../styles/Deployment.css';
+﻿import '../../styles/Deployment.css';
 
 export default function Deployment() {
   return (

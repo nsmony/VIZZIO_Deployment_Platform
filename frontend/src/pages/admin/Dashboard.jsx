@@ -1,9 +1,9 @@
 ﻿import { useEffect, useState } from 'react';
-import StatCard from '../components/StatCard';
-import DeploymentTable from '../components/DeploymentTable';
-import RecentActivity from '../components/RecentActivity';
-import GroupsList from '../components/GroupsList';
-import '../styles/Dashboard.css';
+import StatCard from '../../components/StatCard';
+import DeploymentTable from '../../components/DeploymentTable';
+import RecentActivity from '../../components/RecentActivity';
+import GroupsList from '../../components/GroupsList';
+import '../../styles/Dashboard.css';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);

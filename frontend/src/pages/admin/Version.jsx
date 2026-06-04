@@ -1,5 +1,5 @@
 ﻿import { useMemo, useState } from 'react';
-import '../styles/Dashboard.css';
+import '../../styles/Dashboard.css';
 
 const deployments = [
   {
