@@ -18,7 +18,13 @@ export default function Login() {
     setLoading(false);
     if (result.token) {
       localStorage.setItem('vizzio_token', result.token);
-      navigate('/dashboard');
+      if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
+        localStorage.setItem('vizzio_role', result.user.role);
+        navigate('/user');
+      } else {
+        localStorage.setItem('vizzio_role', result.user?.role || 'admin');
+        navigate('/dashboard');
+      }
     } else {
       setError(result.error || 'Login failed');
     }
@@ -61,7 +67,9 @@ export default function Login() {
             </button>
           </form>
           <div className="login-footer">
-            <p>Demo credentials: admin / password</p>
+            <p>Demo credentials:</p>
+            <p>Admin — admin / password</p>
+            <p>User — user / password</p>
           </div>
         </div>
       </div>

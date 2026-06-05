@@ -6,6 +6,10 @@ import Deployment from './pages/admin/Deployment';
 import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
 import UserPortal from './pages/user/UserPortal';
+import UserDashboard from './pages/user/Dashboard';
+import Installed from './pages/user/Installed';
+import Download from './pages/user/Download';
+import Setting from './pages/user/Setting';
 import AdminLayout from './layouts/AdminLayout';
 import UserLayout from './layouts/UserLayout';
 import './styles/App.css';
@@ -17,11 +21,13 @@ function ProtectedRoute({ children }) {
 
 export default function App() {
   const token = localStorage.getItem('vizzio_token');
+  const role = localStorage.getItem('vizzio_role');
+  const homePath = token ? (role && role.toLowerCase() !== 'admin' ? '/user' : '/dashboard') : '/';
 
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={token ? <Navigate to="/dashboard" /> : <Login />} />
+        <Route path="/" element={token ? <Navigate to={homePath} /> : <Login />} />
 
         <Route
           element={
@@ -38,16 +44,21 @@ export default function App() {
         </Route>
 
         <Route
+          path="/user"
           element={
             <ProtectedRoute>
               <UserLayout />
             </ProtectedRoute>
           }
         >
-          <Route path="/user" element={<UserPortal />} />
+          <Route index element={<UserPortal />} />
+          <Route path="installed" element={<Installed />} />
+          <Route path="download" element={<Download />} />
+          <Route path="dashboard" element={<UserDashboard />} />
+          <Route path="settings" element={<Setting />} />
         </Route>
 
-        <Route path="*" element={<Navigate to={token ? '/dashboard' : '/'} />} />
+        <Route path="*" element={<Navigate to={homePath} />} />
       </Routes>
     </BrowserRouter>
   );

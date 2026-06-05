@@ -8,6 +8,12 @@ const mockUsers = [
     passwordHash: bcrypt.hashSync('password', 10),
     role: 'admin',
   },
+  {
+    id: 'user-1',
+    username: 'user',
+    passwordHash: bcrypt.hashSync('password', 10),
+    role: 'user',
+  },
 ];
 
 export async function authenticateUser(username, password) {
