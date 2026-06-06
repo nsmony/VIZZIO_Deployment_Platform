@@ -5,13 +5,8 @@ import Version from './pages/admin/Version';
 import Deployment from './pages/admin/Deployment';
 import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
-import UserPortal from './pages/user/UserPortal';
-import UserDashboard from './pages/user/Dashboard';
-import Installed from './pages/user/Installed';
-import Download from './pages/user/Download';
-import Setting from './pages/user/Setting';
+import UserPanel from './pages/user/UserPanel';
 import AdminLayout from './layouts/AdminLayout';
-import UserLayout from './layouts/UserLayout';
 import './styles/App.css';
 
 function ProtectedRoute({ children }) {
@@ -44,19 +39,13 @@ export default function App() {
         </Route>
 
         <Route
-          path="/user"
+          path="/user/*"
           element={
             <ProtectedRoute>
-              <UserLayout />
+              <UserPanel />
             </ProtectedRoute>
           }
-        >
-          <Route index element={<UserPortal />} />
-          <Route path="installed" element={<Installed />} />
-          <Route path="download" element={<Download />} />
-          <Route path="dashboard" element={<UserDashboard />} />
-          <Route path="settings" element={<Setting />} />
-        </Route>
+        />
 
         <Route path="*" element={<Navigate to={homePath} />} />
       </Routes>

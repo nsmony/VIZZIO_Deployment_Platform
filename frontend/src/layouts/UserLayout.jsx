@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import '../styles/Sidebar.css';
 import '../styles/UserPortal.css';
 
@@ -37,6 +37,13 @@ function PageTitle() {
 
 export default function UserLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const navigate = useNavigate();
+
+  function handleLogout() {
+    localStorage.removeItem('vizzio_token');
+    localStorage.removeItem('vizzio_role');
+    window.location.href = '/';
+  }
 
   return (
     <div className="app-layout">
@@ -86,6 +93,9 @@ export default function UserLayout() {
           <div className="topbar-right">
             <button className="icon-btn" aria-label="Notifications">
               🔔
+            </button>
+            <button className="btn-logout" onClick={handleLogout} aria-label="Sign out">
+              Sign Out
             </button>
             <div className="profile-circle">U</div>
           </div>
