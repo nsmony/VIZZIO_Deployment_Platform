@@ -1,31 +1,125 @@
-﻿import '../../styles/Deployment.css';
+import { useEffect, useState } from 'react';
+import { fetchUploadedPackages, uploadPackage } from '../../api';
+import '../../styles/Deployment.css';
 
 export default function Deployment() {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [title, setTitle] = useState('');
+  const [packages, setPackages] = useState([]);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [uploading, setUploading] = useState(false);
+
+  async function loadPackages() {
+    const token = localStorage.getItem('vizzio_token');
+
+    if (!token) return;
+
+    try {
+      const result = await fetchUploadedPackages(token);
+      setPackages(result.packages || []);
+    } catch (loadError) {
+      setError(loadError.message);
+    }
+  }
+
+  useEffect(() => {
+    loadPackages();
+  }, []);
+
+  async function handleUpload(event) {
+    event.preventDefault();
+
+    if (!selectedFile) {
+      setError('Choose a file to upload.');
+      return;
+    }
+
+    const token = localStorage.getItem('vizzio_token');
+
+    if (!token) {
+      setError('Please sign in again before uploading.');
+      return;
+    }
+
+    setUploading(true);
+    setStatus('Uploading package...');
+    setError('');
+
+    try {
+      await uploadPackage(token, selectedFile, title);
+      setStatus('Package uploaded. Users can download it from their library.');
+      setSelectedFile(null);
+      setTitle('');
+      event.target.reset();
+      await loadPackages();
+    } catch (uploadError) {
+      setStatus('');
+      setError(uploadError.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <main className="deployment-page">
       <header className="page-header">
-        <button className="primary-btn">+ New Deployment</button>
+        <button className="primary-btn" type="button">+ New Deployment</button>
       </header>
 
       <section className="deployment-panel">
-        <div className="empty-state-card deployment-empty-state">
-          <div className="empty-state-illustration" aria-hidden="true">
-            <svg viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="20" y="22" width="56" height="48" rx="14" stroke="#2563EB" strokeWidth="3" />
-              <path d="M32 38h32M32 48h20M32 58h12" stroke="#2563EB" strokeWidth="3" strokeLinecap="round" />
-              <path d="M67 57l10-10M67 47l10 10" stroke="#0F766E" strokeWidth="3" strokeLinecap="round" />
-              <circle cx="48" cy="74" r="7" fill="#2563EB" opacity="0.12" />
-            </svg>
+        <form className="deployment-upload-form" onSubmit={handleUpload}>
+          <div>
+            <h2>Upload release package</h2>
+            <p>Publish a build file to the user package library.</p>
           </div>
 
-          <div className="empty-state-content">
-            <h2>No deployments yet</h2>
-            <p>Create your first deployment to publish a release package and start managing rollout versions from one workspace.</p>
-            <button className="primary-btn">Create deployment</button>
-          </div>
+          <label>
+            Package title
+            <input
+              type="text"
+              placeholder="Digital Twin Core v1.3.0"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+
+          <label>
+            Build file
+            <input
+              type="file"
+              onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+            />
+          </label>
+
+          <button className="primary-btn" type="submit" disabled={uploading}>
+            {uploading ? 'Uploading...' : 'Upload package'}
+          </button>
+
+          {(status || error) && (
+            <p className={`deployment-status${error ? ' error' : ''}`}>
+              {error || status}
+            </p>
+          )}
+        </form>
+
+        <div className="deployment-upload-list">
+          <h2>Uploaded packages</h2>
+          {packages.length === 0 ? (
+            <p className="deployment-muted">No packages uploaded yet.</p>
+          ) : (
+            packages.map((item) => (
+              <div className="deployment-upload-row" key={item.fileId}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <p>{item.originalName}</p>
+                </div>
+                <span>{Math.max(1, Math.round(item.size / 1024 / 1024))} MB</span>
+              </div>
+            ))
+          )}
         </div>
       </section>
     </main>
   );
 }
-

@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
+const DOWNLOAD_BASE = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
 
 async function request(endpoint, token, options = {}) {
   const response = await fetch(`${API_BASE}${endpoint}`, {
@@ -27,6 +28,39 @@ export async function login(username, password) {
 
 export async function fetchDeployments(token) {
   return request('/deployments', token);
+}
+
+export async function fetchUploadedPackages(token) {
+  return request('/deployments/uploads', token);
+}
+
+export async function uploadPackage(token, file, title) {
+  const response = await fetch(`${API_BASE}/deployments/uploads`, {
+    method: 'POST',
+    headers: {
+      Authorization: token ? `Bearer ${token}` : undefined,
+      'Content-Type': 'application/octet-stream',
+      'X-File-Name': encodeURIComponent(file.name),
+      'X-Package-Title': encodeURIComponent(title || file.name),
+    },
+    body: file,
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'Upload failed');
+  }
+  return data;
+}
+
+export async function requestDownloadToken(token, fileId) {
+  return request(`/download-token/${encodeURIComponent(fileId)}`, token);
+}
+
+export function buildDownloadUrl(fileId, downloadToken) {
+  const url = new URL(`${DOWNLOAD_BASE.replace(/\/$/, '')}/${encodeURIComponent(fileId)}`);
+  url.searchParams.set('token', downloadToken);
+  return url.toString();
 }
 
 export async function fetchUsers(token) {

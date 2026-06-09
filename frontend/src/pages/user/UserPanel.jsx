@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { buildDownloadUrl, fetchUploadedPackages, requestDownloadToken } from '../../api';
 import '../../styles/UserPanel.css';
 
 const packageCards = [
@@ -8,6 +9,7 @@ const packageCards = [
     badge: 'FREE',
     badgeColor: 'yellow',
     name: 'Digital Twin Core',
+    fileId: 'digital-twin-core-v1.3.0',
     version: 'v1.3.0',
     path: 'C:/Vizzio/packages/digital-twin',
     selected: true,
@@ -17,6 +19,7 @@ const packageCards = [
     badge: 'BETA',
     badgeColor: 'blue',
     name: 'Factory Analytics',
+    fileId: 'factory-analytics-v0.9.4',
     version: 'v0.9.4',
     path: 'C:/Vizzio/packages/factory-analytics',
   },
@@ -25,6 +28,7 @@ const packageCards = [
     badge: 'FREE',
     badgeColor: 'yellow',
     name: 'Energy Monitor',
+    fileId: 'energy-monitor-v2.0.1',
     version: 'v2.0.1',
     path: 'C:/Vizzio/packages/energy-monitor',
   },
@@ -33,6 +37,7 @@ const packageCards = [
     badge: 'BETA',
     badgeColor: 'blue',
     name: '3D Facility Viewer',
+    fileId: 'facility-viewer-v1.1.2',
     version: 'v1.1.2',
     path: 'C:/Vizzio/packages/facility-viewer',
   },
@@ -41,6 +46,7 @@ const packageCards = [
     badge: 'FREE',
     badgeColor: 'yellow',
     name: 'Asset Health',
+    fileId: 'asset-health-v2.4.0',
     version: 'v2.4.0',
     path: 'C:/Vizzio/packages/asset-health',
   },
@@ -49,6 +55,7 @@ const packageCards = [
     badge: 'BETA',
     badgeColor: 'blue',
     name: 'Predictive Alerts',
+    fileId: 'predictive-alerts-v0.8.7',
     version: 'v0.8.7',
     path: 'C:/Vizzio/packages/predictive-alerts',
   },
@@ -101,14 +108,87 @@ function SearchBox() {
 }
 
 function AllPackagesPage() {
+  const [uploadedPackages, setUploadedPackages] = useState([]);
+  const [downloadState, setDownloadState] = useState({
+    fileId: null,
+    status: '',
+    error: '',
+    url: '',
+  });
+
+  useEffect(() => {
+    const authToken = localStorage.getItem('vizzio_token');
+
+    if (!authToken) return;
+
+    fetchUploadedPackages(authToken)
+      .then((result) => {
+        const uploadedCards = (result.packages || []).map((item) => ({
+          id: item.fileId,
+          badge: 'UPLOAD',
+          badgeColor: 'blue',
+          name: item.title,
+          fileId: item.fileId,
+          version: 'Release',
+          path: item.originalName,
+          downloadable: true,
+        }));
+        setUploadedPackages(uploadedCards);
+      })
+      .catch(() => {
+        setUploadedPackages([]);
+      });
+  }, []);
+
+  async function handleDownload(card) {
+    const authToken = localStorage.getItem('vizzio_token');
+
+    if (!authToken) {
+      setDownloadState({
+        fileId: card.id,
+        status: '',
+        error: 'Please sign in again before downloading.',
+        url: '',
+      });
+      return;
+    }
+
+    setDownloadState({
+      fileId: card.id,
+      status: `Requesting download token for ${card.name}...`,
+      error: '',
+      url: '',
+    });
+
+    try {
+      const { token } = await requestDownloadToken(authToken, card.fileId);
+      const downloadUrl = buildDownloadUrl(card.fileId, token);
+
+      setDownloadState({
+        fileId: card.id,
+        status: 'Download token issued. Opening signed file URL...',
+        error: '',
+        url: downloadUrl,
+      });
+
+      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      setDownloadState({
+        fileId: card.id,
+        status: '',
+        error: error.message,
+        url: '',
+      });
+    }
+  }
+
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
-        <h2>All Packages</h2>
         <SearchBox />
       </div>
       <div className="vizzio-card-grid">
-        {packageCards.map((card) => (
+        {[...uploadedPackages, ...packageCards].map((card) => (
           <article
             key={card.id}
             className={`vizzio-package-card${card.selected ? ' selected' : ''}`}
@@ -124,13 +204,32 @@ function AllPackagesPage() {
               </p>
             </div>
             <div className="vizzio-card-actions">
-              <button type="button" className="btn-primary">
-                Open Folder
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => handleDownload(card)}
+                disabled={Boolean(!card.downloadable || (downloadState.fileId === card.id && downloadState.status))}
+              >
+                {card.downloadable
+                  ? downloadState.fileId === card.id && downloadState.status
+                    ? 'Preparing...'
+                    : 'Download'
+                  : 'Demo only'}
               </button>
               <button type="button" className="btn-ghost">
                 Details
               </button>
             </div>
+            {downloadState.fileId === card.id && (downloadState.status || downloadState.error) && (
+              <p className={`vizzio-download-message${downloadState.error ? ' error' : ''}`}>
+                {downloadState.error || downloadState.status}
+              </p>
+            )}
+            {downloadState.fileId === card.id && downloadState.url && (
+              <a className="vizzio-download-link" href={downloadState.url} target="_blank" rel="noreferrer">
+                Open signed URL
+              </a>
+            )}
           </article>
         ))}
       </div>
@@ -142,7 +241,6 @@ function InstalledPage() {
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
-        <h2>Installed</h2>
         <SearchBox />
       </div>
       <div className="vizzio-list-card">
@@ -166,17 +264,66 @@ function InstalledPage() {
 }
 
 function DownloadPage() {
+  const [activePackage, setActivePackage] = useState(null);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [downloadUrl, setDownloadUrl] = useState('');
+
+  useEffect(() => {
+    const authToken = localStorage.getItem('vizzio_token');
+
+    if (!authToken) return;
+
+    fetchUploadedPackages(authToken)
+      .then((result) => {
+        setActivePackage(result.packages?.[0] || null);
+      })
+      .catch(() => {
+        setActivePackage(null);
+      });
+  }, []);
+
+  async function handleStartDownload() {
+    const authToken = localStorage.getItem('vizzio_token');
+
+    if (!authToken) {
+      setError('Please sign in again before downloading.');
+      return;
+    }
+
+    if (!activePackage) {
+      setError('No uploaded package is available to download yet.');
+      return;
+    }
+
+    setStatus('Requesting short-lived download token...');
+    setError('');
+    setDownloadUrl('');
+
+    try {
+      const fileId = activePackage.fileId;
+      const { token } = await requestDownloadToken(authToken, fileId);
+      const url = buildDownloadUrl(fileId, token);
+
+      setStatus('Download token issued. Opening signed file URL...');
+      setDownloadUrl(url);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (requestError) {
+      setStatus('');
+      setError(requestError.message);
+    }
+  }
+
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
-        <h2>Active downloads</h2>
       </div>
 
       <div className="vizzio-download-card">
         <div className="vizzio-download-top">
           <div>
-            <h3>Digital Twin - beta v1.3.0</h3>
-            <p>Download in progress</p>
+            <h3>{activePackage?.title || 'No uploaded package'}</h3>
+            <p>{activePackage ? activePackage.originalName : 'Upload a package from the admin Deployment page'}</p>
           </div>
           <span className="vizzio-progress-label">75%</span>
         </div>
@@ -205,13 +352,24 @@ function DownloadPage() {
         </div>
 
         <div className="vizzio-download-actions">
-          <button type="button" className="btn-ghost">
-            Pause
+          <button type="button" className="btn-primary" onClick={handleStartDownload}>
+            Start download
           </button>
           <button type="button" className="btn-danger-ghost">
             Cancel
           </button>
         </div>
+
+        {(status || error) && (
+          <p className={`vizzio-download-message${error ? ' error' : ''}`}>
+            {error || status}
+          </p>
+        )}
+        {downloadUrl && (
+          <a className="vizzio-download-link" href={downloadUrl} target="_blank" rel="noreferrer">
+            Open signed URL
+          </a>
+        )}
       </div>
     </section>
   );
@@ -221,7 +379,6 @@ function DashboardPage() {
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
-        <h2>Dashboard</h2>
       </div>
 
       <div className="vizzio-kpi-grid">
@@ -299,7 +456,6 @@ function SettingsPage({ onSignOut }) {
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
-        <h2>Application settings</h2>
       </div>
 
       <article className="vizzio-settings-card">
@@ -438,13 +594,16 @@ export default function UserPanel() {
           <div className="vizzio-header-left">
             <button
               type="button"
-              className="vizzio-menu-btn"
+              className={`vizzio-menu-btn${collapsed ? ' collapsed' : ''}`}
               onClick={() => setCollapsed((value) => !value)}
               aria-label="Toggle sidebar"
             >
-              |||
+              <span className="vizzio-hamburger-lines" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
             </button>
-            <span className="vizzio-header-logo">VIZZIO</span>
             <h1>{pageTitle}</h1>
           </div>
           <div className="vizzio-header-right">

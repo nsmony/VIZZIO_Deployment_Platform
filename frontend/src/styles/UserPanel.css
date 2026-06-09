@@ -13,37 +13,52 @@
 }
 
 .vizzio-user-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
-  background: var(--vizzio-bg);
+  overflow: hidden;
+  background: #f8fafc;
   color: var(--vizzio-heading);
   font-family: 'Plus Jakarta Sans', 'DM Sans', 'Segoe UI', sans-serif;
 }
 
 .vizzio-sidebar {
-  width: 188px;
+  width: 250px;
   border-right: 1px solid var(--vizzio-border);
   background: #fff;
-  padding: 18px 10px;
-  position: sticky;
-  top: 0;
+  padding: 24px;
   height: 100vh;
-  transition: width 0.2s ease;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  transition: width 0.25s ease, padding 0.25s ease;
 }
 
 .vizzio-sidebar.collapsed {
-  width: 82px;
+  width: 0;
+  padding: 0;
+  border-right: none;
+  overflow: hidden;
+}
+
+.vizzio-sidebar.collapsed .vizzio-logo,
+.vizzio-sidebar.collapsed .vizzio-nav {
+  display: none;
 }
 
 .vizzio-logo {
   font-weight: 800;
   letter-spacing: 1px;
-  margin: 6px 10px 18px;
+  margin: 0 0 32px;
   font-size: 20px;
+  color: var(--vizzio-heading);
+}
+
+.vizzio-nav {
+  flex: 1;
 }
 
 .vizzio-nav-section {
-  margin-bottom: 10px;
+  margin-bottom: 24px;
 }
 
 .vizzio-nav-section-head {
@@ -51,18 +66,16 @@
   border: none;
   background: transparent;
   color: var(--vizzio-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: uppercase;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
+  padding: 8px 0;
   cursor: pointer;
-}
-
-.vizzio-sidebar.collapsed .vizzio-nav-section-head span:first-child {
-  display: none;
+  user-select: none;
 }
 
 .vizzio-nav-section .chevron {
@@ -76,45 +89,52 @@
 
 .vizzio-nav-section ul {
   list-style: none;
-  margin: 2px 0 8px;
+  margin: 12px 0 0;
   padding: 0;
+}
+
+.vizzio-nav-section li {
+  margin-bottom: 8px;
 }
 
 .vizzio-nav-link {
   display: block;
   text-decoration: none;
-  color: var(--vizzio-secondary);
-  border-left: 3px solid transparent;
+  color: var(--vizzio-heading);
   border-radius: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  padding: 10px 12px;
+  font-size: 14px;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .vizzio-nav-link:hover {
-  background: var(--vizzio-soft-blue);
+  background: #f8fafc;
 }
 
 .vizzio-nav-link.active {
-  background: var(--vizzio-soft-blue);
-  border-left-color: var(--vizzio-accent);
-  color: #173278;
-  font-weight: 700;
+  background: #dbeafe;
+  color: #2563eb;
+  font-weight: 600;
 }
 
 .vizzio-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f3f6fb;
 }
 
 .vizzio-header {
-  height: 72px;
+  height: 64px;
   border-bottom: 1px solid var(--vizzio-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
   background: #fff;
+  gap: 16px;
 }
 
 .vizzio-header-left,
@@ -130,33 +150,51 @@
   line-height: 1;
 }
 
-.vizzio-header-logo {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #2f406b;
-}
-
 .vizzio-menu-btn,
 .vizzio-icon-btn,
 .vizzio-avatar {
-  border: 1px solid var(--vizzio-border);
-  background: #fff;
+  border: 1px solid transparent;
+  background: #f8fafc;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  color: var(--vizzio-heading);
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.2s ease;
 }
 
 .vizzio-menu-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  font-weight: 700;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vizzio-hamburger-lines {
+  width: 18px;
+  height: 14px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+}
+
+.vizzio-menu-btn.collapsed .vizzio-hamburger-lines {
+  transform: rotate(0deg);
+}
+
+.vizzio-hamburger-lines span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 .vizzio-icon-btn,
 .vizzio-avatar {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
   font-size: 12px;
   font-weight: 700;
@@ -165,13 +203,15 @@
 .vizzio-menu-btn:hover,
 .vizzio-icon-btn:hover,
 .vizzio-avatar:hover {
-  background: #f8faff;
-  border-color: #d5deee;
+  background: #fff;
+  border-color: var(--vizzio-border);
 }
 
 .vizzio-content {
+  flex: 1;
+  overflow-y: auto;
   padding: 24px;
-  background: #fff;
+  background: #f8fafc;
 }
 
 .vizzio-page-wrap {
@@ -183,7 +223,7 @@
 .vizzio-page-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
 }
 
@@ -348,6 +388,29 @@
 .btn-link-danger {
   color: var(--vizzio-danger);
   padding-right: 0;
+}
+
+.vizzio-download-message,
+.vizzio-download-link {
+  display: block;
+  margin: 0 12px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.vizzio-download-message {
+  color: #2563eb;
+}
+
+.vizzio-download-message.error {
+  color: var(--vizzio-danger);
+}
+
+.vizzio-download-link {
+  color: var(--vizzio-accent);
+  font-weight: 700;
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
 .vizzio-list-card {
@@ -713,19 +776,22 @@
 @media (max-width: 780px) {
   .vizzio-user-shell {
     flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .vizzio-sidebar,
   .vizzio-sidebar.collapsed {
     width: 100%;
     height: auto;
-    position: static;
     border-right: none;
     border-bottom: 1px solid var(--vizzio-border);
   }
 
-  .vizzio-sidebar.collapsed .vizzio-nav-link {
-    font-size: 11px;
+  .vizzio-sidebar.collapsed {
+    padding: 0;
+    border-bottom: none;
   }
 
   .vizzio-header {

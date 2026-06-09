@@ -46,9 +46,96 @@
   border-radius: 32px;
   min-height: 560px;
   padding: 32px;
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.deployment-upload-form,
+.deployment-upload-list {
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.deployment-upload-form {
+  display: grid;
+  gap: 16px;
+}
+
+.deployment-upload-form h2,
+.deployment-upload-list h2 {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 22px;
+}
+
+.deployment-upload-form p,
+.deployment-muted,
+.deployment-upload-row p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.deployment-upload-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.deployment-upload-form input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--text);
+}
+
+.deployment-upload-form .primary-btn {
+  border: none;
+  cursor: pointer;
+}
+
+.deployment-upload-form .primary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.deployment-status {
+  margin: 0;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.deployment-status.error {
+  color: #dc2626;
+}
+
+.deployment-upload-list {
+  display: grid;
+  gap: 14px;
+}
+
+.deployment-upload-row {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.deployment-upload-row strong {
+  color: var(--text);
+}
+
+.deployment-upload-row span {
+  color: var(--text-muted);
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .empty-state-card {
@@ -107,5 +194,6 @@
 
   .deployment-panel {
     padding: 24px;
+    grid-template-columns: 1fr;
   }
 }
