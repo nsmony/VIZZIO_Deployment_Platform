@@ -1,9 +1,31 @@
 import { createDeployment, getDeployments } from '../services/deploymentService.js';
 import { signDownloadToken } from '../downloadToken.js';
 import { listUploadedFiles, saveUploadedFile } from '../uploadStore.js';
+import { findGroups } from '../repositories/groupRepository.js';
+import { findUserById } from '../repositories/userRepository.js';
 
 export async function listDeployments(req, res) {
-  res.json({ deployments: getDeployments() });
+  const role = req.user?.role?.toLowerCase();
+  const deployments = getDeployments();
+
+  if (role === 'admin') {
+    return res.json({ deployments });
+  }
+
+  const user = findUserById(req.user?.userId);
+  if (!user) {
+    return res.json({ deployments: [] });
+  }
+
+  const allowedDeploymentIds = new Set(
+    findGroups()
+      .filter((group) => (user.groups || []).includes(group.name))
+      .flatMap((group) => group.deploymentIds || [])
+  );
+
+  res.json({
+    deployments: deployments.filter((deployment) => allowedDeploymentIds.has(deployment.id)),
+  });
 }
 
 export async function createDeploymentHandler(req, res) {

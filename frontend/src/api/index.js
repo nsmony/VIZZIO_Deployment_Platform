@@ -2,12 +2,14 @@ const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
 const DOWNLOAD_BASE = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
 
 async function request(endpoint, token, options = {}) {
+  const { headers: optionHeaders = {}, ...requestOptions } = options;
+
   const response = await fetch(`${API_BASE}${endpoint}`, {
+    ...requestOptions,
     headers: {
       Authorization: token ? `Bearer ${token}` : undefined,
-      ...(options.headers || {}),
+      ...optionHeaders,
     },
-    ...options,
   });
 
   const data = await response.json().catch(() => ({}));
@@ -75,11 +77,45 @@ export async function createUser(token, userData) {
   });
 }
 
+export async function fetchGroups(token) {
+  return request('/users/groups', token);
+}
+
+export async function createGroup(token, groupData) {
+  return request('/users/groups', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(groupData),
+  });
+}
+
+export async function updateGroup(token, groupId, updates) {
+  return request(`/users/groups/${groupId}`, token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
 export async function updateUser(token, userId, updates) {
   return request(`/users/${userId}`, token, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
+  });
+}
+
+export async function disableUser(token, userId) {
+  return request(`/users/${userId}/disable`, token, {
+    method: 'PATCH',
+  });
+}
+
+export async function resetUserPassword(token, userId, password) {
+  return request(`/users/${userId}/reset-password`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(password ? { password } : {}),
   });
 }
 
