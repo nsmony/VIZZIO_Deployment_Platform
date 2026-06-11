@@ -1,0 +1,10 @@
+# Ignore runtime storage and uploaded chunk files to avoid restarting during uploads
+storage/
+storage/**
+storage/upload-chunks/
+storage/upload-completions/
+storage/*.json
+
+# Ignore logs and other generated files
+logs/
+*.log

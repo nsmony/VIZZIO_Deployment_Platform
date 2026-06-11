@@ -7,6 +7,7 @@ import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
 import UserPanel from './pages/user/UserPanel';
 import AdminLayout from './layouts/AdminLayout';
+import InviteConfirm from './pages/InviteConfirm';
 import './styles/App.css';
 
 function ProtectedRoute({ children }) {
@@ -47,6 +48,7 @@ export default function App() {
           }
         />
 
+        <Route path="/invite" element={<InviteConfirm />} />
         <Route path="*" element={<Navigate to={homePath} />} />
       </Routes>
     </BrowserRouter>

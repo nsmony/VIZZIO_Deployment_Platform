@@ -5,6 +5,7 @@ import {
   listUsers,
   updateUserHandler,
 } from '../controllers/userController.js';
+import { sendInvite, verifyInvite, completeInvite } from '../controllers/inviteController.js';
 
 const router = express.Router();
 
@@ -15,5 +16,10 @@ router.delete('/:id', deleteUserHandler);
 router.get('/me', async (req, res) => {
   res.json({ user: req.user });
 });
+
+// Invite flow
+router.post('/invite', sendInvite);
+router.get('/invite/verify', verifyInvite);
+router.post('/invite/complete', completeInvite);
 
 export default router;

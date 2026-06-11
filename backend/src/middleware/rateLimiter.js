@@ -5,4 +5,5 @@ export const rateLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.originalUrl.startsWith('/api/deployments/uploads'),
 });

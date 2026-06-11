@@ -9,6 +9,7 @@ export default function Deployment() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   async function loadPackages() {
     const token = localStorage.getItem('vizzio_token');
@@ -43,18 +44,28 @@ export default function Deployment() {
     }
 
     setUploading(true);
+    setUploadProgress(0);
     setStatus('Uploading package...');
     setError('');
 
     try {
-      await uploadPackage(token, selectedFile, title);
+      await uploadPackage(token, selectedFile, title, (percentage) => {
+        setUploadProgress(percentage);
+        setStatus(
+          selectedFile.size > 100 * 1024 * 1024
+            ? `Uploading package in 50 MB chunks... ${percentage}%`
+            : `Uploading package... ${percentage}%`,
+        );
+      });
       setStatus('Package uploaded. Users can download it from their library.');
       setSelectedFile(null);
       setTitle('');
+      setUploadProgress(100);
       event.target.reset();
       await loadPackages();
     } catch (uploadError) {
       setStatus('');
+      setUploadProgress(0);
       setError(uploadError.message);
     } finally {
       setUploading(false);
@@ -95,6 +106,18 @@ export default function Deployment() {
           <button className="primary-btn" type="submit" disabled={uploading}>
             {uploading ? 'Uploading...' : 'Upload package'}
           </button>
+
+          {uploading && (
+            <div className="deployment-upload-progress" aria-live="polite">
+              <div className="deployment-upload-progress-track" aria-hidden="true">
+                <div
+                  className="deployment-upload-progress-fill"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="deployment-upload-progress-text">{uploadProgress}% complete</p>
+            </div>
+          )}
 
           {(status || error) && (
             <p className={`deployment-status${error ? ' error' : ''}`}>

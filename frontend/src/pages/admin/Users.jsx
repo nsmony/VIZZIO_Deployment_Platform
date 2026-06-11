@@ -1,5 +1,6 @@
 ﻿import { useMemo, useState } from 'react';
 import '../../styles/Users.css';
+import { inviteUser } from '../../api';
 
 const initialUsers = [
   {
@@ -42,6 +43,8 @@ export default function Users() {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('All Users');
   const [filterGroup, setFilterGroup] = useState('All Groups');
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
 
   const filteredUsers = useMemo(() => {
     return users.filter((user) => {
@@ -56,23 +59,8 @@ export default function Users() {
   }, [users, search, filterRole, filterGroup]);
 
   const addUser = () => {
-    const name = window.prompt('New user name');
-    const email = window.prompt('New user email');
-    if (!name || !email) return;
-
-    setUsers((current) => [
-      ...current,
-      {
-        id: `u${current.length + 1}`,
-        name,
-        email,
-        role: 'User',
-        status: 'Active',
-        deployments: 0,
-        lastLogin: 'Never',
-        groups: [],
-      },
-    ]);
+    // Open invite modal
+    setShowInvite(true);
   };
 
   const addGroup = () => {
@@ -157,6 +145,34 @@ export default function Users() {
           <button className="primary-btn" onClick={addGroup}>New User Group</button>
         </div>
       </section>
+
+      {showInvite && (
+        <div className="modal-backdrop">
+          <div className="modal">
+            <h3>Invite user</h3>
+            <input placeholder="Email address" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} />
+            <div className="modal-actions">
+              <button className="secondary-btn" onClick={() => setShowInvite(false)}>Cancel</button>
+              <button
+                className="primary-btn"
+                onClick={async () => {
+                  if (!inviteEmail) return alert('Enter an email');
+                  try {
+                    const resp = await inviteUser(null, inviteEmail);
+                    alert('Invite sent' + (resp.preview ? ` (preview: ${resp.preview})` : ''));
+                    setShowInvite(false);
+                    setInviteEmail('');
+                  } catch (err) {
+                    alert('Failed to send invite: ' + err.message);
+                  }
+                }}
+              >
+                Send invite
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className="users-panel">
         <table className="users-table">
