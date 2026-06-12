@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { signToken } from '../auth.js';
-import { findUsers } from '../repositories/userRepository.js';
+import { findUserByUsernameOrEmail } from '../repositories/userRepository.js';
 
 const mockUsers = [
   {
@@ -18,7 +18,8 @@ const mockUsers = [
 ];
 
 export async function authenticateUser(username, password) {
-  const user = mockUsers.find((item) => item.username === username);
+  const normalizedUsername = username.trim();
+  const user = mockUsers.find((item) => item.username.toLowerCase() === normalizedUsername.toLowerCase());
   if (user) {
     const validPassword = await bcrypt.compare(password, user.passwordHash);
     if (!validPassword) {
@@ -29,10 +30,10 @@ export async function authenticateUser(username, password) {
     return { token, user: { id: user.id, username: user.username, role: user.role } };
   }
 
-  const managedUsers = await findUsers();
-  const managedUser = managedUsers.find(
-    (item) => item.email.toLowerCase() === username.toLowerCase() && item.isActive
-  );
+  const managedUser = await findUserByUsernameOrEmail(normalizedUsername);
+  if (managedUser && !managedUser.isActive) {
+    return null;
+  }
   if (!managedUser?.passwordHash) {
     return null;
   }
@@ -43,12 +44,13 @@ export async function authenticateUser(username, password) {
   }
 
   const role = managedUser.role.toLowerCase();
-  const token = signToken({ userId: managedUser.id, username: managedUser.email, role });
+  const token = signToken({ userId: managedUser.id, username: managedUser.username, role });
   return {
     token,
     user: {
       id: managedUser.id,
-      username: managedUser.email,
+      username: managedUser.username,
+      email: managedUser.email,
       role,
     },
   };

@@ -28,6 +28,8 @@ const emptyGroupForm = {
   memberIds: [],
 };
 
+const credentialStorageKey = 'vizzio_user_credentials';
+
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -44,7 +46,7 @@ export default function Users() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [credentials, setCredentials] = useState(null);
-  const [userCredentials, setUserCredentials] = useState({});
+  const [userCredentials, setUserCredentials] = useState(loadStoredCredentials);
   const [openUserMenuId, setOpenUserMenuId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -225,12 +227,13 @@ export default function Users() {
         if (data.temporaryPassword) {
           const credential = {
             userId: data.user.id,
+            username: data.user.username,
             name: data.user.name,
             email: data.user.email,
             password: data.temporaryPassword,
           };
           setCredentials(credential);
-          setUserCredentials((current) => ({ ...current, [data.user.id]: credential }));
+          setUserCredentials((current) => storeCredentials({ ...current, [data.user.id]: credential }));
         }
         setMessage(`${data.user.name} was created.`);
       }
@@ -320,12 +323,13 @@ export default function Users() {
       setUsers((current) => current.map((item) => (item.id === user.id ? data.user : item)));
       const credential = {
         userId: data.user.id,
+        username: data.user.username,
         name: data.user.name,
         email: data.user.email,
         password: data.temporaryPassword,
       };
       setCredentials(credential);
-      setUserCredentials((current) => ({ ...current, [data.user.id]: credential }));
+      setUserCredentials((current) => storeCredentials({ ...current, [data.user.id]: credential }));
       setMessage(`Password was reset for ${data.user.name}.`);
     } catch (resetError) {
       setError(resetError.message);
@@ -347,7 +351,7 @@ export default function Users() {
       setUserCredentials((current) => {
         const next = { ...current };
         delete next[user.id];
-        return next;
+        return storeCredentials(next);
       });
       setMessage(`${user.name} was deleted.`);
     } catch (deleteError) {
@@ -361,6 +365,7 @@ export default function Users() {
     const text = [
       `VIZZIO Deployment Platform credentials`,
       `Name: ${credentials.name}`,
+      `Username: ${credentials.username || credentials.email}`,
       `Email: ${credentials.email}`,
       `Password: ${credentials.password}`,
     ].join('\n');
@@ -385,6 +390,7 @@ export default function Users() {
     const text = [
       `VIZZIO Deployment Platform credentials`,
       `Name: ${credential.name}`,
+      `Username: ${credential.username || credential.email}`,
       `Email: ${credential.email}`,
       `Password: ${credential.password}`,
     ].join('\n');
@@ -476,6 +482,7 @@ export default function Users() {
             <h3>Latest Credentials</h3>
             <p>{credentials.name} can sign in with this email and temporary password.</p>
             <div className="credential-lines">
+              <span>Username: {credentials.username || credentials.email}</span>
               <span>Email: {credentials.email}</span>
               <span>Password: {credentials.password}</span>
             </div>
@@ -801,4 +808,17 @@ async function copyText(text) {
   textArea.select();
   document.execCommand('copy');
   document.body.removeChild(textArea);
+}
+
+function loadStoredCredentials() {
+  try {
+    return JSON.parse(sessionStorage.getItem(credentialStorageKey) || '{}');
+  } catch (error) {
+    return {};
+  }
+}
+
+function storeCredentials(credentialsByUserId) {
+  sessionStorage.setItem(credentialStorageKey, JSON.stringify(credentialsByUserId));
+  return credentialsByUserId;
 }
