@@ -6,21 +6,22 @@ import { findUserById } from '../repositories/userRepository.js';
 
 export async function listDeployments(req, res) {
   const role = req.user?.role?.toLowerCase();
-  const deployments = getDeployments();
+  const deployments = await getDeployments();
 
   if (role === 'admin') {
     return res.json({ deployments });
   }
 
-  const user = findUserById(req.user?.userId);
+  const user = await findUserById(req.user?.userId);
   if (!user) {
     return res.json({ deployments: [] });
   }
 
+  const userGroupNames = (user.groupMemberships || []).map((membership) => membership.group.name);
   const allowedDeploymentIds = new Set(
-    findGroups()
-      .filter((group) => (user.groups || []).includes(group.name))
-      .flatMap((group) => group.deploymentIds || [])
+    (await findGroups())
+      .filter((group) => userGroupNames.includes(group.name))
+      .flatMap((group) => (group.deploymentAccesses || []).map((access) => access.deploymentId))
   );
 
   res.json({
@@ -30,7 +31,7 @@ export async function listDeployments(req, res) {
 
 export async function createDeploymentHandler(req, res) {
   try {
-    const deployment = createDeployment(req.body);
+    const deployment = await createDeployment(req.body, req.user?.userId);
     res.status(201).json({ deployment });
   } catch (error) {
     res.status(400).json({ error: error.message });

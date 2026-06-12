@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   createGroup,
   createUser,
+  deleteUser,
   disableUser,
   fetchDeployments,
   fetchGroups,
@@ -24,6 +25,7 @@ const emptyForm = {
 const emptyGroupForm = {
   name: '',
   deploymentIds: [],
+  memberIds: [],
 };
 
 export default function Users() {
@@ -42,6 +44,8 @@ export default function Users() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [credentials, setCredentials] = useState(null);
+  const [userCredentials, setUserCredentials] = useState({});
+  const [openUserMenuId, setOpenUserMenuId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -104,6 +108,7 @@ export default function Users() {
   }
 
   function openEditForm(user) {
+    setOpenUserMenuId(null);
     setEditingUser(user);
     setForm({
       name: user.name,
@@ -138,6 +143,9 @@ export default function Users() {
     setGroupForm({
       name: group.name,
       deploymentIds: group.deploymentIds || [],
+      memberIds: users
+        .filter((user) => (user.groups || []).includes(group.name))
+        .map((user) => user.id),
     });
     setMessage('');
     setError('');
@@ -177,6 +185,15 @@ export default function Users() {
     }));
   }
 
+  function toggleGroupMember(userId) {
+    setGroupForm((current) => ({
+      ...current,
+      memberIds: current.memberIds.includes(userId)
+        ? current.memberIds.filter((id) => id !== userId)
+        : [...current.memberIds, userId],
+    }));
+  }
+
   async function saveUser(event) {
     event.preventDefault();
     setIsSaving(true);
@@ -206,11 +223,14 @@ export default function Users() {
         const data = await createUser(token, payload);
         setUsers((current) => [...current, data.user]);
         if (data.temporaryPassword) {
-          setCredentials({
+          const credential = {
+            userId: data.user.id,
             name: data.user.name,
             email: data.user.email,
             password: data.temporaryPassword,
-          });
+          };
+          setCredentials(credential);
+          setUserCredentials((current) => ({ ...current, [data.user.id]: credential }));
         }
         setMessage(`${data.user.name} was created.`);
       }
@@ -231,24 +251,28 @@ export default function Users() {
     setError('');
     setMessage('');
 
+    const previousGroup = editingGroup;
+    const previousGroupName = previousGroup?.name;
+    const nextGroupName = groupForm.name.trim();
     const payload = {
-      name: groupForm.name.trim(),
+      name: nextGroupName,
       deploymentIds: groupForm.deploymentIds,
     };
 
     try {
+      let savedGroup;
       if (editingGroup) {
         const data = await updateGroup(token, editingGroup.id, payload);
-        setGroups((current) =>
-          current.map((group) => (group.id === editingGroup.id ? data.group : group))
-        );
+        savedGroup = data.group;
         setMessage(`${data.group.name} access was updated.`);
       } else {
         const data = await createGroup(token, payload);
-        setGroups((current) => [...current, data.group]);
+        savedGroup = data.group;
         setMessage(`${data.group.name} group was created.`);
       }
 
+      await syncGroupMembers(savedGroup, previousGroupName);
+      await loadData();
       setIsGroupFormOpen(false);
       setEditingGroup(null);
       setGroupForm(emptyGroupForm);
@@ -260,6 +284,7 @@ export default function Users() {
   }
 
   async function handleDisable(user) {
+    setOpenUserMenuId(null);
     if (user.status === 'Inactive') {
       setMessage(`${user.name} is already disabled.`);
       return;
@@ -282,6 +307,7 @@ export default function Users() {
   }
 
   async function handleResetPassword(user) {
+    setOpenUserMenuId(null);
     if (!window.confirm(`Reset password for ${user.name}?`)) {
       return;
     }
@@ -292,14 +318,40 @@ export default function Users() {
     try {
       const data = await resetUserPassword(token, user.id);
       setUsers((current) => current.map((item) => (item.id === user.id ? data.user : item)));
-      setCredentials({
+      const credential = {
+        userId: data.user.id,
         name: data.user.name,
         email: data.user.email,
         password: data.temporaryPassword,
-      });
+      };
+      setCredentials(credential);
+      setUserCredentials((current) => ({ ...current, [data.user.id]: credential }));
       setMessage(`Password was reset for ${data.user.name}.`);
     } catch (resetError) {
       setError(resetError.message);
+    }
+  }
+
+  async function handleDeleteUser(user) {
+    setOpenUserMenuId(null);
+    if (!window.confirm(`Delete ${user.name}? This cannot be undone.`)) {
+      return;
+    }
+
+    setError('');
+    setMessage('');
+
+    try {
+      await deleteUser(token, user.id);
+      setUsers((current) => current.filter((item) => item.id !== user.id));
+      setUserCredentials((current) => {
+        const next = { ...current };
+        delete next[user.id];
+        return next;
+      });
+      setMessage(`${user.name} was deleted.`);
+    } catch (deleteError) {
+      setError(deleteError.message);
     }
   }
 
@@ -319,6 +371,63 @@ export default function Users() {
     } catch (copyError) {
       setError('Clipboard copy failed. Select the credentials and copy them manually.');
     }
+  }
+
+  async function copyUserCredentials(user) {
+    setOpenUserMenuId(null);
+    const credential = userCredentials[user.id];
+    if (!credential) {
+      setError(`No temporary password is available for ${user.name}. Reset the password to generate one.`);
+      setMessage('');
+      return;
+    }
+
+    const text = [
+      `VIZZIO Deployment Platform credentials`,
+      `Name: ${credential.name}`,
+      `Email: ${credential.email}`,
+      `Password: ${credential.password}`,
+    ].join('\n');
+
+    try {
+      await copyText(text);
+      setMessage(`Credentials copied for ${credential.name}.`);
+      setError('');
+    } catch (copyError) {
+      setError('Clipboard copy failed. Select the credentials and copy them manually.');
+    }
+  }
+
+  async function syncGroupMembers(group, previousGroupName) {
+    const selectedIds = new Set(groupForm.memberIds);
+    const groupNameChanged = previousGroupName && previousGroupName !== group.name;
+
+    const updates = users
+      .map((user) => {
+        const currentGroups = user.groups || [];
+        const baseGroups = groupNameChanged
+          ? currentGroups.filter((name) => name !== previousGroupName)
+          : currentGroups;
+        const hasGroup = baseGroups.includes(group.name);
+        const shouldHaveGroup = selectedIds.has(user.id);
+        let nextGroups = baseGroups;
+
+        if (shouldHaveGroup && !hasGroup) {
+          nextGroups = [...baseGroups, group.name];
+        }
+        if (!shouldHaveGroup && hasGroup) {
+          nextGroups = baseGroups.filter((name) => name !== group.name);
+        }
+
+        if (nextGroups.length === currentGroups.length && nextGroups.every((name, index) => name === currentGroups[index])) {
+          return null;
+        }
+
+        return updateUser(token, user.id, { groups: nextGroups });
+      })
+      .filter(Boolean);
+
+    await Promise.all(updates);
   }
 
   return (
@@ -417,9 +526,34 @@ export default function Users() {
                   <td>{getAccessibleDeploymentCount(user.groups, groups)}</td>
                   <td>{user.lastLogin}</td>
                   <td className="controls-cell">
-                    <button className="icon-btn" onClick={() => openEditForm(user)} title="Edit user" aria-label={`Edit ${user.name}`}>Edit</button>
-                    <button className="icon-btn" onClick={() => handleResetPassword(user)} title="Reset password" aria-label={`Reset password for ${user.name}`}>Reset</button>
-                    <button className="icon-btn danger" onClick={() => handleDisable(user)} title="Disable user" aria-label={`Disable ${user.name}`}>Disable</button>
+                    <div className="row-menu">
+                      <button
+                        className="menu-trigger"
+                        onClick={() => setOpenUserMenuId((current) => (current === user.id ? null : user.id))}
+                        title="User actions"
+                        aria-label={`Open actions for ${user.name}`}
+                        aria-expanded={openUserMenuId === user.id}
+                      >
+                        ...
+                      </button>
+                      {openUserMenuId === user.id && (
+                        <div className="row-menu-panel">
+                          <button type="button" onClick={() => openEditForm(user)}>Edit</button>
+                          <button type="button" onClick={() => handleResetPassword(user)}>Reset Password</button>
+                          <button type="button" onClick={() => copyUserCredentials(user)}>Copy Credentials</button>
+                          <button
+                            type="button"
+                            disabled={user.status === 'Inactive'}
+                            onClick={() => handleDisable(user)}
+                          >
+                            Disable
+                          </button>
+                          <button type="button" className="danger" onClick={() => handleDeleteUser(user)}>
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -452,7 +586,18 @@ export default function Users() {
                   <h4>{group.name}</h4>
                   <p>{countUsersInGroup(users, group.name)} users</p>
                 </div>
-                <button className="icon-btn" onClick={() => openEditGroupForm(group)}>Access</button>
+                <button className="icon-btn" onClick={() => openEditGroupForm(group)}>Manage</button>
+              </div>
+              <div className="member-list">
+                {users
+                  .filter((user) => (user.groups || []).includes(group.name))
+                  .slice(0, 4)
+                  .map((user) => (
+                    <span key={user.id} className="member-pill">{user.name}</span>
+                  ))}
+                {countUsersInGroup(users, group.name) > 4 && (
+                  <span className="member-pill muted">+{countUsersInGroup(users, group.name) - 4}</span>
+                )}
               </div>
               <div className="access-list">
                 {(group.deploymentIds || []).length > 0 ? (
@@ -564,8 +709,8 @@ export default function Users() {
           <form className="user-modal" onSubmit={saveGroup}>
             <div className="modal-header">
               <div>
-                <h3>{editingGroup ? 'Edit Group Access' : 'Create Group'}</h3>
-                <p>Deployment access is granted to every user in this group.</p>
+                <h3>{editingGroup ? 'Manage Group' : 'Create Group'}</h3>
+                <p>Manage members and the deployments available to this group.</p>
               </div>
               <button type="button" className="close-btn" onClick={closeGroupForm} aria-label="Close group form">x</button>
             </div>
@@ -579,6 +724,25 @@ export default function Users() {
                 required
               />
             </label>
+
+            <fieldset className="checkbox-fieldset">
+              <legend>Members</legend>
+              {users.length > 0 ? (
+                users.map((user) => (
+                  <label className="checkbox-row" key={user.id}>
+                    <input
+                      type="checkbox"
+                      checked={groupForm.memberIds.includes(user.id)}
+                      onChange={() => toggleGroupMember(user.id)}
+                    />
+                    <span>{user.name}</span>
+                    <small>{user.email}</small>
+                  </label>
+                ))
+              ) : (
+                <p className="muted-text">Create users before adding members.</p>
+              )}
+            </fieldset>
 
             <fieldset className="checkbox-fieldset">
               <legend>Deployment Access</legend>

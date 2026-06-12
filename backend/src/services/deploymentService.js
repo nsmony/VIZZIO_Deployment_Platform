@@ -1,17 +1,25 @@
 import { addDeployment, findDeployments } from '../repositories/deploymentRepository.js';
 
 export function getDeployments() {
-  return findDeployments();
+  return findDeployments().then((deployments) => deployments.map(toPublicDeployment));
 }
 
-export function createDeployment(data) {
+export async function createDeployment(data, createdBy) {
   const deployment = {
-    id: `d${findDeployments().length + 1}`,
     name: data.name || 'New Deployment',
     description: data.description || '',
+    logoUrl: data.logoUrl || null,
     versions: data.versions || [],
-    users: data.users || 0,
-    created: data.created || new Date().toISOString().slice(0, 10),
+    createdBy,
   };
-  return addDeployment(deployment);
+  return toPublicDeployment(await addDeployment(deployment));
+}
+
+function toPublicDeployment(deployment) {
+  return {
+    ...deployment,
+    versions: (deployment.versions || []).map((version) => version.versionNumber),
+    users: deployment.users || 0,
+    created: deployment.createdAt.toISOString().slice(0, 10),
+  };
 }

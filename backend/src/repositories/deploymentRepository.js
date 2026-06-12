@@ -1,19 +1,41 @@
-const deployments = [
-  {
-    id: 'd1',
-    name: 'Digital Twin',
-    description: 'Primary smart infrastructure deployment',
-    versions: ['v1.2.0', 'v1.2.1-beta'],
-    users: 120,
-    created: '2026-05-20',
+import prisma from '../prisma.js';
+
+const deploymentInclude = {
+  versions: {
+    orderBy: { createdAt: 'asc' },
   },
-];
+};
 
 export function findDeployments() {
-  return deployments;
+  return prisma.deployment.findMany({
+    include: deploymentInclude,
+    orderBy: { createdAt: 'asc' },
+  });
 }
 
 export function addDeployment(deployment) {
-  deployments.push(deployment);
-  return deployment;
+  const { versions = [], createdBy, ...deploymentData } = deployment;
+  const validCreator = isUuid(createdBy) ? createdBy : undefined;
+
+  return prisma.deployment.create({
+    data: {
+      ...deploymentData,
+      createdBy: validCreator,
+      versions: {
+        create: versions.map((versionNumber) => ({
+          versionNumber,
+          status: 'released',
+          releasedBy: validCreator,
+          releasedAt: new Date(),
+        })),
+      },
+    },
+    include: deploymentInclude,
+  });
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || '')
+  );
 }

@@ -1,6 +1,6 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import deploymentRoutes from './routes/deployments.js';
@@ -9,8 +9,6 @@ import { rateLimiter } from './middleware/rateLimiter.js';
 import { authenticateToken } from './middleware/authMiddleware.js';
 import { createDownloadToken } from './controllers/deploymentController.js';
 import { downloadUploadedFile } from './controllers/downloadController.js';
-
-dotenv.config();
 
 const app = express();
 app.use(cors());

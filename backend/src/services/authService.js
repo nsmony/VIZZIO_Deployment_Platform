@@ -29,8 +29,9 @@ export async function authenticateUser(username, password) {
     return { token, user: { id: user.id, username: user.username, role: user.role } };
   }
 
-  const managedUser = findUsers().find(
-    (item) => item.email.toLowerCase() === username.toLowerCase() && item.status === 'Active'
+  const managedUsers = await findUsers();
+  const managedUser = managedUsers.find(
+    (item) => item.email.toLowerCase() === username.toLowerCase() && item.isActive
   );
   if (!managedUser?.passwordHash) {
     return null;
@@ -49,7 +50,6 @@ export async function authenticateUser(username, password) {
       id: managedUser.id,
       username: managedUser.email,
       role,
-      passwordResetRequired: managedUser.passwordResetRequired,
     },
   };
 }

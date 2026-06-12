@@ -2,23 +2,24 @@ import bcrypt from 'bcrypt';
 import {
   addUser,
   deleteUser as deleteUserRepo,
+  findUserByEmail,
   findUserById,
   findUsers,
   updateUser as updateUserRepo,
 } from '../repositories/userRepository.js';
 
-export function getUsers() {
-  return findUsers().map(toPublicUser);
+export async function getUsers() {
+  const users = await findUsers();
+  return users.map(toPublicUser);
 }
 
-export function createUser(data) {
+export async function createUser(data) {
   const {
     name,
+    username,
     email,
     role = 'User',
     status = 'Active',
-    deployments = 0,
-    lastLogin = 'Never',
     groups = [],
     password,
   } = data;
@@ -34,7 +35,7 @@ export function createUser(data) {
     throw new Error('Name and email are required.');
   }
 
-  const emailExists = findUsers().some((user) => user.email.toLowerCase() === normalizedEmail.toLowerCase());
+  const emailExists = await findUserByEmail(normalizedEmail);
   if (emailExists) {
     throw new Error('A user with this email already exists.');
   }
@@ -42,24 +43,20 @@ export function createUser(data) {
   const temporaryPassword = password || generateTemporaryPassword();
 
   const newUser = {
-    id: `u${findUsers().length + 1}`,
-    name: normalizedName,
+    username: normalizeUsername(username || normalizedEmail.split('@')[0]),
     email: normalizedEmail,
+    displayName: normalizedName,
     role: ['Admin', 'User'].includes(role) ? role : 'User',
-    status: ['Active', 'Inactive'].includes(status) ? status : 'Active',
-    deployments,
-    lastLogin,
+    isActive: status !== 'Inactive',
     groups: normalizeGroups(groups),
     passwordHash: bcrypt.hashSync(temporaryPassword, 10),
-    passwordUpdatedAt: new Date().toISOString(),
-    passwordResetRequired: true,
   };
 
-  return { user: toPublicUser(addUser(newUser)), temporaryPassword };
+  return { user: toPublicUser(await addUser(newUser)), temporaryPassword };
 }
 
-export function updateUserById(id, updates) {
-  const user = findUserById(id);
+export async function updateUserById(id, updates) {
+  const user = await findUserById(id);
   if (!user) {
     return null;
   }
@@ -70,17 +67,25 @@ export function updateUserById(id, updates) {
     if (!name) {
       throw new Error('Name is required.');
     }
-    nextUpdates.name = name;
+    nextUpdates.displayName = name;
+  }
+  if (updates.username !== undefined) {
+    nextUpdates.username = normalizeUsername(updates.username);
+  }
+  if (updates.displayName !== undefined) {
+    const displayName = updates.displayName.trim();
+    if (!displayName) {
+      throw new Error('Display name is required.');
+    }
+    nextUpdates.displayName = displayName;
   }
   if (updates.email !== undefined) {
     const email = updates.email.trim();
     if (!email) {
       throw new Error('Email is required.');
     }
-    const emailExists = findUsers().some(
-      (item) => item.id !== id && item.email.toLowerCase() === email.toLowerCase()
-    );
-    if (emailExists) {
+    const emailExists = await findUserByEmail(email);
+    if (emailExists && emailExists.id !== id) {
       throw new Error('A user with this email already exists.');
     }
     nextUpdates.email = email;
@@ -89,39 +94,40 @@ export function updateUserById(id, updates) {
     nextUpdates.role = ['Admin', 'User'].includes(updates.role) ? updates.role : user.role;
   }
   if (updates.status !== undefined) {
-    nextUpdates.status = ['Active', 'Inactive'].includes(updates.status) ? updates.status : user.status;
+    nextUpdates.isActive = updates.status !== 'Inactive';
+  }
+  if (updates.isActive !== undefined) {
+    nextUpdates.isActive = Boolean(updates.isActive);
   }
   if (updates.groups !== undefined) {
     nextUpdates.groups = normalizeGroups(updates.groups);
   }
 
-  return toPublicUser(updateUserRepo(id, nextUpdates));
+  return toPublicUser(await updateUserRepo(id, nextUpdates));
 }
 
-export function deleteUserById(id) {
-  const user = deleteUserRepo(id);
+export async function deleteUserById(id) {
+  const user = await deleteUserRepo(id);
   return user ? toPublicUser(user) : null;
 }
 
-export function disableUserById(id) {
-  const user = findUserById(id);
+export async function disableUserById(id) {
+  const user = await findUserById(id);
   if (!user) {
     return null;
   }
-  return toPublicUser(updateUserRepo(id, { status: 'Inactive' }));
+  return toPublicUser(await updateUserRepo(id, { isActive: false }));
 }
 
-export function resetPasswordById(id, password) {
-  const user = findUserById(id);
+export async function resetPasswordById(id, password) {
+  const user = await findUserById(id);
   if (!user) {
     return null;
   }
 
   const temporaryPassword = password || generateTemporaryPassword();
-  const updatedUser = updateUserRepo(id, {
+  const updatedUser = await updateUserRepo(id, {
     passwordHash: bcrypt.hashSync(temporaryPassword, 10),
-    passwordUpdatedAt: new Date().toISOString(),
-    passwordResetRequired: true,
   });
 
   return { user: toPublicUser(updatedUser), temporaryPassword };
@@ -140,7 +146,23 @@ function generateTemporaryPassword() {
   return `Vizzio-${suffix}`;
 }
 
+function normalizeUsername(username) {
+  return String(username || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 function toPublicUser(user) {
-  const { passwordHash, ...publicUser } = user;
-  return publicUser;
+  const { passwordHash, groupMemberships = [], _count, ...publicUser } = user;
+  return {
+    ...publicUser,
+    name: user.displayName,
+    status: user.isActive ? 'Active' : 'Inactive',
+    groups: groupMemberships.map((membership) => membership.group.name),
+    deployments: _count?.deployments || 0,
+    lastLogin: 'Never',
+  };
 }

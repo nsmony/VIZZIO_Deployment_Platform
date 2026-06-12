@@ -7,30 +7,29 @@ import {
 import { findDeployments } from '../repositories/deploymentRepository.js';
 
 export function getGroups() {
-  return findGroups();
+  return findGroups().then((groups) => groups.map(toPublicGroup));
 }
 
-export function createGroup(data) {
+export async function createGroup(data) {
   const name = data.name?.trim();
   if (!name) {
     throw new Error('Group name is required.');
   }
 
-  const duplicate = findGroups().some((group) => group.name.toLowerCase() === name.toLowerCase());
+  const groups = await findGroups();
+  const duplicate = groups.some((group) => group.name.toLowerCase() === name.toLowerCase());
   if (duplicate) {
     throw new Error('A group with this name already exists.');
   }
 
-  return addGroup({
-    id: `g${findGroups().length + 1}`,
+  return toPublicGroup(await addGroup({
     name,
-    deploymentIds: normalizeDeploymentIds(data.deploymentIds),
-    created: new Date().toISOString().slice(0, 10),
-  });
+    deploymentIds: await normalizeDeploymentIds(data.deploymentIds),
+  }));
 }
 
-export function updateGroupById(id, updates) {
-  const group = findGroupById(id);
+export async function updateGroupById(id, updates) {
+  const group = await findGroupById(id);
   if (!group) {
     return null;
   }
@@ -42,7 +41,8 @@ export function updateGroupById(id, updates) {
       throw new Error('Group name is required.');
     }
 
-    const duplicate = findGroups().some(
+    const groups = await findGroups();
+    const duplicate = groups.some(
       (item) => item.id !== id && item.name.toLowerCase() === name.toLowerCase()
     );
     if (duplicate) {
@@ -53,18 +53,20 @@ export function updateGroupById(id, updates) {
   }
 
   if (updates.deploymentIds !== undefined) {
-    nextUpdates.deploymentIds = normalizeDeploymentIds(updates.deploymentIds);
+    nextUpdates.deploymentIds = await normalizeDeploymentIds(updates.deploymentIds);
   }
 
-  return updateGroup(id, nextUpdates);
+  const updatedGroup = await updateGroup(id, nextUpdates);
+  return toPublicGroup(updatedGroup);
 }
 
-function normalizeDeploymentIds(deploymentIds) {
+async function normalizeDeploymentIds(deploymentIds) {
   if (!Array.isArray(deploymentIds)) {
     return [];
   }
 
-  const validIds = new Set(findDeployments().map((deployment) => deployment.id));
+  const deployments = await findDeployments();
+  const validIds = new Set(deployments.map((deployment) => deployment.id));
   return [
     ...new Set(
       deploymentIds
@@ -72,4 +74,15 @@ function normalizeDeploymentIds(deploymentIds) {
         .filter((id) => id && validIds.has(id))
     ),
   ];
+}
+
+function toPublicGroup(group) {
+  return {
+    id: group.id,
+    name: group.name,
+    description: group.description,
+    deploymentIds: (group.deploymentAccesses || []).map((access) => access.deploymentId),
+    created: group.createdAt.toISOString().slice(0, 10),
+    createdAt: group.createdAt,
+  };
 }

@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String              @id @default(uuid()) @db.Uuid
+  username          String              @unique
+  email             String              @unique
+  passwordHash      String
+  displayName       String
+  role              String              @default("User")
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  deployments       Deployment[]        @relation("DeploymentCreator")
+  releasedVersions  DeploymentVersion[] @relation("VersionReleaser")
+  groupMemberships  UserGroupMember[]
+  downloadSessions  DownloadSession[]
+  downloadLogs      DownloadLog[]
+  installedVersions InstalledVersion[]
+  passwordResets    PasswordResetLog[]  @relation("PasswordResetUser")
+  performedResets   PasswordResetLog[]  @relation("PasswordResetActor")
+
+  @@map("users")
+}
+
+model UserGroup {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  name               String                  @unique
+  description        String                  @default("")
+  createdAt          DateTime                @default(now())
+  members            UserGroupMember[]
+  deploymentAccesses GroupDeploymentAccess[]
+
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  id       String    @id @default(uuid()) @db.Uuid
+  userId   String    @db.Uuid
+  groupId  String    @db.Uuid
+  joinedAt DateTime  @default(now())
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group    UserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("user_group_members")
+}
+
+model Deployment {
+  id              String                  @id @default(uuid()) @db.Uuid
+  name            String
+  description     String                  @default("")
+  logoUrl         String?
+  createdBy       String?                 @db.Uuid
+  createdAt       DateTime                @default(now())
+  creator         User?                   @relation("DeploymentCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  versions        DeploymentVersion[]
+  groupAccesses   GroupDeploymentAccess[]
+
+  @@map("deployments")
+}
+
+model DeploymentVersion {
+  id                String              @id @default(uuid()) @db.Uuid
+  deploymentId      String              @db.Uuid
+  versionNumber     String
+  releaseType       String              @default("stable")
+  status            String              @default("draft")
+  packagePath       String?
+  fileName          String?
+  fileType          String?
+  packageSize       BigInt?
+  checksum          String?
+  releasedBy        String?             @db.Uuid
+  createdAt         DateTime            @default(now())
+  releasedAt        DateTime?
+  deployment        Deployment          @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  releaser          User?               @relation("VersionReleaser", fields: [releasedBy], references: [id], onDelete: SetNull)
+  downloadSessions  DownloadSession[]
+  downloadLogs      DownloadLog[]
+  installedVersions InstalledVersion[]
+
+  @@unique([deploymentId, versionNumber])
+  @@map("deployment_versions")
+}
+
+model GroupDeploymentAccess {
+  id           String     @id @default(uuid()) @db.Uuid
+  groupId      String     @db.Uuid
+  deploymentId String     @db.Uuid
+  grantedAt    DateTime   @default(now())
+  group        UserGroup  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, deploymentId])
+  @@map("group_deployment_access")
+}
+
+model DownloadSession {
+  id                 String            @id @default(uuid()) @db.Uuid
+  userId             String            @db.Uuid
+  versionId          String            @db.Uuid
+  status             String            @default("pending")
+  progressPercentage Decimal           @default(0) @db.Decimal(5, 2)
+  downloadedSize     BigInt            @default(0)
+  startedAt          DateTime          @default(now())
+  completedAt        DateTime?
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version            DeploymentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("download_sessions")
+}
+
+model DownloadLog {
+  id           String            @id @default(uuid()) @db.Uuid
+  userId       String            @db.Uuid
+  versionId    String            @db.Uuid
+  ipAddress    String?
+  userAgent    String?
+  downloadedAt DateTime          @default(now())
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version      DeploymentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("download_logs")
+}
+
+model InstalledVersion {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      String            @db.Uuid
+  versionId   String            @db.Uuid
+  installPath String?
+  isActive    Boolean           @default(true)
+  installedAt DateTime          @default(now())
+  lastOpened  DateTime?
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version     DeploymentVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, versionId])
+  @@map("installed_versions")
+}
+
+model PasswordResetLog {
+  id      String   @id @default(uuid()) @db.Uuid
+  userId  String   @db.Uuid
+  resetBy String?  @db.Uuid
+  resetAt DateTime @default(now())
+  user    User     @relation("PasswordResetUser", fields: [userId], references: [id], onDelete: Cascade)
+  actor   User?    @relation("PasswordResetActor", fields: [resetBy], references: [id], onDelete: SetNull)
+
+  @@map("password_reset_logs")
+}

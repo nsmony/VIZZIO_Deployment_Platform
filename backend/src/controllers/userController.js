@@ -13,12 +13,12 @@ import {
 } from '../services/groupService.js';
 
 export async function listUsers(req, res) {
-  res.json({ users: getUsers() });
+  res.json({ users: await getUsers() });
 }
 
 export async function createUserHandler(req, res) {
   try {
-    const result = createUser(req.body);
+    const result = await createUser(req.body);
     res.status(201).json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -27,7 +27,7 @@ export async function createUserHandler(req, res) {
 
 export async function updateUserHandler(req, res) {
   try {
-    const user = updateUserById(req.params.id, req.body);
+    const user = await updateUserById(req.params.id, req.body);
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
@@ -38,7 +38,7 @@ export async function updateUserHandler(req, res) {
 }
 
 export async function deleteUserHandler(req, res) {
-  const user = deleteUserById(req.params.id);
+  const user = await deleteUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'User not found.' });
   }
@@ -46,7 +46,7 @@ export async function deleteUserHandler(req, res) {
 }
 
 export async function disableUserHandler(req, res) {
-  const user = disableUserById(req.params.id);
+  const user = await disableUserById(req.params.id);
   if (!user) {
     return res.status(404).json({ error: 'User not found.' });
   }
@@ -54,7 +54,7 @@ export async function disableUserHandler(req, res) {
 }
 
 export async function resetPasswordHandler(req, res) {
-  const result = resetPasswordById(req.params.id, req.body?.password);
+  const result = await resetPasswordById(req.params.id, req.body?.password);
   if (!result) {
     return res.status(404).json({ error: 'User not found.' });
   }
@@ -62,12 +62,12 @@ export async function resetPasswordHandler(req, res) {
 }
 
 export async function listGroups(req, res) {
-  res.json({ groups: getGroups() });
+  res.json({ groups: await getGroups() });
 }
 
 export async function createGroupHandler(req, res) {
   try {
-    const group = createGroup(req.body);
+    const group = await createGroup(req.body);
     res.status(201).json({ group });
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -76,7 +76,7 @@ export async function createGroupHandler(req, res) {
 
 export async function updateGroupHandler(req, res) {
   try {
-    const group = updateGroupById(req.params.id, req.body);
+    const group = await updateGroupById(req.params.id, req.body);
     if (!group) {
       return res.status(404).json({ error: 'Group not found.' });
     }
