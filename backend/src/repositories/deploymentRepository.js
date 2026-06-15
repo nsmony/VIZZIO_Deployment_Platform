@@ -2,7 +2,7 @@ import prisma from '../prisma.js';
 
 const deploymentInclude = {
   versions: {
-    orderBy: { createdAt: 'asc' },
+    orderBy: { createdAt: 'desc' },
   },
 };
 
@@ -31,6 +31,35 @@ export function addDeployment(deployment) {
       },
     },
     include: deploymentInclude,
+  });
+}
+
+export function findDeploymentById(id) {
+  return prisma.deployment.findUnique({
+    where: { id },
+    include: deploymentInclude,
+  });
+}
+
+export function addDeploymentVersion(deploymentId, version) {
+  return prisma.deploymentVersion.create({
+    data: {
+      deploymentId,
+      ...version,
+    },
+  });
+}
+
+export function findDeploymentVersion(deploymentId, versionId) {
+  return prisma.deploymentVersion.findFirst({
+    where: { id: versionId, deploymentId },
+  });
+}
+
+export function updateDeploymentVersion(versionId, updates) {
+  return prisma.deploymentVersion.update({
+    where: { id: versionId },
+    data: updates,
   });
 }
 

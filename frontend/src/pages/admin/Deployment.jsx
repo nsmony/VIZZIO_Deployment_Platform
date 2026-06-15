@@ -1,124 +1,142 @@
 import { useEffect, useState } from 'react';
-import { fetchUploadedPackages, uploadPackage } from '../../api';
+import { createDeployment, fetchDeployments } from '../../api';
 import '../../styles/Deployment.css';
 
+const emptyForm = { name: '', description: '', logoUrl: '' };
+
 export default function Deployment() {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [title, setTitle] = useState('');
-  const [packages, setPackages] = useState([]);
-  const [status, setStatus] = useState('');
+  const [deployments, setDeployments] = useState([]);
+  const [form, setForm] = useState(emptyForm);
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [uploading, setUploading] = useState(false);
 
-  async function loadPackages() {
+  async function loadDeployments() {
     const token = localStorage.getItem('vizzio_token');
-
     if (!token) return;
 
+    setLoading(true);
     try {
-      const result = await fetchUploadedPackages(token);
-      setPackages(result.packages || []);
+      const result = await fetchDeployments(token);
+      setDeployments(result.deployments || []);
+      setError('');
     } catch (loadError) {
       setError(loadError.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadPackages();
+    loadDeployments();
   }, []);
 
-  async function handleUpload(event) {
+  async function handleCreate(event) {
     event.preventDefault();
-
-    if (!selectedFile) {
-      setError('Choose a file to upload.');
-      return;
-    }
-
     const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
 
-    if (!token) {
-      setError('Please sign in again before uploading.');
-      return;
-    }
-
-    setUploading(true);
-    setStatus('Uploading package...');
+    setSaving(true);
     setError('');
-
     try {
-      await uploadPackage(token, selectedFile, title);
-      setStatus('Package uploaded. Users can download it from their library.');
-      setSelectedFile(null);
-      setTitle('');
-      event.target.reset();
-      await loadPackages();
-    } catch (uploadError) {
-      setStatus('');
-      setError(uploadError.message);
+      await createDeployment(token, form);
+      setForm(emptyForm);
+      setShowForm(false);
+      await loadDeployments();
+    } catch (createError) {
+      setError(createError.message);
     } finally {
-      setUploading(false);
+      setSaving(false);
     }
+  }
+
+  function updateField(event) {
+    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
 
   return (
     <main className="deployment-page">
-      <header className="page-header">
-        <button className="primary-btn" type="button">+ New Deployment</button>
+      <header className="deployment-heading">
+        <div>
+          <p className="page-overline">Deployment catalog</p>
+          <h1>Manage deployments</h1>
+          <p>Create products here, then register and publish their versions from Version Management.</p>
+        </div>
+        <button className="primary-btn" type="button" onClick={() => setShowForm((open) => !open)}>
+          {showForm ? 'Cancel' : '+ New Deployment'}
+        </button>
       </header>
 
-      <section className="deployment-panel">
-        <form className="deployment-upload-form" onSubmit={handleUpload}>
-          <div>
-            <h2>Upload release package</h2>
-            <p>Publish a build file to the user package library.</p>
+      {showForm && (
+        <form className="deployment-create-card" onSubmit={handleCreate}>
+          <div className="form-heading">
+            <h2>New deployment</h2>
+            <p>Add the product details. Versions can be registered after creation.</p>
           </div>
-
           <label>
-            Package title
-            <input
-              type="text"
-              placeholder="Digital Twin Core v1.3.0"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
+            Name
+            <input name="name" value={form.name} onChange={updateField} placeholder="Digital Twin" required />
           </label>
-
           <label>
-            Build file
-            <input
-              type="file"
-              onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
-            />
+            Logo URL <span>(optional)</span>
+            <input name="logoUrl" value={form.logoUrl} onChange={updateField} placeholder="https://..." />
           </label>
-
-          <button className="primary-btn" type="submit" disabled={uploading}>
-            {uploading ? 'Uploading...' : 'Upload package'}
-          </button>
-
-          {(status || error) && (
-            <p className={`deployment-status${error ? ' error' : ''}`}>
-              {error || status}
-            </p>
-          )}
+          <label className="deployment-description-field">
+            Description <span>(optional)</span>
+            <textarea name="description" value={form.description} onChange={updateField} placeholder="What this deployment contains" rows="3" />
+          </label>
+          <div className="deployment-form-actions">
+            <button className="primary-btn" type="submit" disabled={saving}>
+              {saving ? 'Creating...' : 'Create deployment'}
+            </button>
+          </div>
         </form>
+      )}
 
-        <div className="deployment-upload-list">
-          <h2>Uploaded packages</h2>
-          {packages.length === 0 ? (
-            <p className="deployment-muted">No packages uploaded yet.</p>
-          ) : (
-            packages.map((item) => (
-              <div className="deployment-upload-row" key={item.fileId}>
-                <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.originalName}</p>
-                </div>
-                <span>{Math.max(1, Math.round(item.size / 1024 / 1024))} MB</span>
-              </div>
-            ))
-          )}
+      {error && <p className="deployment-status error">{error}</p>}
+
+      <section className="deployment-panel">
+        <div className="deployment-section-heading">
+          <div>
+            <h2>All deployments</h2>
+            <p>{deployments.length} registered</p>
+          </div>
         </div>
+
+        {loading ? (
+          <p className="deployment-muted">Loading deployments...</p>
+        ) : deployments.length === 0 ? (
+          <div className="deployment-empty-state">
+            <h2>No deployments yet</h2>
+            <p>Create the first deployment to begin registering releases.</p>
+            <button className="primary-btn" type="button" onClick={() => setShowForm(true)}>
+              + New Deployment
+            </button>
+          </div>
+        ) : (
+          <div className="deployment-card-grid">
+            {deployments.map((deployment) => {
+              const released = deployment.versions.filter((version) => version.status === 'released').length;
+              return (
+                <article className="deployment-card" key={deployment.id}>
+                  <div className="deployment-card-icon">
+                    {deployment.logoUrl ? <img src={deployment.logoUrl} alt="" /> : deployment.name.slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="deployment-card-copy">
+                    <h3>{deployment.name}</h3>
+                    <p>{deployment.description || 'No description provided.'}</p>
+                  </div>
+                  <dl className="deployment-card-stats">
+                    <div><dt>Versions</dt><dd>{deployment.versions.length}</dd></div>
+                    <div><dt>Released</dt><dd>{released}</dd></div>
+                    <div><dt>Created</dt><dd>{deployment.created}</dd></div>
+                  </dl>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
     </main>
   );

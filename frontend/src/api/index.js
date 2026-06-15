@@ -32,6 +32,30 @@ export async function fetchDeployments(token) {
   return request('/deployments', token);
 }
 
+export async function createDeployment(token, deployment) {
+  return request('/deployments', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(deployment),
+  });
+}
+
+export async function registerDeploymentVersion(token, deploymentId, version) {
+  return request(`/deployments/${deploymentId}/versions`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(version),
+  });
+}
+
+export async function updateDeploymentVersion(token, deploymentId, versionId, updates) {
+  return request(`/deployments/${deploymentId}/versions/${versionId}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
 export async function fetchUploadedPackages(token) {
   return request('/deployments/uploads', token);
 }
