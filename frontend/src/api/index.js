@@ -89,6 +89,32 @@ export function buildDownloadUrl(fileId, downloadToken) {
   return url.toString();
 }
 
+export async function fetchDownloadManagerItems(token) {
+  return request('/download-manager/items', token);
+}
+
+export async function createDownloadManagerSession(token, fileId, versionId) {
+  return request('/download-manager/sessions', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileId, versionId }),
+  });
+}
+
+export async function updateDownloadManagerSession(token, sessionId, updates) {
+  return request(`/download-manager/sessions/${encodeURIComponent(sessionId)}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+export function buildManagedDownloadUrl(fileId, downloadToken) {
+  const url = new URL(`${API_BASE.replace(/\/$/, '')}/download-manager/files/${encodeURIComponent(fileId)}`);
+  url.searchParams.set('token', downloadToken);
+  return url.toString();
+}
+
 export async function fetchUsers(token) {
   return request('/users', token);
 }

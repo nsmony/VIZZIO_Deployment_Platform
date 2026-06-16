@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { buildDownloadUrl, fetchUploadedPackages, requestDownloadToken } from '../../api';
+import {
+  buildDownloadUrl,
+  buildManagedDownloadUrl,
+  createDownloadManagerSession,
+  fetchDownloadManagerItems,
+  fetchUploadedPackages,
+  requestDownloadToken,
+  updateDownloadManagerSession,
+} from '../../api';
 import '../../styles/UserPanel.css';
 
 const packageCards = [
@@ -264,6 +272,7 @@ function InstalledPage() {
 }
 
 function DownloadPage() {
+  const [downloadItems, setDownloadItems] = useState([]);
   const [activePackage, setActivePackage] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -274,11 +283,14 @@ function DownloadPage() {
 
     if (!authToken) return;
 
-    fetchUploadedPackages(authToken)
+    fetchDownloadManagerItems(authToken)
       .then((result) => {
-        setActivePackage(result.packages?.[0] || null);
+        const items = result.items || [];
+        setDownloadItems(items);
+        setActivePackage(items.find((item) => item.available) || items[0] || null);
       })
       .catch(() => {
+        setDownloadItems([]);
         setActivePackage(null);
       });
   }, []);
@@ -291,23 +303,30 @@ function DownloadPage() {
       return;
     }
 
-    if (!activePackage) {
-      setError('No uploaded package is available to download yet.');
+    if (!activePackage?.available) {
+      setError('No downloadable package is available yet.');
       return;
     }
 
-    setStatus('Requesting short-lived download token...');
+    setStatus('Creating managed download session...');
     setError('');
     setDownloadUrl('');
 
     try {
       const fileId = activePackage.fileId;
-      const { token } = await requestDownloadToken(authToken, fileId);
-      const url = buildDownloadUrl(fileId, token);
+      const result = await createDownloadManagerSession(authToken, fileId, activePackage.versionId);
+      const url = buildManagedDownloadUrl(fileId, result.token);
 
-      setStatus('Download token issued. Opening signed file URL...');
+      setStatus('Download session created. Opening signed file URL...');
       setDownloadUrl(url);
       window.open(url, '_blank', 'noopener,noreferrer');
+      if (result.session?.id && result.file?.size) {
+        updateDownloadManagerSession(authToken, result.session.id, {
+          status: 'completed',
+          downloadedSize: result.file.size,
+          totalSize: result.file.size,
+        }).catch(() => {});
+      }
     } catch (requestError) {
       setStatus('');
       setError(requestError.message);
@@ -322,32 +341,48 @@ function DownloadPage() {
       <div className="vizzio-download-card">
         <div className="vizzio-download-top">
           <div>
-            <h3>{activePackage?.title || 'No uploaded package'}</h3>
-            <p>{activePackage ? activePackage.originalName : 'Upload a package from the admin Deployment page'}</p>
+            <h3>{activePackage?.deploymentName || 'No downloadable package'}</h3>
+            <p>{activePackage ? `${activePackage.versionNumber} | ${activePackage.fileName}` : 'Upload a package from the admin Deployment page'}</p>
           </div>
-          <span className="vizzio-progress-label">75%</span>
+          <span className="vizzio-progress-label">{downloadItems.length}</span>
         </div>
 
-        <div className="vizzio-progress-track" role="progressbar" aria-valuenow={75} aria-valuemin={0} aria-valuemax={100}>
-          <div className="vizzio-progress-fill" style={{ width: '75%' }} />
+        {downloadItems.length > 1 && (
+          <label className="vizzio-full-label">
+            Package
+            <select
+              value={activePackage?.fileId || ''}
+              onChange={(event) => setActivePackage(downloadItems.find((item) => item.fileId === event.target.value) || null)}
+            >
+              {downloadItems.map((item) => (
+                <option key={`${item.versionId}-${item.fileId}`} value={item.fileId}>
+                  {item.deploymentName} - {item.versionNumber}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <div className="vizzio-progress-track" role="progressbar" aria-valuenow={downloadUrl ? 100 : 0} aria-valuemin={0} aria-valuemax={100}>
+          <div className="vizzio-progress-fill" style={{ width: downloadUrl ? '100%' : '0%' }} />
         </div>
 
         <div className="vizzio-stats-grid">
           <div className="vizzio-stat-box">
-            <span>Downloaded size</span>
-            <strong>10.51 GB</strong>
+            <span>Package size</span>
+            <strong>{activePackage?.size ? `${Math.round(activePackage.size / 1024)} KB` : '-'}</strong>
           </div>
           <div className="vizzio-stat-box">
-            <span>Download speed</span>
-            <strong>4.2 MB/s</strong>
+            <span>Release type</span>
+            <strong>{activePackage?.releaseType || '-'}</strong>
           </div>
           <div className="vizzio-stat-box">
-            <span>Upload speed</span>
-            <strong>0.7 MB/s</strong>
+            <span>Status</span>
+            <strong>{activePackage?.available ? 'Available' : 'Missing file'}</strong>
           </div>
           <div className="vizzio-stat-box">
-            <span>ETA</span>
-            <strong>00:18:12</strong>
+            <span>Checksum</span>
+            <strong>{activePackage?.checksum ? 'SHA-256' : 'Not set'}</strong>
           </div>
         </div>
 

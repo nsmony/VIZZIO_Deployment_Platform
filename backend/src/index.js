@@ -4,6 +4,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import deploymentRoutes from './routes/deployments.js';
+import downloadManagerRoutes from './routes/downloadManager.js';
 import internalRoutes from './routes/internal.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
 import { authenticateToken } from './middleware/authMiddleware.js';
@@ -19,6 +20,7 @@ app.use('/api/auth', authRoutes);
 app.get('/api/download-token/:fileId', authenticateToken, createDownloadToken);
 app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/deployments', authenticateToken, deploymentRoutes);
+app.use('/api/download-manager', downloadManagerRoutes);
 app.use('/internal', internalRoutes);
 app.get('/downloads/:fileId', downloadUploadedFile);
 
