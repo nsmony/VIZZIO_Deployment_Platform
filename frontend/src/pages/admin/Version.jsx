@@ -3,6 +3,7 @@ import {
   fetchDeployments,
   registerDeploymentVersion,
   updateDeploymentVersion,
+  uploadPackage,
 } from '../../api';
 import '../../styles/Deployment.css';
 import '../../styles/Version.css';
@@ -36,6 +37,7 @@ export default function Version() {
   const [saving, setSaving] = useState(false);
   const [busyVersion, setBusyVersion] = useState('');
   const [error, setError] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
 
   const deployment = useMemo(
     () => deployments.find((item) => item.id === selectedId) || null,
@@ -72,8 +74,23 @@ export default function Version() {
     setSaving(true);
     setError('');
     try {
-      await registerDeploymentVersion(token, deployment.id, form);
+      let nextForm = { ...form };
+      if (selectedFile) {
+        const uploaded = await uploadPackage(token, selectedFile, `${deployment.name} ${form.versionNumber}`.trim());
+        const uploadedPackage = uploaded.package;
+        nextForm = {
+          ...nextForm,
+          packagePath: uploadedPackage.fileId,
+          fileName: uploadedPackage.originalName,
+          fileType: selectedFile.type || nextForm.fileType,
+          packageSize: String(uploadedPackage.size),
+          checksum: uploadedPackage.checksum || nextForm.checksum,
+        };
+      }
+
+      await registerDeploymentVersion(token, deployment.id, nextForm);
       setForm(emptyVersion);
+      setSelectedFile(null);
       setShowForm(false);
       await loadDeployments(deployment.id);
     } catch (registerError) {
@@ -140,8 +157,27 @@ export default function Version() {
             </select>
           </label>
           <label className="version-path-field">
-            Release folder
+            Package file ID or release folder
             <input value={form.packagePath} onChange={(event) => setForm({ ...form, packagePath: event.target.value })} placeholder="D:\\Releases\\DigitalTwin\\v1.3.0" required />
+          </label>
+          <label className="version-file-field">
+            Upload package <span>(optional)</span>
+            <input
+              type="file"
+              onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+                setSelectedFile(file);
+                if (file) {
+                  setForm({
+                    ...form,
+                    packagePath: file.name,
+                    fileName: file.name,
+                    fileType: file.type || form.fileType,
+                    packageSize: String(file.size),
+                  });
+                }
+              }}
+            />
           </label>
           <label>
             File name <span>(optional)</span>

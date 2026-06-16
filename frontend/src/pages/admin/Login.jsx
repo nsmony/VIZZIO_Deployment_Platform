@@ -18,6 +18,7 @@ export default function Login() {
     setLoading(false);
     if (result.token) {
       localStorage.setItem('vizzio_token', result.token);
+      localStorage.setItem('vizzio_username', result.user?.username || username);
       if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
         localStorage.setItem('vizzio_role', result.user.role);
         navigate('/user');

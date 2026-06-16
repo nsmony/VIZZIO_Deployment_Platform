@@ -1,80 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
-  buildDownloadUrl,
   buildManagedDownloadUrl,
   createDownloadManagerSession,
   fetchDownloadManagerItems,
-  fetchUploadedPackages,
-  requestDownloadToken,
   updateDownloadManagerSession,
 } from '../../api';
 import '../../styles/UserPanel.css';
-
-const packageCards = [
-  {
-    id: 1,
-    badge: 'FREE',
-    badgeColor: 'yellow',
-    name: 'Digital Twin Core',
-    fileId: 'digital-twin-core-v1.3.0',
-    version: 'v1.3.0',
-    path: 'C:/Vizzio/packages/digital-twin',
-    selected: true,
-  },
-  {
-    id: 2,
-    badge: 'BETA',
-    badgeColor: 'blue',
-    name: 'Factory Analytics',
-    fileId: 'factory-analytics-v0.9.4',
-    version: 'v0.9.4',
-    path: 'C:/Vizzio/packages/factory-analytics',
-  },
-  {
-    id: 3,
-    badge: 'FREE',
-    badgeColor: 'yellow',
-    name: 'Energy Monitor',
-    fileId: 'energy-monitor-v2.0.1',
-    version: 'v2.0.1',
-    path: 'C:/Vizzio/packages/energy-monitor',
-  },
-  {
-    id: 4,
-    badge: 'BETA',
-    badgeColor: 'blue',
-    name: '3D Facility Viewer',
-    fileId: 'facility-viewer-v1.1.2',
-    version: 'v1.1.2',
-    path: 'C:/Vizzio/packages/facility-viewer',
-  },
-  {
-    id: 5,
-    badge: 'FREE',
-    badgeColor: 'yellow',
-    name: 'Asset Health',
-    fileId: 'asset-health-v2.4.0',
-    version: 'v2.4.0',
-    path: 'C:/Vizzio/packages/asset-health',
-  },
-  {
-    id: 6,
-    badge: 'BETA',
-    badgeColor: 'blue',
-    name: 'Predictive Alerts',
-    fileId: 'predictive-alerts-v0.8.7',
-    version: 'v0.8.7',
-    path: 'C:/Vizzio/packages/predictive-alerts',
-  },
-];
-
-const recentActivity = [
-  { name: 'Digital Twin Core', value: 88, time: '09:43 AM' },
-  { name: 'Energy Monitor', value: 67, time: 'Yesterday' },
-  { name: 'Asset Health', value: 54, time: 'Yesterday' },
-  { name: 'Factory Analytics', value: 32, time: '2 days ago' },
-];
 
 const sidebarSections = [
   {
@@ -115,79 +47,72 @@ function SearchBox() {
   );
 }
 
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function formatSpeed(bytesPerSecond) {
+  return bytesPerSecond > 0 ? `${formatBytes(bytesPerSecond)}/s` : '-';
+}
+
+function formatEta(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '-';
+  if (seconds < 60) return `${Math.ceil(seconds)} sec`;
+  if (seconds < 3600) return `${Math.ceil(seconds / 60)} min`;
+  return `${Math.ceil(seconds / 3600)} hr`;
+}
+
+function getPackageKey(item) {
+  return `${item.versionId || 'upload'}:${item.fileId}`;
+}
+
+function toPackageCard(item) {
+  const channel = item.releaseType || 'package';
+  return {
+    ...item,
+    key: getPackageKey(item),
+    badge: channel.toUpperCase(),
+    badgeColor: channel === 'stable' ? 'green' : channel === 'beta' ? 'yellow' : 'blue',
+    name: item.deploymentName || item.fileName || 'Package',
+    version: item.versionNumber || 'Uploaded package',
+    path: item.fileName || item.fileId,
+  };
+}
+
 function AllPackagesPage() {
-  const [uploadedPackages, setUploadedPackages] = useState([]);
-  const [downloadState, setDownloadState] = useState({
-    fileId: null,
-    status: '',
-    error: '',
-    url: '',
-  });
+  const navigate = useNavigate();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const authToken = localStorage.getItem('vizzio_token');
 
     if (!authToken) return;
 
-    fetchUploadedPackages(authToken)
+    setLoading(true);
+    fetchDownloadManagerItems(authToken)
       .then((result) => {
-        const uploadedCards = (result.packages || []).map((item) => ({
-          id: item.fileId,
-          badge: 'UPLOAD',
-          badgeColor: 'blue',
-          name: item.title,
-          fileId: item.fileId,
-          version: 'Release',
-          path: item.originalName,
-          downloadable: true,
-        }));
-        setUploadedPackages(uploadedCards);
+        setItems((result.items || []).map(toPackageCard));
+        setError('');
       })
-      .catch(() => {
-        setUploadedPackages([]);
+      .catch((loadError) => {
+        setItems([]);
+        setError(loadError.message);
+      })
+      .finally(() => {
+        setLoading(false);
       });
   }, []);
 
-  async function handleDownload(card) {
-    const authToken = localStorage.getItem('vizzio_token');
-
-    if (!authToken) {
-      setDownloadState({
-        fileId: card.id,
-        status: '',
-        error: 'Please sign in again before downloading.',
-        url: '',
-      });
-      return;
-    }
-
-    setDownloadState({
-      fileId: card.id,
-      status: `Requesting download token for ${card.name}...`,
-      error: '',
-      url: '',
-    });
-
-    try {
-      const { token } = await requestDownloadToken(authToken, card.fileId);
-      const downloadUrl = buildDownloadUrl(card.fileId, token);
-
-      setDownloadState({
-        fileId: card.id,
-        status: 'Download token issued. Opening signed file URL...',
-        error: '',
-        url: downloadUrl,
-      });
-
-      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
-    } catch (error) {
-      setDownloadState({
-        fileId: card.id,
-        status: '',
-        error: error.message,
-        url: '',
-      });
-    }
+  function handleDownload(card) {
+    sessionStorage.setItem('vizzio_download_file_id', card.fileId);
+    navigate('/user/download');
   }
 
   return (
@@ -196,10 +121,10 @@ function AllPackagesPage() {
         <SearchBox />
       </div>
       <div className="vizzio-card-grid">
-        {[...uploadedPackages, ...packageCards].map((card) => (
+        {items.map((card) => (
           <article
-            key={card.id}
-            className={`vizzio-package-card${card.selected ? ' selected' : ''}`}
+            key={card.key}
+            className="vizzio-package-card"
           >
             <div className="vizzio-preview-area">
               <span className={`vizzio-badge ${card.badgeColor}`}>{card.badge}</span>
@@ -216,31 +141,25 @@ function AllPackagesPage() {
                 type="button"
                 className="btn-primary"
                 onClick={() => handleDownload(card)}
-                disabled={Boolean(!card.downloadable || (downloadState.fileId === card.id && downloadState.status))}
+                disabled={!card.available}
               >
-                {card.downloadable
-                  ? downloadState.fileId === card.id && downloadState.status
-                    ? 'Preparing...'
-                    : 'Download'
-                  : 'Demo only'}
+                {card.available ? 'Download' : 'Missing file'}
               </button>
               <button type="button" className="btn-ghost">
                 Details
               </button>
             </div>
-            {downloadState.fileId === card.id && (downloadState.status || downloadState.error) && (
-              <p className={`vizzio-download-message${downloadState.error ? ' error' : ''}`}>
-                {downloadState.error || downloadState.status}
-              </p>
-            )}
-            {downloadState.fileId === card.id && downloadState.url && (
-              <a className="vizzio-download-link" href={downloadState.url} target="_blank" rel="noreferrer">
-                Open signed URL
-              </a>
-            )}
           </article>
         ))}
       </div>
+      {loading && <p className="vizzio-download-message">Loading packages...</p>}
+      {error && <p className="vizzio-download-message error">{error}</p>}
+      {!loading && !error && items.length === 0 && (
+        <div className="vizzio-empty-state">
+          <h3>No packages available</h3>
+          <p>Released deployment versions will appear here when your account has access.</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -251,21 +170,9 @@ function InstalledPage() {
       <div className="vizzio-page-head">
         <SearchBox />
       </div>
-      <div className="vizzio-list-card">
-        <div className="vizzio-list-row">
-          <div>
-            <h3>Digital Twin Core - v1.3.0</h3>
-            <p>C:/Vizzio/packages/digital-twin</p>
-          </div>
-          <div className="vizzio-row-actions">
-            <button type="button" className="btn-primary">
-              Open Folder
-            </button>
-            <button type="button" className="btn-link">
-              More
-            </button>
-          </div>
-        </div>
+      <div className="vizzio-empty-state">
+        <h3>No installed packages reported</h3>
+        <p>Installed package tracking will appear here after launcher install events are connected.</p>
       </div>
     </section>
   );
@@ -274,9 +181,26 @@ function InstalledPage() {
 function DownloadPage() {
   const [downloadItems, setDownloadItems] = useState([]);
   const [activePackage, setActivePackage] = useState(null);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
   const [downloadUrl, setDownloadUrl] = useState('');
+  const [progress, setProgress] = useState({
+    downloaded: 0,
+    total: 0,
+    percent: 0,
+    speed: 0,
+    eta: 0,
+  });
+  const controllerRef = useRef(null);
+  const chunksRef = useRef([]);
+  const downloadedRef = useRef(0);
+  const startedAtRef = useRef(0);
+  const sessionRef = useRef(null);
+  const tokenRef = useRef('');
+  const pauseRequestedRef = useRef(false);
+  const cancelRequestedRef = useRef(false);
+  const lastProgressAtRef = useRef(0);
+  const lastSessionAtRef = useRef(0);
 
   useEffect(() => {
     const authToken = localStorage.getItem('vizzio_token');
@@ -286,8 +210,15 @@ function DownloadPage() {
     fetchDownloadManagerItems(authToken)
       .then((result) => {
         const items = result.items || [];
+        const selectedFileId = sessionStorage.getItem('vizzio_download_file_id');
         setDownloadItems(items);
-        setActivePackage(items.find((item) => item.available) || items[0] || null);
+        setActivePackage(
+          items.find((item) => item.fileId === selectedFileId)
+          || items.find((item) => item.available)
+          || items[0]
+          || null
+        );
+        sessionStorage.removeItem('vizzio_download_file_id');
       })
       .catch(() => {
         setDownloadItems([]);
@@ -295,7 +226,21 @@ function DownloadPage() {
       });
   }, []);
 
-  async function handleStartDownload() {
+  useEffect(() => {
+    setStatus('idle');
+    setError('');
+    setDownloadUrl('');
+    setProgress({ downloaded: 0, total: Number(activePackage?.size || 0), percent: 0, speed: 0, eta: 0 });
+    chunksRef.current = [];
+    downloadedRef.current = 0;
+    sessionRef.current = null;
+    tokenRef.current = '';
+    pauseRequestedRef.current = false;
+    cancelRequestedRef.current = false;
+    controllerRef.current?.abort();
+  }, [activePackage]);
+
+  async function handleStartDownload({ resume = false } = {}) {
     const authToken = localStorage.getItem('vizzio_token');
 
     if (!authToken) {
@@ -308,30 +253,184 @@ function DownloadPage() {
       return;
     }
 
-    setStatus('Creating managed download session...');
+    setStatus(resume ? 'resuming' : 'starting');
     setError('');
-    setDownloadUrl('');
+    pauseRequestedRef.current = false;
+    cancelRequestedRef.current = false;
 
     try {
       const fileId = activePackage.fileId;
-      const result = await createDownloadManagerSession(authToken, fileId, activePackage.versionId);
-      const url = buildManagedDownloadUrl(fileId, result.token);
-
-      setStatus('Download session created. Opening signed file URL...');
-      setDownloadUrl(url);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      if (result.session?.id && result.file?.size) {
-        updateDownloadManagerSession(authToken, result.session.id, {
-          status: 'completed',
-          downloadedSize: result.file.size,
-          totalSize: result.file.size,
-        }).catch(() => {});
+      if (!resume || !sessionRef.current || !tokenRef.current) {
+        const result = await createDownloadManagerSession(authToken, fileId, activePackage.versionId);
+        sessionRef.current = result.session?.id || null;
+        tokenRef.current = result.token;
+        chunksRef.current = [];
+        downloadedRef.current = 0;
       }
+
+      const url = buildManagedDownloadUrl(fileId, tokenRef.current);
+      setDownloadUrl(url);
+      await streamDownload({ authToken, url, resume });
     } catch (requestError) {
-      setStatus('');
+      if (requestError.name === 'AbortError') {
+        if (pauseRequestedRef.current) setStatus('paused');
+        if (cancelRequestedRef.current) setStatus('idle');
+        return;
+      }
+      setStatus('error');
       setError(requestError.message);
     }
   }
+
+  async function streamDownload({ authToken, url, resume }) {
+    controllerRef.current = new AbortController();
+    startedAtRef.current = performance.now();
+    lastProgressAtRef.current = 0;
+    lastSessionAtRef.current = 0;
+    setStatus('downloading');
+
+    const headers = {};
+    if (resume && downloadedRef.current > 0) {
+      headers.Range = `bytes=${downloadedRef.current}-`;
+    }
+
+    const response = await fetch(url, {
+      headers,
+      signal: controllerRef.current.signal,
+    });
+
+    if (!response.ok && response.status !== 206) {
+      throw new Error('Download request failed');
+    }
+
+    if (resume && downloadedRef.current > 0 && response.status !== 206) {
+      chunksRef.current = [];
+      downloadedRef.current = 0;
+      setProgress({ downloaded: 0, total: Number(activePackage?.size || 0), percent: 0, speed: 0, eta: 0 });
+    }
+
+    const totalSize = Number(activePackage.size || response.headers.get('content-length') || 0);
+    const reader = response.body.getReader();
+
+    while (true) {
+      if (pauseRequestedRef.current || cancelRequestedRef.current) {
+        controllerRef.current?.abort();
+        return;
+      }
+
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      chunksRef.current.push(value);
+      downloadedRef.current += value.byteLength;
+      const elapsedSeconds = Math.max((performance.now() - startedAtRef.current) / 1000, 0.1);
+      const speed = downloadedRef.current / elapsedSeconds;
+      const remaining = Math.max(totalSize - downloadedRef.current, 0);
+      const percent = totalSize > 0 ? Math.min(100, (downloadedRef.current / totalSize) * 100) : 0;
+      const now = performance.now();
+
+      if (now - lastProgressAtRef.current > 250 || percent >= 100) {
+        setProgress({
+          downloaded: downloadedRef.current,
+          total: totalSize,
+          percent,
+          speed,
+          eta: speed > 0 ? remaining / speed : 0,
+        });
+        lastProgressAtRef.current = now;
+      }
+
+      if (sessionRef.current && (now - lastSessionAtRef.current > 1000 || percent >= 100)) {
+        updateDownloadManagerSession(authToken, sessionRef.current, {
+          status: 'downloading',
+          downloadedSize: downloadedRef.current,
+          totalSize,
+        }).catch(() => {});
+        lastSessionAtRef.current = now;
+      }
+    }
+
+    await finalizeDownload(authToken, totalSize);
+  }
+
+  async function finalizeDownload(authToken, totalSize) {
+    setStatus('verifying');
+
+    const blob = new Blob(chunksRef.current, { type: 'application/octet-stream' });
+    if (activePackage.checksum) {
+      const hash = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+      const digest = Array.from(new Uint8Array(hash)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      if (digest.toLowerCase() !== activePackage.checksum.toLowerCase()) {
+        throw new Error('SHA-256 verification failed');
+      }
+    }
+
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = activePackage.fileName || activePackage.fileId;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setDownloadUrl(objectUrl);
+    setStatus('completed');
+    setProgress((current) => ({ ...current, downloaded: totalSize, total: totalSize, percent: 100, eta: 0 }));
+
+    if (sessionRef.current) {
+      updateDownloadManagerSession(authToken, sessionRef.current, {
+        status: 'completed',
+        downloadedSize: totalSize,
+        totalSize,
+      }).catch(() => {});
+    }
+  }
+
+  function handlePauseDownload() {
+    pauseRequestedRef.current = true;
+    controllerRef.current?.abort();
+    setProgress((current) => ({
+      ...current,
+      downloaded: downloadedRef.current,
+      percent: current.total > 0 ? Math.min(100, (downloadedRef.current / current.total) * 100) : current.percent,
+      speed: 0,
+      eta: 0,
+    }));
+    setStatus('paused');
+
+    const authToken = localStorage.getItem('vizzio_token');
+    if (authToken && sessionRef.current) {
+      updateDownloadManagerSession(authToken, sessionRef.current, {
+        status: 'paused',
+        downloadedSize: downloadedRef.current,
+        totalSize: progress.total || activePackage?.size || 0,
+      }).catch(() => {});
+    }
+  }
+
+  function handleCancelDownload() {
+    cancelRequestedRef.current = true;
+    controllerRef.current?.abort();
+    const authToken = localStorage.getItem('vizzio_token');
+    if (authToken && sessionRef.current) {
+      updateDownloadManagerSession(authToken, sessionRef.current, {
+        status: 'cancelled',
+        downloadedSize: downloadedRef.current,
+        totalSize: progress.total || activePackage?.size || 0,
+      }).catch(() => {});
+    }
+    chunksRef.current = [];
+    downloadedRef.current = 0;
+    sessionRef.current = null;
+    tokenRef.current = '';
+    setDownloadUrl('');
+    setProgress({ downloaded: 0, total: Number(activePackage?.size || 0), percent: 0, speed: 0, eta: 0 });
+    setStatus('idle');
+    setError('');
+  }
+
+  const isBusy = ['starting', 'downloading', 'resuming', 'verifying'].includes(status);
+  const canPause = status === 'downloading';
+  const canResume = status === 'paused' && progress.downloaded > 0;
 
   return (
     <section className="vizzio-page-wrap">
@@ -344,7 +443,7 @@ function DownloadPage() {
             <h3>{activePackage?.deploymentName || 'No downloadable package'}</h3>
             <p>{activePackage ? `${activePackage.versionNumber} | ${activePackage.fileName}` : 'Upload a package from the admin Deployment page'}</p>
           </div>
-          <span className="vizzio-progress-label">{downloadItems.length}</span>
+          <span className="vizzio-progress-label">{Math.round(progress.percent)}%</span>
         </div>
 
         {downloadItems.length > 1 && (
@@ -363,47 +462,48 @@ function DownloadPage() {
           </label>
         )}
 
-        <div className="vizzio-progress-track" role="progressbar" aria-valuenow={downloadUrl ? 100 : 0} aria-valuemin={0} aria-valuemax={100}>
-          <div className="vizzio-progress-fill" style={{ width: downloadUrl ? '100%' : '0%' }} />
+        <div className="vizzio-progress-track" role="progressbar" aria-valuenow={progress.percent} aria-valuemin={0} aria-valuemax={100}>
+          <div className="vizzio-progress-fill" style={{ width: `${progress.percent}%` }} />
         </div>
 
         <div className="vizzio-stats-grid">
           <div className="vizzio-stat-box">
             <span>Package size</span>
-            <strong>{activePackage?.size ? `${Math.round(activePackage.size / 1024)} KB` : '-'}</strong>
+            <strong>{formatBytes(activePackage?.size)}</strong>
           </div>
           <div className="vizzio-stat-box">
-            <span>Release type</span>
-            <strong>{activePackage?.releaseType || '-'}</strong>
+            <span>Downloaded</span>
+            <strong>{formatBytes(progress.downloaded)}</strong>
           </div>
           <div className="vizzio-stat-box">
-            <span>Status</span>
-            <strong>{activePackage?.available ? 'Available' : 'Missing file'}</strong>
+            <span>Speed</span>
+            <strong>{formatSpeed(progress.speed)}</strong>
           </div>
           <div className="vizzio-stat-box">
-            <span>Checksum</span>
-            <strong>{activePackage?.checksum ? 'SHA-256' : 'Not set'}</strong>
+            <span>ETA</span>
+            <strong>{formatEta(progress.eta)}</strong>
           </div>
         </div>
 
         <div className="vizzio-download-actions">
-          <button type="button" className="btn-primary" onClick={handleStartDownload}>
-            Start download
+          <button type="button" className="btn-primary" onClick={() => handleStartDownload()} disabled={isBusy || !activePackage?.available}>
+            Start
           </button>
-          <button type="button" className="btn-danger-ghost">
+          <button type="button" className="btn-ghost" onClick={handlePauseDownload} disabled={!canPause}>
+            Pause
+          </button>
+          <button type="button" className="btn-primary" onClick={() => handleStartDownload({ resume: true })} disabled={!canResume}>
+            Resume
+          </button>
+          <button type="button" className="btn-danger-ghost" onClick={handleCancelDownload} disabled={status === 'idle'}>
             Cancel
           </button>
         </div>
 
-        {(status || error) && (
+        {(status !== 'idle' || error) && (
           <p className={`vizzio-download-message${error ? ' error' : ''}`}>
-            {error || status}
+            {error || `Status: ${status}`}
           </p>
-        )}
-        {downloadUrl && (
-          <a className="vizzio-download-link" href={downloadUrl} target="_blank" rel="noreferrer">
-            Open signed URL
-          </a>
         )}
       </div>
     </section>
@@ -411,6 +511,22 @@ function DownloadPage() {
 }
 
 function DashboardPage() {
+  const [items, setItems] = useState([]);
+
+  useEffect(() => {
+    const authToken = localStorage.getItem('vizzio_token');
+    if (!authToken) return;
+
+    fetchDownloadManagerItems(authToken)
+      .then((result) => setItems(result.items || []))
+      .catch(() => setItems([]));
+  }, []);
+
+  const availableItems = items.filter((item) => item.available);
+  const totalBytes = availableItems.reduce((sum, item) => sum + Number(item.size || 0), 0);
+  const stableCount = availableItems.filter((item) => item.releaseType === 'stable').length;
+  const betaCount = availableItems.filter((item) => item.releaseType === 'beta').length;
+
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
@@ -418,76 +534,53 @@ function DashboardPage() {
 
       <div className="vizzio-kpi-grid">
         <article className="vizzio-kpi-card">
-          <span>Products installed</span>
-          <strong>4</strong>
-          <p>Total active products</p>
+          <span>Packages available</span>
+          <strong>{availableItems.length}</strong>
+          <p>Files your account can download</p>
         </article>
         <article className="vizzio-kpi-card">
-          <span>Services</span>
-          <strong>4 GB</strong>
-          <p>Connected service storage</p>
+          <span>Total package size</span>
+          <strong>{formatBytes(totalBytes)}</strong>
+          <p>Across available files</p>
         </article>
         <article className="vizzio-kpi-card">
-          <span>System uptime</span>
-          <strong>100</strong>
-          <p>Operational score</p>
+          <span>Stable releases</span>
+          <strong>{stableCount}</strong>
+          <p>Released stable packages</p>
         </article>
         <article className="vizzio-kpi-card">
-          <span>Last update</span>
-          <strong>Today</strong>
-          <p>Synced 12 mins ago</p>
+          <span>Beta releases</span>
+          <strong>{betaCount}</strong>
+          <p>Released beta packages</p>
         </article>
       </div>
 
-      <div className="vizzio-chart-grid">
-        <article className="vizzio-panel">
-          <h3>Storage Usage</h3>
-          <div className="vizzio-storage-layout">
-            <svg viewBox="0 0 160 160" className="vizzio-donut" aria-label="Storage usage donut chart">
-              <circle cx="80" cy="80" r="56" className="ring-bg" />
-              <circle cx="80" cy="80" r="56" className="ring-main" />
-              <text x="80" y="82" textAnchor="middle" className="ring-value">
-                30.2
-              </text>
-            </svg>
-            <div className="vizzio-legend">
-              <div><span className="dot blue" />Digital Twin Core</div>
-              <div><span className="dot cyan" />Factory Analytics</div>
-              <div><span className="dot green" />Energy Monitor</div>
-              <div><span className="dot gray" />Free Space: 284 GB</div>
-            </div>
-          </div>
-        </article>
-
-        <article className="vizzio-panel">
-          <h3>Download activity</h3>
-          <svg viewBox="0 0 480 220" className="vizzio-line-chart" aria-label="Download activity line chart">
-            <polyline points="20,180 90,150 160,160 230,120 300,130 370,100 440,92" className="line-a" />
-            <polyline points="20,190 90,170 160,148 230,142 300,126 370,136 440,110" className="line-b" />
-            <line x1="20" y1="200" x2="460" y2="200" className="axis" />
-          </svg>
-        </article>
-      </div>
-
-      <article className="vizzio-panel vizzio-recent-panel">
-        <h3>Recent Activity</h3>
-        <div className="vizzio-recent-list">
-          {recentActivity.map((item) => (
-            <div className="vizzio-recent-item" key={item.name}>
-              <span>{item.name}</span>
-              <div className="vizzio-recent-bar-track">
-                <div className="vizzio-recent-bar-fill" style={{ width: `${item.value}%` }} />
+      <article className="vizzio-panel">
+        <h3>Available packages</h3>
+        {availableItems.length === 0 ? (
+          <p className="vizzio-account-text">No released packages are available for this account yet.</p>
+        ) : (
+          <div className="vizzio-recent-list">
+            {availableItems.map((item) => (
+              <div className="vizzio-recent-item" key={getPackageKey(item)}>
+                <span>{item.deploymentName}</span>
+                <div className="vizzio-recent-bar-track">
+                  <div className="vizzio-recent-bar-fill" style={{ width: `${item.size && totalBytes ? Math.max(6, (Number(item.size) / totalBytes) * 100) : 6}%` }} />
+                </div>
+                <time>{formatBytes(item.size)}</time>
               </div>
-              <time>{item.time}</time>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </article>
     </section>
   );
 }
 
 function SettingsPage({ onSignOut }) {
+  const username = localStorage.getItem('vizzio_username') || 'Signed-in user';
+  const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
+
   return (
     <section className="vizzio-page-wrap">
       <div className="vizzio-page-head">
@@ -496,7 +589,7 @@ function SettingsPage({ onSignOut }) {
       <article className="vizzio-settings-card">
         <h3>INSTALL LOCATION</h3>
         <div className="vizzio-input-row">
-          <input type="text" value="C:/Vizzio/packages" readOnly />
+          <input type="text" value="Configured in launcher" readOnly />
           <button type="button" className="btn-ghost">Browse</button>
         </div>
       </article>
@@ -527,13 +620,13 @@ function SettingsPage({ onSignOut }) {
         <h3>SERVER</h3>
         <label className="vizzio-full-label">
           Server URL
-          <input type="text" value="https://api.vizzio.local" readOnly />
+          <input type="text" value={apiBase} readOnly />
         </label>
       </article>
 
       <article className="vizzio-settings-card">
         <h3>ACCOUNT</h3>
-        <p className="vizzio-account-text">Signed in as: user@vizzio.ai</p>
+        <p className="vizzio-account-text">Signed in as: {username}</p>
         <button type="button" className="btn-link btn-link-danger" onClick={onSignOut}>Sign Out</button>
       </article>
     </section>
@@ -568,6 +661,7 @@ export default function UserPanel() {
   function handleLogout() {
     localStorage.removeItem('vizzio_token');
     localStorage.removeItem('vizzio_role');
+    localStorage.removeItem('vizzio_username');
     navigate('/');
   }
 

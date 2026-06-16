@@ -317,6 +317,11 @@
   color: #fff;
 }
 
+.vizzio-badge.green {
+  background: #22c55e;
+  color: #052e16;
+}
+
 .vizzio-card-body {
   padding: 12px;
 }
@@ -390,6 +395,13 @@
   padding-right: 0;
 }
 
+.btn-primary:disabled,
+.btn-ghost:disabled,
+.btn-danger-ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .vizzio-download-message,
 .vizzio-download-link {
   display: block;
@@ -417,6 +429,30 @@
   border: 1px solid var(--vizzio-border);
   border-radius: 8px;
   overflow: hidden;
+}
+
+.vizzio-empty-state {
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  min-height: 220px;
+  border: 1px solid var(--vizzio-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--vizzio-secondary);
+  text-align: center;
+}
+
+.vizzio-empty-state h3 {
+  margin: 0;
+  color: var(--vizzio-heading);
+}
+
+.vizzio-empty-state p {
+  margin: 0;
+  max-width: 520px;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .vizzio-list-row {

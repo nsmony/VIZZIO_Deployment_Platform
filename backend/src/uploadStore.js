@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,6 +47,7 @@ export function saveUploadedFile({ originalName, title, buffer, uploadedBy }) {
   const fileId = createFileId(filename);
   const filePath = path.join(downloadDir, fileId);
   fs.writeFileSync(filePath, buffer);
+  const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
 
   const file = {
     id: fileId,
@@ -53,6 +55,7 @@ export function saveUploadedFile({ originalName, title, buffer, uploadedBy }) {
     title: title || filename,
     originalName: filename,
     size: buffer.length,
+    checksum,
     uploadedBy,
     uploadedAt: new Date().toISOString(),
   };
