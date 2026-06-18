@@ -146,7 +146,7 @@ namespace Launcher
 
             if (!item.Available)
             {
-                _status.Text = "This deployment version does not have an uploaded package attached.";
+                _status.Text = "This deployment version does not have a readable package file on the server.";
                 return;
             }
 

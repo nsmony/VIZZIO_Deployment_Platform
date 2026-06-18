@@ -4,6 +4,8 @@ import prisma from '../prisma.js';
 import { listUploadedFiles, findUploadedFile, getUploadedFilePath } from '../uploadStore.js';
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../downloadManagerToken.js';
 
+const VERSION_FILE_PREFIX = 'version:';
+
 export function parseRangeHeader(rangeHeader, fileSize) {
   if (!rangeHeader) return null;
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
@@ -97,7 +99,7 @@ export async function getDownloadablesForUser(user) {
     deployment.versions
       .filter((version) => version.status === 'released' || role === 'admin')
       .map((version) => {
-        const upload = findUploadForVersion(uploads, version);
+        const packageFile = resolvePackageForVersion(uploads, version);
         return {
           deploymentId: deployment.id,
           deploymentName: deployment.name,
@@ -105,11 +107,12 @@ export async function getDownloadablesForUser(user) {
           versionNumber: version.versionNumber,
           releaseType: version.releaseType,
           status: version.status,
-          fileId: upload?.fileId || version.packagePath || version.fileName || '',
-          fileName: upload?.originalName || version.fileName || path.basename(version.packagePath || ''),
-          size: upload?.size || (version.packageSize ? Number(version.packageSize) : null),
-          checksum: version.checksum,
-          available: Boolean(upload),
+          fileId: packageFile?.fileId || createVersionFileId(version.id),
+          fileName: packageFile?.originalName || version.fileName || path.basename(version.packagePath || ''),
+          size: packageFile?.size || (version.packageSize ? Number(version.packageSize) : null),
+          checksum: packageFile?.checksum || version.checksum,
+          available: Boolean(packageFile),
+          source: packageFile?.source || 'missing',
         };
       })
   );
@@ -121,14 +124,6 @@ export async function getDownloadablesForUser(user) {
 }
 
 export async function createManagedDownloadSession({ user, fileId, versionId }) {
-  const file = findUploadedFile(fileId);
-  const filePath = getUploadedFilePath(fileId);
-  if (!file || !filePath) {
-    const error = new Error('File not found');
-    error.status = 404;
-    throw error;
-  }
-
   if (!versionId) {
     const error = new Error('Version ID is required for managed downloads');
     error.status = 400;
@@ -143,6 +138,8 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
     error.status = 403;
     throw error;
   }
+
+  const file = await resolveManagedFile({ fileId, versionId });
 
   const session = canWriteSession
     ? await prisma.downloadSession.create({
@@ -223,16 +220,10 @@ export async function updateManagedDownloadSession({ sessionId, user, status, do
   return serializeSession(updated);
 }
 
-export function getTokenizedFileRequest({ fileId, token }) {
+export async function getTokenizedFileRequest({ fileId, token }) {
   const payload = validateDownloadTokenFileAccess(token, fileId);
-
-  const file = findUploadedFile(fileId);
-  const filePath = getUploadedFilePath(fileId);
-  if (!file || !filePath) {
-    const error = new Error('File not found');
-    error.status = 404;
-    throw error;
-  }
+  const file = await resolveManagedFile({ fileId, versionId: payload.versionId });
+  const filePath = file.filePath;
 
   return { payload, file, filePath, stat: fs.statSync(filePath) };
 }
@@ -252,6 +243,119 @@ function findUploadForVersion(uploads, version) {
   return uploads.find((upload) =>
     candidates.some((candidate) => candidate === upload.fileId || candidate === upload.originalName)
   );
+}
+
+function createVersionFileId(versionId) {
+  return `${VERSION_FILE_PREFIX}${versionId}`;
+}
+
+function resolvePackageForVersion(uploads, version) {
+  const upload = findUploadForVersion(uploads, version);
+  if (upload) {
+    const filePath = getUploadedFilePath(upload.fileId);
+    if (!filePath) return null;
+    return {
+      source: 'upload',
+      fileId: upload.fileId,
+      originalName: upload.originalName,
+      size: upload.size,
+      checksum: upload.checksum || version.checksum || null,
+      filePath,
+    };
+  }
+
+  const serverFile = resolveServerPackageFile(version);
+  if (!serverFile) return null;
+
+  return {
+    source: 'server',
+    fileId: createVersionFileId(version.id),
+    originalName: version.fileName || path.basename(serverFile.filePath),
+    size: serverFile.stat.size,
+    checksum: version.checksum || null,
+    filePath: serverFile.filePath,
+  };
+}
+
+async function resolveManagedFile({ fileId, versionId }) {
+  if (String(versionId || '').startsWith('upload:')) {
+    return resolveUploadedManagedFile(fileId);
+  }
+
+  if (!isUuid(versionId)) {
+    return resolveUploadedManagedFile(fileId);
+  }
+
+  const version = await prisma.deploymentVersion.findUnique({ where: { id: versionId } });
+  if (!version) {
+    const error = new Error('Version not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const file = resolvePackageForVersion(listUploadedFiles(), version);
+  if (!file || !file.filePath) {
+    const error = new Error('File not found at the registered server path');
+    error.status = 404;
+    throw error;
+  }
+
+  const allowedIds = new Set([
+    file.fileId,
+    version.packagePath,
+    version.fileName,
+  ].filter(Boolean));
+
+  if (!allowedIds.has(fileId)) {
+    const error = new Error('Requested file does not match this version');
+    error.status = 401;
+    throw error;
+  }
+
+  return file;
+}
+
+function resolveUploadedManagedFile(fileId) {
+  const file = findUploadedFile(fileId);
+  const filePath = getUploadedFilePath(fileId);
+  if (!file || !filePath) {
+    const error = new Error('File not found');
+    error.status = 404;
+    throw error;
+  }
+
+  return {
+    source: 'upload',
+    fileId: file.fileId,
+    originalName: file.originalName,
+    size: file.size,
+    checksum: file.checksum || null,
+    filePath,
+  };
+}
+
+function resolveServerPackageFile(version) {
+  const packagePath = String(version.packagePath || '').trim();
+  if (!packagePath) return null;
+
+  const candidates = [];
+  if (version.fileName) {
+    candidates.push(path.resolve(packagePath, version.fileName));
+  }
+  candidates.push(path.resolve(packagePath));
+
+  for (const candidate of candidates) {
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile()) {
+        return { filePath: candidate, stat };
+      }
+    } catch (error) {
+      // Missing server-staged files are reported as unavailable in the catalog.
+    }
+  }
+
+  return null;
 }
 
 function serializeSession(session) {

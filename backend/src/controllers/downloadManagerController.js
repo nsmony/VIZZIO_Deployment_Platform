@@ -1,4 +1,5 @@
 import fs from 'fs';
+import path from 'path';
 import {
   createManagedDownloadSession,
   getDownloadablesForUser,
@@ -40,7 +41,7 @@ export async function updateDownloadManagerSession(req, res) {
   }
 }
 
-export function streamManagedDownloadFile(req, res) {
+export async function streamManagedDownloadFile(req, res) {
   const { fileId } = req.params;
   const { token } = req.query;
 
@@ -49,12 +50,18 @@ export function streamManagedDownloadFile(req, res) {
   }
 
   try {
-    const { file, filePath, stat } = getTokenizedFileRequest({ fileId, token });
+    const { file, filePath, stat } = await getTokenizedFileRequest({ fileId, token });
     const range = parseRangeHeader(req.headers.range, stat.size);
 
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.originalName)}"`);
     res.setHeader('Content-Type', 'application/octet-stream');
+
+    const accelRedirect = buildAccelRedirectPath(filePath);
+    if (accelRedirect) {
+      res.setHeader('X-Accel-Redirect', accelRedirect);
+      return res.status(200).end();
+    }
 
     if (range?.invalid) {
       res.setHeader('Content-Range', `bytes */${stat.size}`);
@@ -73,4 +80,31 @@ export function streamManagedDownloadFile(req, res) {
   } catch (error) {
     return res.status(error.status || 401).json({ error: error.message || 'Invalid or expired download token' });
   }
+}
+
+function buildAccelRedirectPath(filePath) {
+  if (String(process.env.DOWNLOAD_DELIVERY_MODE || '').toLowerCase() !== 'nginx') {
+    return null;
+  }
+
+  const downloadRoot = process.env.DOWNLOAD_ROOT;
+  if (!downloadRoot) {
+    return null;
+  }
+
+  const root = path.resolve(downloadRoot);
+  const absoluteFile = path.resolve(filePath);
+  const relativePath = path.relative(root, absoluteFile);
+
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    return null;
+  }
+
+  const prefix = process.env.DOWNLOAD_ACCEL_PREFIX || '/_vizzio_downloads';
+  const encodedPath = relativePath
+    .split(path.sep)
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+
+  return `${prefix.replace(/\/$/, '')}/${encodedPath}`;
 }

@@ -157,11 +157,11 @@ export default function Version() {
             </select>
           </label>
           <label className="version-path-field">
-            Package file ID or release folder
-            <input value={form.packagePath} onChange={(event) => setForm({ ...form, packagePath: event.target.value })} placeholder="D:\\Releases\\DigitalTwin\\v1.3.0" required />
+            Server package path
+            <input value={form.packagePath} onChange={(event) => setForm({ ...form, packagePath: event.target.value })} placeholder="D:\\Releases\\DigitalTwin\\v1.3.0\\digital-twin.zip" required />
           </label>
           <label className="version-file-field">
-            Upload package <span>(optional)</span>
+            Upload small package <span>(optional)</span>
             <input
               type="file"
               onChange={(event) => {

@@ -22,12 +22,14 @@
 - **File Delivery System**
   - Nginx serving large Unreal build files
   - HTTP range request support for resumable downloads
+  - Backend-authorized `X-Accel-Redirect` delivery for private server files
   - Static file delivery and reverse proxy for backend API
 
 ## Deployment Flow
 
-1. Admin uploads or registers a new deployment version.
+1. Admin copies large package files onto the server and registers the server file path on a deployment version.
 2. Backend stores metadata and issues secure download tokens.
 3. Launcher authenticates the user and requests available deployments.
-4. Launcher downloads build files from Nginx using resumable parallel streams.
-5. User installs a version and can open the deployment folder.
+4. Launcher requests the signed backend URL; backend validates access and redirects internally to Nginx.
+5. Launcher downloads build files from Nginx using resumable parallel streams.
+6. User installs a version and can open the deployment folder.
