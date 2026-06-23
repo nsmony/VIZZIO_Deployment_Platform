@@ -56,6 +56,24 @@ export async function updateDeploymentVersion(token, deploymentId, versionId, up
   });
 }
 
+export async function fetchDeploymentDetails(token, deploymentId) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}`, token);
+}
+
+export async function validateDeploymentPackage(token, packagePath) {
+  return request('/deployment-versions/validate-package', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ packagePath }),
+  });
+}
+
+export async function deleteDeploymentVersion(token, versionId) {
+  return request(`/deployment-versions/${encodeURIComponent(versionId)}`, token, {
+    method: 'DELETE',
+  });
+}
+
 export async function fetchUploadedPackages(token) {
   return request('/deployments/uploads', token);
 }

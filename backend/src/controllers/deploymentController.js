@@ -1,37 +1,24 @@
 import {
   changeVersion,
   createDeployment,
-  getDeployments,
+  deleteVersion,
+  getDeploymentDetails,
+  getDeploymentsForRequest,
   registerVersion,
+  userCanAccessVersion,
+  validatePackage,
 } from '../services/deploymentService.js';
 import { signDownloadToken } from '../downloadToken.js';
-import { listUploadedFiles, saveUploadedFile } from '../uploadStore.js';
-import { findGroups } from '../repositories/groupRepository.js';
-import { findUserById } from '../repositories/userRepository.js';
+import { findUploadedFile, listUploadedFiles, saveUploadedFile } from '../uploadStore.js';
 
 export async function listDeployments(req, res) {
-  const role = req.user?.role?.toLowerCase();
-  const deployments = await getDeployments();
+  res.json({ deployments: await getDeploymentsForRequest(req.user) });
+}
 
-  if (role === 'admin') {
-    return res.json({ deployments });
-  }
-
-  const user = await findUserById(req.user?.userId);
-  if (!user) {
-    return res.json({ deployments: [] });
-  }
-
-  const userGroupNames = (user.groupMemberships || []).map((membership) => membership.group.name);
-  const allowedDeploymentIds = new Set(
-    (await findGroups())
-      .filter((group) => userGroupNames.includes(group.name))
-      .flatMap((group) => (group.deploymentAccesses || []).map((access) => access.deploymentId))
-  );
-
-  res.json({
-    deployments: deployments.filter((deployment) => allowedDeploymentIds.has(deployment.id)),
-  });
+export async function getDeploymentDetailsHandler(req, res) {
+  const deployment = await getDeploymentDetails(req.params.deploymentId, req.user);
+  if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
+  res.json({ deployment });
 }
 
 export async function createDeploymentHandler(req, res) {
@@ -57,6 +44,16 @@ export async function registerVersionHandler(req, res) {
   }
 }
 
+export async function validatePackageHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  try {
+    res.json({ package: await validatePackage(req.body) });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
 export async function updateVersionHandler(req, res) {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
 
@@ -74,7 +71,16 @@ export async function updateVersionHandler(req, res) {
   }
 }
 
+export async function deleteVersionHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  const version = await deleteVersion(req.params.versionId, req.user?.userId);
+  if (!version) return res.status(404).json({ error: 'Version not found.' });
+  res.json({ version });
+}
+
 export async function listUploadedPackages(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
   res.json({ packages: listUploadedFiles() });
 }
 
@@ -112,6 +118,17 @@ export async function createDownloadToken(req, res) {
 
   if (!userId) {
     return res.status(401).json({ error: 'Invalid authorization token' });
+  }
+
+  if (fileId.startsWith('version:')) {
+    const versionId = fileId.slice('version:'.length);
+    if (!await userCanAccessVersion(req.user, versionId)) {
+      return res.status(403).json({ error: 'You are not allowed to download this version' });
+    }
+  } else if (!findUploadedFile(fileId)) {
+    return res.status(404).json({ error: 'File not found' });
+  } else if (!isAdmin(req)) {
+    return res.status(403).json({ error: 'Standalone uploaded packages are admin-only' });
   }
 
   const token = signDownloadToken({ fileId, userId });

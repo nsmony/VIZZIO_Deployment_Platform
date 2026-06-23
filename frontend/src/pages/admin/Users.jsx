@@ -531,7 +531,7 @@ export default function Users() {
                     {user.status}
                   </td>
                   <td>{getAccessibleDeploymentCount(user.groups, groups)}</td>
-                  <td>{user.lastLogin}</td>
+                  <td>{formatLastLogin(user.lastLoginAt)}</td>
                   <td className="controls-cell">
                     <div className="row-menu">
                       <button
@@ -791,6 +791,11 @@ function getAccessibleDeploymentCount(userGroups = [], groups = []) {
 
 function countUsersInGroup(users, groupName) {
   return users.filter((user) => (user.groups || []).includes(groupName)).length;
+}
+
+function formatLastLogin(value) {
+  if (!value) return 'Never logged in';
+  return new Date(value).toLocaleString();
 }
 
 async function copyText(text) {

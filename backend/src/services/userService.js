@@ -163,6 +163,7 @@ function toPublicUser(user) {
     status: user.isActive ? 'Active' : 'Inactive',
     groups: groupMemberships.map((membership) => membership.group.name),
     deployments: _count?.deployments || 0,
-    lastLogin: 'Never',
+    lastLoginAt: user.lastLoginAt?.toISOString() || null,
+    lastLogin: user.lastLoginAt ? user.lastLoginAt.toISOString() : 'Never',
   };
 }

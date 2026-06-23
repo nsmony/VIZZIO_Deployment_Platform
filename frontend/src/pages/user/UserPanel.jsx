@@ -87,6 +87,7 @@ function toPackageCard(item) {
 function AllPackagesPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState([]);
+  const [selectedDetails, setSelectedDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -125,6 +126,12 @@ function AllPackagesPage() {
           <article
             key={card.key}
             className="vizzio-package-card"
+            tabIndex={0}
+            role="button"
+            onClick={() => setSelectedDetails(card)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') setSelectedDetails(card);
+            }}
           >
             <div className="vizzio-preview-area">
               <span className={`vizzio-badge ${card.badgeColor}`}>{card.badge}</span>
@@ -140,18 +147,51 @@ function AllPackagesPage() {
               <button
                 type="button"
                 className="btn-primary"
-                onClick={() => handleDownload(card)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleDownload(card);
+                }}
                 disabled={!card.available}
               >
                 {card.available ? 'Download' : 'Missing file'}
               </button>
-              <button type="button" className="btn-ghost">
+              <button type="button" className="btn-ghost" onClick={(event) => {
+                event.stopPropagation();
+                setSelectedDetails(card);
+              }}>
                 Details
               </button>
             </div>
           </article>
         ))}
       </div>
+      {selectedDetails && (
+        <div className="vizzio-modal-backdrop" role="presentation" onClick={() => setSelectedDetails(null)}>
+          <div className="vizzio-details-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+            <div className="vizzio-details-head">
+              <div>
+                <span className={`vizzio-badge ${selectedDetails.badgeColor}`}>{selectedDetails.badge}</span>
+                <h2>{selectedDetails.deploymentName || selectedDetails.name}</h2>
+                <p>{selectedDetails.description || 'No description provided.'}</p>
+              </div>
+              <button type="button" className="btn-ghost" onClick={() => setSelectedDetails(null)}>Close</button>
+            </div>
+            <dl className="vizzio-details-grid">
+              <div><dt>Version</dt><dd>{selectedDetails.versionNumber}</dd></div>
+              <div><dt>File name</dt><dd>{selectedDetails.fileName || '-'}</dd></div>
+              <div><dt>File type</dt><dd>{selectedDetails.fileType || '-'}</dd></div>
+              <div><dt>Size</dt><dd>{formatBytes(selectedDetails.size)}</dd></div>
+              <div><dt>Release date</dt><dd>{selectedDetails.releasedAt ? new Date(selectedDetails.releasedAt).toLocaleDateString() : '-'}</dd></div>
+              <div className="vizzio-details-wide"><dt>Checksum</dt><dd>{selectedDetails.checksum || '-'}</dd></div>
+            </dl>
+            <div className="vizzio-card-actions">
+              <button type="button" className="btn-primary" onClick={() => handleDownload(selectedDetails)} disabled={!selectedDetails.available}>
+                {selectedDetails.available ? 'Download' : 'Missing file'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {loading && <p className="vizzio-download-message">Loading packages...</p>}
       {error && <p className="vizzio-download-message error">{error}</p>}
       {!loading && !error && items.length === 0 && (
@@ -637,11 +677,6 @@ export default function UserPanel() {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const [sectionsOpen, setSectionsOpen] = useState({
-    library: true,
-    insights: true,
-    account: true,
-  });
 
   const pathKey = useMemo(() => {
     const path = location.pathname;
@@ -653,10 +688,6 @@ export default function UserPanel() {
   }, [location.pathname]);
 
   const pageTitle = pageTitleMap[pathKey] || 'All Packages';
-
-  function toggleSection(sectionKey) {
-    setSectionsOpen((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
-  }
 
   function handleLogout() {
     localStorage.removeItem('vizzio_token');
@@ -688,15 +719,8 @@ export default function UserPanel() {
         <nav className="vizzio-nav">
           {sidebarSections.map((section) => (
             <div key={section.key} className="vizzio-nav-section">
-              <button
-                type="button"
-                className="vizzio-nav-section-head"
-                onClick={() => toggleSection(section.key)}
-              >
-                <span>{section.title}</span>
-                <span className={`chevron ${sectionsOpen[section.key] ? 'open' : ''}`}>^</span>
-              </button>
-              {sectionsOpen[section.key] && (
+              <details open>
+                <summary>{section.title}</summary>
                 <ul>
                   {section.links.map((link) => (
                     <li key={link.to}>
@@ -707,15 +731,18 @@ export default function UserPanel() {
                           `vizzio-nav-link${isActive ? ' active' : ''}`
                         }
                       >
-                        {collapsed ? link.label.split(' ')[0] : link.label}
+                        {link.label}
                       </NavLink>
                     </li>
                   ))}
                 </ul>
-              )}
+              </details>
             </div>
           ))}
         </nav>
+        <div className="vizzio-sidebar-footer">
+          <a href="#help">Help & Docs</a>
+        </div>
       </aside>
 
       <main className="vizzio-main">
@@ -727,17 +754,16 @@ export default function UserPanel() {
               onClick={() => setCollapsed((value) => !value)}
               aria-label="Toggle sidebar"
             >
-              <span className="vizzio-hamburger-lines" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-              </span>
+              <span aria-hidden="true">☰</span>
             </button>
             <h1>{pageTitle}</h1>
           </div>
           <div className="vizzio-header-right">
-            <button type="button" className="vizzio-icon-btn" aria-label="Search">
-              S
+            <button type="button" className="vizzio-icon-btn" aria-label="Notifications">
+              🔔
+            </button>
+            <button type="button" className="vizzio-logout-btn" onClick={handleLogout} aria-label="Sign out">
+              Sign Out
             </button>
             <button type="button" className="vizzio-avatar" onClick={handleLogout} aria-label="User account">
               U

@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { signToken } from '../auth.js';
-import { findUserByUsernameOrEmail } from '../repositories/userRepository.js';
+import { findUserByUsernameOrEmail, updateUserLastLogin } from '../repositories/userRepository.js';
 
 const mockUsers = [
   {
@@ -44,6 +44,7 @@ export async function authenticateUser(username, password) {
   }
 
   const role = managedUser.role.toLowerCase();
+  await updateUserLastLogin(managedUser.id);
   const token = signToken({ userId: managedUser.id, username: managedUser.username, role });
   return {
     token,

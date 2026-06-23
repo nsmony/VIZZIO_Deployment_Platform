@@ -41,7 +41,8 @@
 }
 
 .vizzio-sidebar.collapsed .vizzio-logo,
-.vizzio-sidebar.collapsed .vizzio-nav {
+.vizzio-sidebar.collapsed .vizzio-nav,
+.vizzio-sidebar.collapsed .vizzio-sidebar-footer {
   display: none;
 }
 
@@ -61,30 +62,29 @@
   margin-bottom: 24px;
 }
 
-.vizzio-nav-section-head {
-  width: 100%;
-  border: none;
-  background: transparent;
+.vizzio-nav-section details {
+  cursor: pointer;
+}
+
+.vizzio-nav-section summary {
   color: var(--vizzio-secondary);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0;
   text-transform: uppercase;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   padding: 8px 0;
-  cursor: pointer;
+  list-style: none;
   user-select: none;
 }
 
-.vizzio-nav-section .chevron {
-  font-size: 10px;
-  transition: transform 0.2s ease;
+.vizzio-nav-section summary::-webkit-details-marker {
+  display: none;
 }
 
-.vizzio-nav-section .chevron.open {
-  transform: rotate(180deg);
+.vizzio-nav-section details[open] summary::before {
+  content: '▼';
+  margin-right: 8px;
+  font-size: 10px;
 }
 
 .vizzio-nav-section ul {
@@ -117,6 +117,22 @@
   font-weight: 600;
 }
 
+.vizzio-sidebar-footer {
+  padding-top: 24px;
+  border-top: 1px solid var(--vizzio-border);
+  font-size: 12px;
+}
+
+.vizzio-sidebar-footer a {
+  color: var(--vizzio-secondary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.vizzio-sidebar-footer a:hover {
+  color: var(--vizzio-accent);
+}
+
 .vizzio-main {
   flex: 1;
   min-width: 0;
@@ -141,7 +157,7 @@
 .vizzio-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
 .vizzio-header h1 {
@@ -152,12 +168,13 @@
 
 .vizzio-menu-btn,
 .vizzio-icon-btn,
-.vizzio-avatar {
+.vizzio-avatar,
+.vizzio-logout-btn {
   border: 1px solid transparent;
   background: #f8fafc;
   cursor: pointer;
   color: var(--vizzio-heading);
-  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.2s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .vizzio-menu-btn {
@@ -167,28 +184,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.vizzio-hamburger-lines {
-  width: 18px;
-  height: 14px;
-  display: inline-flex;
-  flex-direction: column;
-  justify-content: space-between;
-  transform: rotate(90deg);
-  transition: transform 0.2s ease;
-}
-
-.vizzio-menu-btn.collapsed .vizzio-hamburger-lines {
-  transform: rotate(0deg);
-}
-
-.vizzio-hamburger-lines span {
-  display: block;
-  width: 18px;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
+  font-size: 18px;
 }
 
 .vizzio-icon-btn,
@@ -200,11 +196,22 @@
   font-weight: 700;
 }
 
+.vizzio-logout-btn {
+  background: transparent;
+  color: var(--vizzio-heading);
+  font-size: 14px;
+  padding: 8px 0;
+}
+
 .vizzio-menu-btn:hover,
 .vizzio-icon-btn:hover,
 .vizzio-avatar:hover {
   background: #fff;
   border-color: var(--vizzio-border);
+}
+
+.vizzio-logout-btn:hover {
+  color: var(--vizzio-accent);
 }
 
 .vizzio-content {
@@ -268,6 +275,7 @@
   box-shadow: 0 4px 14px rgba(24, 39, 75, 0.06);
   transition: transform 0.16s ease, box-shadow 0.16s ease;
   overflow: hidden;
+  cursor: pointer;
 }
 
 .vizzio-package-card:hover {
@@ -342,6 +350,84 @@
   display: flex;
   gap: 8px;
   padding: 0 12px 12px;
+}
+
+.vizzio-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.vizzio-details-modal {
+  width: min(680px, 100%);
+  max-height: min(720px, 90vh);
+  overflow-y: auto;
+  border: 1px solid var(--vizzio-border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.2);
+}
+
+.vizzio-details-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px;
+  border-bottom: 1px solid var(--vizzio-border);
+}
+
+.vizzio-details-head .vizzio-badge {
+  position: static;
+  display: inline-flex;
+  margin-bottom: 10px;
+}
+
+.vizzio-details-head h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.vizzio-details-head p {
+  margin: 8px 0 0;
+  color: var(--vizzio-secondary);
+  line-height: 1.5;
+}
+
+.vizzio-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 20px;
+}
+
+.vizzio-details-grid div {
+  min-width: 0;
+  border: 1px solid var(--vizzio-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.vizzio-details-grid dt {
+  color: var(--vizzio-secondary);
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.vizzio-details-grid dd {
+  margin: 0;
+  color: var(--vizzio-heading);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.vizzio-details-wide {
+  grid-column: 1 / -1;
 }
 
 .btn-primary,

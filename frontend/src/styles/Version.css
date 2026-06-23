@@ -112,6 +112,11 @@
   color: #991b1b;
 }
 
+.status-deleted {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
 .version-actions {
   display: flex;
   gap: 8px;
@@ -120,7 +125,8 @@
 
 .release-btn,
 .archive-btn,
-.draft-btn {
+.draft-btn,
+.delete-btn {
   padding: 7px 10px;
   border-radius: 8px;
   font-size: 12px;
@@ -142,6 +148,19 @@
   border: 1px solid var(--border);
   background: white;
   color: var(--text);
+}
+
+.delete-btn {
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  color: #b91c1c;
+}
+
+.version-validation-ok {
+  align-self: center;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .version-actions button:disabled,

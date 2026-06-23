@@ -3,8 +3,10 @@ import path from 'path';
 import prisma from '../prisma.js';
 import { listUploadedFiles, findUploadedFile, getUploadedFilePath } from '../uploadStore.js';
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../downloadManagerToken.js';
+import { userCanAccessVersion } from './deploymentService.js';
 
 const VERSION_FILE_PREFIX = 'version:';
+const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
 
 export function parseRangeHeader(rangeHeader, fileSize) {
   if (!rangeHeader) return null;
@@ -27,30 +29,6 @@ export function parseRangeHeader(rangeHeader, fileSize) {
 
   if (!Number.isInteger(end) || end < start || start >= fileSize) return { invalid: true };
   return { start, end: Math.min(end, fileSize - 1) };
-}
-
-export async function userCanAccessVersion(user, versionId) {
-  if (!versionId) return true;
-  if (String(user?.role || '').toLowerCase() === 'admin') return true;
-
-  const membership = await prisma.userGroupMember.findFirst({
-    where: {
-      userId: user.userId,
-      group: {
-        deploymentAccesses: {
-          some: {
-            deployment: {
-              versions: {
-                some: { id: versionId },
-              },
-            },
-          },
-        },
-      },
-    },
-  });
-
-  return Boolean(membership);
 }
 
 export async function getDownloadablesForUser(user) {
@@ -97,20 +75,23 @@ export async function getDownloadablesForUser(user) {
 
   const versionItems = deployments.flatMap((deployment) =>
     deployment.versions
-      .filter((version) => version.status === 'released' || role === 'admin')
+      .filter((version) => !version.deletedAt && version.status === 'released')
       .map((version) => {
         const packageFile = resolvePackageForVersion(uploads, version);
         return {
           deploymentId: deployment.id,
           deploymentName: deployment.name,
+          description: deployment.description,
           versionId: version.id,
           versionNumber: version.versionNumber,
           releaseType: version.releaseType,
           status: version.status,
           fileId: packageFile?.fileId || createVersionFileId(version.id),
           fileName: packageFile?.originalName || version.fileName || path.basename(version.packagePath || ''),
+          fileType: version.fileType || 'application/octet-stream',
           size: packageFile?.size || (version.packageSize ? Number(version.packageSize) : null),
           checksum: packageFile?.checksum || version.checksum,
+          releasedAt: version.releasedAt?.toISOString() || version.createdAt.toISOString(),
           available: Boolean(packageFile),
           source: packageFile?.source || 'missing',
         };
@@ -118,7 +99,9 @@ export async function getDownloadablesForUser(user) {
   );
 
   const matchedFileIds = new Set(versionItems.map((item) => item.fileId).filter(Boolean));
-  const unmatchedUploadItems = uploadItems.filter((upload) => !matchedFileIds.has(upload.fileId));
+  const unmatchedUploadItems = role === 'admin'
+    ? uploadItems.filter((upload) => !matchedFileIds.has(upload.fileId))
+    : [];
 
   return [...versionItems, ...unmatchedUploadItems];
 }
@@ -132,7 +115,9 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
 
   const uploadOnlySession = String(versionId).startsWith('upload:');
   const canWriteSession = isUuid(user?.userId) && isUuid(versionId);
-  const allowed = uploadOnlySession || await userCanAccessVersion(user, versionId);
+  const allowed = uploadOnlySession
+    ? String(user?.role || '').toLowerCase() === 'admin'
+    : await userCanAccessVersion(user, versionId);
   if (!allowed) {
     const error = new Error('You are not allowed to download this version');
     error.status = 403;
@@ -156,6 +141,7 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
   const token = signDownloadManagerToken({
     fileId,
     userId: user.userId,
+    role: user.role,
     versionId,
     sessionId: session.id,
   });
@@ -222,6 +208,11 @@ export async function updateManagedDownloadSession({ sessionId, user, status, do
 
 export async function getTokenizedFileRequest({ fileId, token }) {
   const payload = validateDownloadTokenFileAccess(token, fileId);
+  if (isUuid(payload.versionId) && !await userCanAccessVersion(payload, payload.versionId)) {
+    const error = new Error('You are not allowed to download this version');
+    error.status = 403;
+    throw error;
+  }
   const file = await resolveManagedFile({ fileId, versionId: payload.versionId });
   const filePath = file.filePath;
 
@@ -287,9 +278,14 @@ async function resolveManagedFile({ fileId, versionId }) {
   }
 
   const version = await prisma.deploymentVersion.findUnique({ where: { id: versionId } });
-  if (!version) {
+  if (!version || version.deletedAt || version.status === 'deleted') {
     const error = new Error('Version not found');
     error.status = 404;
+    throw error;
+  }
+  if (version.status !== 'released') {
+    const error = new Error('Version is not available for download');
+    error.status = 403;
     throw error;
   }
 
@@ -338,6 +334,7 @@ function resolveServerPackageFile(version) {
   const packagePath = String(version.packagePath || '').trim();
   if (!packagePath) return null;
 
+  const packageRoot = path.resolve(process.env.PACKAGE_ROOT || DEFAULT_PACKAGE_ROOT);
   const candidates = [];
   if (version.fileName) {
     candidates.push(path.resolve(packagePath, version.fileName));
@@ -346,6 +343,8 @@ function resolveServerPackageFile(version) {
 
   for (const candidate of candidates) {
     try {
+      const relativePath = path.relative(packageRoot, candidate);
+      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) continue;
       const stat = fs.statSync(candidate);
       if (stat.isFile()) {
         return { filePath: candidate, stat };

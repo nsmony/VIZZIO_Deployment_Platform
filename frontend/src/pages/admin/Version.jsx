@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  deleteDeploymentVersion,
   fetchDeployments,
   registerDeploymentVersion,
   updateDeploymentVersion,
   uploadPackage,
+  validateDeploymentPackage,
 } from '../../api';
 import '../../styles/Deployment.css';
 import '../../styles/Version.css';
@@ -38,6 +40,8 @@ export default function Version() {
   const [busyVersion, setBusyVersion] = useState('');
   const [error, setError] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
+  const [packageValidated, setPackageValidated] = useState(false);
+  const [validatingPackage, setValidatingPackage] = useState(false);
 
   const deployment = useMemo(
     () => deployments.find((item) => item.id === selectedId) || null,
@@ -91,12 +95,67 @@ export default function Version() {
       await registerDeploymentVersion(token, deployment.id, nextForm);
       setForm(emptyVersion);
       setSelectedFile(null);
+      setPackageValidated(false);
       setShowForm(false);
       await loadDeployments(deployment.id);
     } catch (registerError) {
       setError(registerError.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  function updatePackagePath(value) {
+    setSelectedFile(null);
+    setPackageValidated(false);
+    setForm({
+      ...form,
+      packagePath: value,
+      fileName: '',
+      fileType: '',
+      packageSize: '',
+      checksum: '',
+    });
+  }
+
+  async function handleValidatePackage() {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+
+    setValidatingPackage(true);
+    setError('');
+    try {
+      const result = await validateDeploymentPackage(token, form.packagePath);
+      const packageInfo = result.package;
+      setForm((current) => ({
+        ...current,
+        fileName: packageInfo.fileName || '',
+        fileType: packageInfo.fileType || '',
+        packageSize: packageInfo.packageSize || '',
+        checksum: packageInfo.checksum || '',
+      }));
+      setPackageValidated(true);
+    } catch (validationError) {
+      setPackageValidated(false);
+      setError(validationError.message);
+    } finally {
+      setValidatingPackage(false);
+    }
+  }
+
+  async function handleDeleteVersion(version) {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token || !window.confirm(`Delete version ${version.versionNumber}? The package file will remain on the server.`)) return;
+
+    setBusyVersion(version.id);
+    setError('');
+    try {
+      await deleteDeploymentVersion(token, version.id);
+      await loadDeployments(deployment.id);
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setBusyVersion('');
     }
   }
 
@@ -158,8 +217,14 @@ export default function Version() {
           </label>
           <label className="version-path-field">
             Server package path
-            <input value={form.packagePath} onChange={(event) => setForm({ ...form, packagePath: event.target.value })} placeholder="D:\\Releases\\DigitalTwin\\v1.3.0\\digital-twin.zip" required />
+            <input value={form.packagePath} onChange={(event) => updatePackagePath(event.target.value)} placeholder="/var/vizzio/packages/digital-twin-v1.3.0.zip" required />
           </label>
+          <div className="version-form-actions">
+            <button className="secondary-btn" type="button" disabled={validatingPackage || !form.packagePath || Boolean(selectedFile)} onClick={handleValidatePackage}>
+              {validatingPackage ? 'Validating...' : 'Validate package'}
+            </button>
+            {packageValidated && <span className="version-validation-ok">Package validated</span>}
+          </div>
           <label className="version-file-field">
             Upload small package <span>(optional)</span>
             <input
@@ -167,6 +232,7 @@ export default function Version() {
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
                 setSelectedFile(file);
+                setPackageValidated(false);
                 if (file) {
                   setForm({
                     ...form,
@@ -180,23 +246,23 @@ export default function Version() {
             />
           </label>
           <label>
-            File name <span>(optional)</span>
-            <input value={form.fileName} onChange={(event) => setForm({ ...form, fileName: event.target.value })} placeholder="digital-twin-v1.3.0.zip" />
+            File name
+            <input value={form.fileName} readOnly placeholder="Validate a server package first" />
           </label>
           <label>
-            File type <span>(optional)</span>
-            <input value={form.fileType} onChange={(event) => setForm({ ...form, fileType: event.target.value })} placeholder="application/zip" />
+            File type
+            <input value={form.fileType} readOnly placeholder="application/zip" />
           </label>
           <label>
-            Package size in bytes <span>(optional)</span>
-            <input type="number" min="0" step="1" value={form.packageSize} onChange={(event) => setForm({ ...form, packageSize: event.target.value })} placeholder="1073741824" />
+            Package size in bytes
+            <input type="number" min="0" step="1" value={form.packageSize} readOnly placeholder="1073741824" />
           </label>
           <label className="version-checksum-field">
-            Checksum <span>(optional)</span>
-            <input value={form.checksum} onChange={(event) => setForm({ ...form, checksum: event.target.value })} placeholder="SHA-256 checksum" />
+            Checksum
+            <input value={form.checksum} readOnly placeholder="SHA-256 checksum" />
           </label>
           <div className="version-form-actions">
-            <button className="primary-btn" type="submit" disabled={saving}>{saving ? 'Registering...' : 'Register version'}</button>
+            <button className="primary-btn" type="submit" disabled={saving || (!selectedFile && !packageValidated)}>{saving ? 'Registering...' : 'Register version'}</button>
           </div>
         </form>
       )}
@@ -248,6 +314,7 @@ export default function Version() {
                           {version.status !== 'released' && <button className="release-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'released' })}>Release</button>}
                           {version.status !== 'archived' && <button className="archive-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'archived' })}>Archive</button>}
                           {version.status === 'archived' && <button className="draft-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'draft' })}>Restore draft</button>}
+                          <button className="delete-btn" type="button" disabled={busy} onClick={() => handleDeleteVersion(version)}>Delete</button>
                         </div>
                       </td>
                     </tr>

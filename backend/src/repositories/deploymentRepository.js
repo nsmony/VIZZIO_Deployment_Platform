@@ -2,6 +2,7 @@ import prisma from '../prisma.js';
 
 const deploymentInclude = {
   versions: {
+    where: { deletedAt: null },
     orderBy: { createdAt: 'desc' },
   },
 };
@@ -9,6 +10,25 @@ const deploymentInclude = {
 export function findDeployments() {
   return prisma.deployment.findMany({
     include: deploymentInclude,
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
+export function findDeploymentsForUser(userId) {
+  return prisma.deployment.findMany({
+    where: {
+      groupAccesses: {
+        some: {
+          group: {
+            members: {
+              some: { userId },
+            },
+          },
+        },
+      },
+    },
+    include: deploymentInclude,
+    distinct: ['id'],
     orderBy: { createdAt: 'asc' },
   });
 }
@@ -41,6 +61,24 @@ export function findDeploymentById(id) {
   });
 }
 
+export function findDeploymentForUser(id, userId) {
+  return prisma.deployment.findFirst({
+    where: {
+      id,
+      groupAccesses: {
+        some: {
+          group: {
+            members: {
+              some: { userId },
+            },
+          },
+        },
+      },
+    },
+    include: deploymentInclude,
+  });
+}
+
 export function addDeploymentVersion(deploymentId, version) {
   return prisma.deploymentVersion.create({
     data: {
@@ -60,6 +98,13 @@ export function updateDeploymentVersion(versionId, updates) {
   return prisma.deploymentVersion.update({
     where: { id: versionId },
     data: updates,
+  });
+}
+
+export function findVersionById(versionId) {
+  return prisma.deploymentVersion.findFirst({
+    where: { id: versionId, deletedAt: null },
+    include: { deployment: true },
   });
 }
 

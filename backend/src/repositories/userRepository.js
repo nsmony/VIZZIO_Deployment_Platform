@@ -113,6 +113,14 @@ export async function updateUser(id, updates) {
   });
 }
 
+export function updateUserLastLogin(id) {
+  return prisma.user.update({
+    where: { id },
+    data: { lastLoginAt: new Date() },
+    include: userInclude,
+  });
+}
+
 export async function deleteUser(id) {
   const user = await findUserById(id);
   if (!user) return null;
