@@ -32,6 +32,9 @@ namespace Launcher
         [JsonPropertyName("releaseType")]
         public string ReleaseType { get; set; } = "";
 
+        [JsonPropertyName("description")]
+        public string? Description { get; set; }
+
         [JsonPropertyName("versionId")]
         public string VersionId { get; set; } = "";
 

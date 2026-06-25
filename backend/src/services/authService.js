@@ -32,7 +32,9 @@ export async function authenticateUser(username, password) {
 
   const managedUser = await findUserByUsernameOrEmail(normalizedUsername);
   if (managedUser && !managedUser.isActive) {
-    return null;
+    const error = new Error('Your account has been disabled. Please contact your administrator.');
+    error.status = 403;
+    throw error;
   }
   if (!managedUser?.passwordHash) {
     return null;

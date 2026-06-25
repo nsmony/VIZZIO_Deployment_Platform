@@ -14,6 +14,6 @@ export async function login(req, res) {
 
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: 'Authentication failed' });
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'Authentication failed' });
   }
 }

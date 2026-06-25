@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -15,6 +16,19 @@ namespace Launcher
         private string _token = "";
 
         public string ApiBaseUrl { get; set; } = Environment.GetEnvironmentVariable("VIZZIO_API_BASE") ?? "http://localhost:4000/api";
+        public string Token => _token;
+
+        public void SetToken(string token)
+        {
+            _token = token;
+            ApplyBearerToken();
+        }
+
+        public void ClearToken()
+        {
+            _token = "";
+            ApplyBearerToken();
+        }
 
         public Uri BuildFileUri(string fileId, string downloadToken)
         {
@@ -27,8 +41,7 @@ namespace Launcher
             var response = await _httpClient.PostAsJsonAsync($"{ApiBaseUrl.TrimEnd('/')}/auth/login", new { username, password }, cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
             var login = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions, cancellationToken);
-            _token = login?.Token ?? "";
-            ApplyBearerToken();
+            SetToken(login?.Token ?? "");
             return login ?? new LoginResponse();
         }
 
@@ -73,7 +86,44 @@ namespace Launcher
         {
             if (response.IsSuccessStatusCode) return;
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body);
+            var message = ExtractErrorMessage(body) ?? response.ReasonPhrase ?? "Request failed";
+            var retryAfter = response.Headers.RetryAfter?.Delta;
+            throw new LauncherApiException(response.StatusCode, message, retryAfter);
         }
+
+        private static string? ExtractErrorMessage(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return null;
+            try
+            {
+                using var document = JsonDocument.Parse(body);
+                if (document.RootElement.TryGetProperty("error", out var error))
+                {
+                    if (error.ValueKind == JsonValueKind.String) return error.GetString();
+                    if (error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out var message))
+                    {
+                        return message.GetString();
+                    }
+                }
+            }
+            catch
+            {
+                // Fall back to returning the raw response body.
+            }
+            return body;
+        }
+    }
+
+    public sealed class LauncherApiException : InvalidOperationException
+    {
+        public LauncherApiException(HttpStatusCode statusCode, string message, TimeSpan? retryAfter)
+            : base(message)
+        {
+            StatusCode = statusCode;
+            RetryAfter = retryAfter;
+        }
+
+        public HttpStatusCode StatusCode { get; }
+        public TimeSpan? RetryAfter { get; }
     }
 }

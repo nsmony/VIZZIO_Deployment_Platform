@@ -6,7 +6,6 @@ namespace Launcher
     {
         protected override void OnStartup(StartupEventArgs e)
         {
-            StartupUri = null;
             base.OnStartup(e);
             var window = new DownloadManagerWindow();
             MainWindow = window;
