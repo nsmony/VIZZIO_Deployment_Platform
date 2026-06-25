@@ -21,7 +21,7 @@ export async function createUserHandler(req, res) {
     const result = await createUser(req.body);
     res.status(201).json(result);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(isDuplicateError(error) ? 409 : 400).json({ error: error.message });
   }
 }
 
@@ -33,7 +33,7 @@ export async function updateUserHandler(req, res) {
     }
     res.json({ user });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(isDuplicateError(error) ? 409 : 400).json({ error: error.message });
   }
 }
 
@@ -84,4 +84,8 @@ export async function updateGroupHandler(req, res) {
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
+}
+
+function isDuplicateError(error) {
+  return /already exists|already taken/i.test(error.message || '');
 }

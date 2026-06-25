@@ -54,6 +54,14 @@ export function addDeployment(deployment) {
   });
 }
 
+export function updateDeployment(id, updates) {
+  return prisma.deployment.update({
+    where: { id },
+    data: updates,
+    include: deploymentInclude,
+  });
+}
+
 export function findDeploymentById(id) {
   return prisma.deployment.findUnique({
     where: { id },

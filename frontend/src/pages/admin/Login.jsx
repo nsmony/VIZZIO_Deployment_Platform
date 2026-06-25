@@ -48,6 +48,7 @@ export default function Login() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="admin"
+                maxLength={50}
                 required
               />
             </div>
@@ -59,6 +60,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter your password"
+                maxLength={128}
                 required
               />
             </div>

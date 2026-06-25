@@ -1,6 +1,3 @@
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
 import {
   addDeployment,
   addDeploymentVersion,
@@ -10,12 +7,13 @@ import {
   findDeploymentsForUser,
   findVersionById,
   findDeploymentVersion,
+  updateDeployment,
   updateDeploymentVersion,
 } from '../repositories/deploymentRepository.js';
+import { inspectPackageSource } from './packageArchiveService.js';
 
 const RELEASE_TYPES = new Set(['stable', 'beta']);
 const VERSION_STATUSES = new Set(['draft', 'released', 'archived', 'deleted']);
-const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
 
 export async function getDeploymentsForRequest(user) {
   const isAdminUser = isAdmin(user);
@@ -32,18 +30,43 @@ export async function getDeploymentsForRequest(user) {
 }
 
 export async function createDeployment(data, createdBy) {
-  if (!data.name?.trim()) {
+  const name = data.name?.trim();
+  if (!name) {
     throw new Error('Deployment name is required.');
   }
 
+  await ensureDeploymentNameIsAvailable(name);
+
   const deployment = {
-    name: data.name.trim(),
+    name,
     description: data.description?.trim() || '',
     logoUrl: data.logoUrl?.trim() || null,
     versions: data.versions || [],
     createdBy,
   };
   return toPublicDeployment(await addDeployment(deployment));
+}
+
+export async function editDeployment(deploymentId, data) {
+  const deployment = await findDeploymentById(deploymentId);
+  if (!deployment) return null;
+
+  const updates = {};
+  if (data.name !== undefined) {
+    const name = data.name?.trim();
+    if (!name) throw new Error('Deployment name is required.');
+    await ensureDeploymentNameIsAvailable(name, deploymentId);
+    updates.name = name;
+  }
+  if (data.description !== undefined) {
+    updates.description = data.description?.trim() || '';
+  }
+  if (data.logoUrl !== undefined) {
+    updates.logoUrl = data.logoUrl?.trim() || null;
+  }
+
+  if (Object.keys(updates).length === 0) throw new Error('No deployment changes were provided.');
+  return toPublicDeployment(await updateDeployment(deploymentId, updates), { admin: true });
 }
 
 export async function registerVersion(deploymentId, data) {
@@ -53,22 +76,30 @@ export async function registerVersion(deploymentId, data) {
   const versionNumber = data.versionNumber?.trim();
   const packagePath = data.packagePath?.trim();
   const releaseType = String(data.releaseType || 'stable').toLowerCase();
-  const packageSize = parsePackageSize(data.packageSize);
 
   if (!versionNumber) throw new Error('Version number is required.');
-  if (!packagePath) throw new Error('Release folder is required.');
+  if (!packagePath) throw new Error('Package source path is required.');
   if (!RELEASE_TYPES.has(releaseType)) throw new Error('Release type must be stable or beta.');
+
+  const packageInfo = await inspectPackageSource({
+    packagePath,
+    sourceType: data.sourceType,
+    deploymentName: deployment.name,
+    versionNumber,
+    deploymentId,
+    createArchive: true,
+  });
 
   try {
     return toPublicVersion(await addDeploymentVersion(deploymentId, {
       versionNumber,
       releaseType,
       status: 'draft',
-      packagePath,
-      fileName: data.fileName?.trim() || null,
-      fileType: data.fileType?.trim() || null,
-      packageSize,
-      checksum: data.checksum?.trim() || null,
+      packagePath: packageInfo.packagePath,
+      fileName: packageInfo.fileName,
+      fileType: packageInfo.fileType,
+      packageSize: packageInfo.packageSize,
+      checksum: packageInfo.checksum,
     }), { admin: true });
   } catch (error) {
     if (error.code === 'P2002') {
@@ -79,26 +110,15 @@ export async function registerVersion(deploymentId, data) {
 }
 
 export async function validatePackage(data) {
-  const packageRoot = path.resolve(process.env.PACKAGE_ROOT || DEFAULT_PACKAGE_ROOT);
-  const rawPackagePath = String(data.packagePath || '').trim();
-
-  if (!rawPackagePath) throw new Error('Server package path is required.');
-
-  const resolvedPath = path.resolve(rawPackagePath);
-  const relativePath = path.relative(packageRoot, resolvedPath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    throw new Error(`Package must be inside ${packageRoot}.`);
-  }
-
-  const stat = await fs.promises.stat(resolvedPath).catch(() => null);
-  if (!stat) throw new Error('Package file was not found.');
-  if (stat.isDirectory()) throw new Error('Package path must point to a file, not a directory.');
-
+  const packageInfo = await inspectPackageSource({ ...data, createArchive: false });
   return {
-    fileName: path.basename(resolvedPath),
-    fileType: inferFileType(resolvedPath),
-    packageSize: String(stat.size),
-    checksum: await sha256File(resolvedPath),
+    packageSource: packageInfo.packageSource,
+    packagePath: packageInfo.packagePath,
+    fileName: packageInfo.fileName,
+    fileType: packageInfo.fileType,
+    packageSize: packageInfo.packageSize?.toString() || '',
+    checksum: packageInfo.checksum || '',
+    batchScriptName: packageInfo.batchScriptName || '',
   };
 }
 
@@ -193,6 +213,7 @@ function toPublicVersion(version, options = {}) {
     versionNumber: version.versionNumber,
     releaseType: version.releaseType,
     status: version.status,
+    packageSource: classifyPackageSource(version.packagePath),
     fileName: version.fileName,
     fileType: version.fileType,
     packageSize: version.packageSize?.toString() || null,
@@ -210,19 +231,6 @@ function toPublicVersion(version, options = {}) {
   return publicVersion;
 }
 
-function parsePackageSize(value) {
-  if (value === undefined || value === null || value === '') return null;
-
-  const normalized = String(value).trim();
-  if (!/^\d+$/.test(normalized)) {
-    throw new Error('Package size must be a whole number of bytes.');
-  }
-
-  const size = BigInt(normalized);
-  if (size < 0n) throw new Error('Package size cannot be negative.');
-  return size;
-}
-
 function isUuid(value) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || '')
@@ -233,27 +241,22 @@ function isAdmin(user) {
   return String(user?.role || '').toLowerCase() === 'admin';
 }
 
-function inferFileType(filePath) {
-  const extension = path.extname(filePath).toLowerCase();
-  const types = {
-    '.zip': 'application/zip',
-    '.7z': 'application/x-7z-compressed',
-    '.rar': 'application/vnd.rar',
-    '.exe': 'application/vnd.microsoft.portable-executable',
-    '.msi': 'application/x-msi',
-    '.tar': 'application/x-tar',
-    '.gz': 'application/gzip',
-  };
-  return types[extension] || 'application/octet-stream';
+async function ensureDeploymentNameIsAvailable(name, currentDeploymentId = null) {
+  const deployments = await findDeployments();
+  const duplicate = deployments.find(
+    (deployment) =>
+      deployment.id !== currentDeploymentId &&
+      deployment.name.toLowerCase() === name.toLowerCase()
+  );
+  if (duplicate) {
+    throw new Error('A deployment with this name already exists.');
+  }
 }
 
-async function sha256File(filePath) {
-  const hash = crypto.createHash('sha256');
-  await new Promise((resolve, reject) => {
-    fs.createReadStream(filePath)
-      .on('data', (chunk) => hash.update(chunk))
-      .on('error', reject)
-      .on('end', resolve);
-  });
-  return hash.digest('hex');
+function classifyPackageSource(packagePath) {
+  const value = String(packagePath || '');
+  if (!value) return null;
+  if (value.includes('/_generated/') || value.includes('\\_generated\\')) return 'generatedArchive';
+  if (/^\d+-/.test(value)) return 'upload';
+  return 'serverArchive';
 }

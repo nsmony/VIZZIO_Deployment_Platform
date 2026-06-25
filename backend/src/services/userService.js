@@ -4,9 +4,14 @@ import {
   deleteUser as deleteUserRepo,
   findUserByEmail,
   findUserById,
+  findUserByUsername,
   findUsers,
   updateUser as updateUserRepo,
 } from '../repositories/userRepository.js';
+
+const BCRYPT_COST = 12;
+const MIN_PASSWORD_LENGTH = 8;
+const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,64}$/;
 
 export async function getUsers() {
   const users = await findUsers();
@@ -40,16 +45,22 @@ export async function createUser(data) {
     throw new Error('A user with this email already exists.');
   }
 
+  const normalizedUsername = username
+    ? normalizeUsername(username)
+    : generateUsernameFromEmail(normalizedEmail);
+  await ensureUsernameIsAvailable(normalizedUsername);
+
   const temporaryPassword = password || generateTemporaryPassword();
+  validatePassword(temporaryPassword);
 
   const newUser = {
-    username: normalizeUsername(username || normalizedEmail.split('@')[0]),
+    username: normalizedUsername,
     email: normalizedEmail,
     displayName: normalizedName,
     role: ['Admin', 'User'].includes(role) ? role : 'User',
     isActive: status !== 'Inactive',
     groups: normalizeGroups(groups),
-    passwordHash: bcrypt.hashSync(temporaryPassword, 10),
+    passwordHash: bcrypt.hashSync(temporaryPassword, BCRYPT_COST),
   };
 
   return { user: toPublicUser(await addUser(newUser)), temporaryPassword };
@@ -70,7 +81,9 @@ export async function updateUserById(id, updates) {
     nextUpdates.displayName = name;
   }
   if (updates.username !== undefined) {
-    nextUpdates.username = normalizeUsername(updates.username);
+    const username = normalizeUsername(updates.username);
+    await ensureUsernameIsAvailable(username, id);
+    nextUpdates.username = username;
   }
   if (updates.displayName !== undefined) {
     const displayName = updates.displayName.trim();
@@ -126,8 +139,9 @@ export async function resetPasswordById(id, password) {
   }
 
   const temporaryPassword = password || generateTemporaryPassword();
+  validatePassword(temporaryPassword);
   const updatedUser = await updateUserRepo(id, {
-    passwordHash: bcrypt.hashSync(temporaryPassword, 10),
+    passwordHash: bcrypt.hashSync(temporaryPassword, BCRYPT_COST),
   });
 
   return { user: toPublicUser(updatedUser), temporaryPassword };
@@ -142,17 +156,38 @@ function normalizeGroups(groups) {
 }
 
 function generateTemporaryPassword() {
-  const suffix = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const suffix = Math.random().toString(36).slice(2, 10).toUpperCase();
   return `Vizzio-${suffix}`;
 }
 
 function normalizeUsername(username) {
-  return String(username || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+  const value = String(username || '').trim();
+  if (!USERNAME_PATTERN.test(value)) {
+    throw new Error('Username must be 3-64 characters and contain only letters, numbers, and underscores.');
+  }
+  return value;
+}
+
+function generateUsernameFromEmail(email) {
+  const base = String(email || '')
+    .split('@')[0]
+    .replace(/[^A-Za-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return normalizeUsername(base || `user_${Math.random().toString(36).slice(2, 8)}`);
+}
+
+function validatePassword(password) {
+  if (String(password || '').length < MIN_PASSWORD_LENGTH) {
+    throw new Error('Password must be at least 8 characters long.');
+  }
+}
+
+async function ensureUsernameIsAvailable(username, currentUserId = null) {
+  const existing = await findUserByUsername(username);
+  if (existing && existing.id !== currentUserId) {
+    throw new Error('Username is already taken.');
+  }
 }
 
 function toPublicUser(user) {

@@ -3,51 +3,38 @@ import StatCard from '../../components/StatCard';
 import DeploymentTable from '../../components/DeploymentTable';
 import RecentActivity from '../../components/RecentActivity';
 import GroupsList from '../../components/GroupsList';
+import { fetchAdminDashboard } from '../../api';
 import '../../styles/Dashboard.css';
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('vizzio_token');
-    if (token) {
-      // TODO: Replace with real API call
-      setData({
-        stats: {
-          groups: 1234,
-          activeDeployments: 50,
-          stableReleases: 40,
-          betaReleases: 10,
-        },
-      });
-    }
+    if (!token) return undefined;
+
+    let isMounted = true;
+    const loadDashboard = () => {
+      fetchAdminDashboard(token)
+        .then((nextData) => {
+          if (isMounted) setData(nextData);
+        })
+        .catch((loadError) => {
+          if (isMounted) setError(loadError.message);
+        });
+    };
+
+    loadDashboard();
+    const refreshTimer = window.setInterval(loadDashboard, 30000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(refreshTimer);
+    };
   }, []);
 
-  const mockDeployments = [
-    {
-      module: 'Digital Twin',
-      latestBeta: 'v1.2.1',
-      stableVersion: 'v1.2.0',
-      status: 'Released',
-      lastUpdated: '3 days ago',
-    },
-  ];
-
-  const mockActivities = [
-    { name: 'DigitalTwin v2.4.0.2', description: 'deployed on staging' },
-    { name: 'DataPipeline', description: 'updated on health checks' },
-    { name: 'Sensorbot', description: 'refresh updated by John' },
-    { name: 'AuthGateway', description: 'updated after deployment' },
-    { name: 'LiveConnect v2.1.4', description: 'migrated to stable' },
-  ];
-
-  const mockGroups = [
-    { name: 'Kagel Smart Infra', users: 11, status: 'Active' },
-    { name: 'Stellar Lifestyle Retail', users: 3, status: 'Active' },
-    { name: 'AETOS Command Centre', users: 24, status: 'Active' },
-    { name: 'Surbana Jurong BIM', users: 5, status: 'Active' },
-  ];
-
+  if (error) return <div className="loading error-text">{error}</div>;
   if (!data) return <div className="loading">Loading...</div>;
 
   return (
@@ -65,11 +52,11 @@ export default function Dashboard() {
 
       <div className="content-grid">
         <div className="main-content">
-          <DeploymentTable deployments={mockDeployments} />
+          <DeploymentTable deployments={data.deployments || []} />
         </div>
         <div className="sidebar-content">
-          <RecentActivity activities={mockActivities} />
-          <GroupsList groups={mockGroups} />
+          <RecentActivity activities={data.activities || []} />
+          <GroupsList groups={data.groups || []} />
         </div>
       </div>
     </main>

@@ -2,6 +2,7 @@ import {
   changeVersion,
   createDeployment,
   deleteVersion,
+  editDeployment,
   getDeploymentDetails,
   getDeploymentsForRequest,
   registerVersion,
@@ -28,7 +29,19 @@ export async function createDeploymentHandler(req, res) {
     const deployment = await createDeployment(req.body, req.user?.userId);
     res.status(201).json({ deployment });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(isDuplicateError(error) ? 409 : 400).json({ error: error.message });
+  }
+}
+
+export async function updateDeploymentHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  try {
+    const deployment = await editDeployment(req.params.deploymentId, req.body);
+    if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
+    res.json({ deployment });
+  } catch (error) {
+    res.status(isDuplicateError(error) ? 409 : 400).json({ error: error.message });
   }
 }
 
@@ -40,7 +53,7 @@ export async function registerVersionHandler(req, res) {
     if (!version) return res.status(404).json({ error: 'Deployment not found.' });
     res.status(201).json({ version });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(isPackageSourceError(error) ? 422 : 400).json({ error: error.message });
   }
 }
 
@@ -50,7 +63,7 @@ export async function validatePackageHandler(req, res) {
   try {
     res.json({ package: await validatePackage(req.body) });
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(isPackageSourceError(error) ? 422 : 400).json({ error: error.message });
   }
 }
 
@@ -137,4 +150,12 @@ export async function createDownloadToken(req, res) {
 
 function isAdmin(req) {
   return req.user?.role?.toLowerCase() === 'admin';
+}
+
+function isDuplicateError(error) {
+  return /already exists/i.test(error.message || '');
+}
+
+function isPackageSourceError(error) {
+  return /not found|must be inside|must point|must contain|source path is required/i.test(error.message || '');
 }

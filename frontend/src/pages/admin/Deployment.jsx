@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createDeployment, fetchDeployments } from '../../api';
+import { createDeployment, fetchDeployments, updateDeployment } from '../../api';
 import '../../styles/Deployment.css';
 
 const emptyForm = { name: '', description: '', logoUrl: '' };
@@ -11,6 +11,7 @@ export default function Deployment() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [editingDeployment, setEditingDeployment] = useState(null);
 
   async function loadDeployments() {
     const token = localStorage.getItem('vizzio_token');
@@ -40,8 +41,13 @@ export default function Deployment() {
     setSaving(true);
     setError('');
     try {
-      await createDeployment(token, form);
+      if (editingDeployment) {
+        await updateDeployment(token, editingDeployment.id, form);
+      } else {
+        await createDeployment(token, form);
+      }
       setForm(emptyForm);
+      setEditingDeployment(null);
       setShowForm(false);
       await loadDeployments();
     } catch (createError) {
@@ -55,6 +61,29 @@ export default function Deployment() {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
 
+  function openCreateForm() {
+    setEditingDeployment(null);
+    setForm(emptyForm);
+    setShowForm(true);
+  }
+
+  function openEditForm(deployment) {
+    setEditingDeployment(deployment);
+    setForm({
+      name: deployment.name || '',
+      description: deployment.description || '',
+      logoUrl: deployment.logoUrl || '',
+    });
+    setShowForm(true);
+    setError('');
+  }
+
+  function closeForm() {
+    setEditingDeployment(null);
+    setForm(emptyForm);
+    setShowForm(false);
+  }
+
   return (
     <main className="deployment-page">
       <header className="deployment-heading">
@@ -63,7 +92,7 @@ export default function Deployment() {
           <h1>Manage deployments</h1>
           <p>Create products here, then register and publish their versions from Version Management.</p>
         </div>
-        <button className="primary-btn" type="button" onClick={() => setShowForm((open) => !open)}>
+        <button className="primary-btn" type="button" onClick={() => showForm ? closeForm() : openCreateForm()}>
           {showForm ? 'Cancel' : '+ New Deployment'}
         </button>
       </header>
@@ -71,8 +100,8 @@ export default function Deployment() {
       {showForm && (
         <form className="deployment-create-card" onSubmit={handleCreate}>
           <div className="form-heading">
-            <h2>New deployment</h2>
-            <p>Add the product details. Versions can be registered after creation.</p>
+            <h2>{editingDeployment ? 'Edit deployment' : 'New deployment'}</h2>
+            <p>{editingDeployment ? 'Update the product details shown to admins and authorized users.' : 'Add the product details. Versions can be registered after creation.'}</p>
           </div>
           <label>
             Name
@@ -88,7 +117,7 @@ export default function Deployment() {
           </label>
           <div className="deployment-form-actions">
             <button className="primary-btn" type="submit" disabled={saving}>
-              {saving ? 'Creating...' : 'Create deployment'}
+              {saving ? 'Saving...' : editingDeployment ? 'Save deployment' : 'Create deployment'}
             </button>
           </div>
         </form>
@@ -110,7 +139,7 @@ export default function Deployment() {
           <div className="deployment-empty-state">
             <h2>No deployments yet</h2>
             <p>Create the first deployment to begin registering releases.</p>
-            <button className="primary-btn" type="button" onClick={() => setShowForm(true)}>
+            <button className="primary-btn" type="button" onClick={openCreateForm}>
               + New Deployment
             </button>
           </div>
@@ -132,6 +161,9 @@ export default function Deployment() {
                     <div><dt>Released</dt><dd>{released}</dd></div>
                     <div><dt>Created</dt><dd>{deployment.created}</dd></div>
                   </dl>
+                  <div className="deployment-card-actions">
+                    <button className="secondary-btn" type="button" onClick={() => openEditForm(deployment)}>Edit</button>
+                  </div>
                 </article>
               );
             })}

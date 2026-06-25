@@ -34,6 +34,8 @@ export async function updateDownloadManagerSession(req, res) {
       status: req.body?.status,
       downloadedSize: req.body?.downloadedSize,
       totalSize: req.body?.totalSize,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
     res.json({ session });
   } catch (error) {

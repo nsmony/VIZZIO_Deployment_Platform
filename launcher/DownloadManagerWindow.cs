@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Text.Json;
@@ -11,6 +12,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 namespace Launcher
@@ -24,7 +26,11 @@ namespace Launcher
         private readonly ManualResetEventSlim _pauseGate = new(true);
         private readonly DispatcherTimer _pollTimer = new() { Interval = TimeSpan.FromMinutes(5) };
         private LauncherUserSettings _settings = LoadLauncherSettings();
+        private LauncherBrandingSettings _branding = LoadBrandingSettings();
         private CancellationTokenSource? _downloadCancellation;
+        private string _activeDownloadTargetPath = "";
+        private bool _deletePartialOnCancel;
+        private bool _autoResumeAttempted;
         private DownloadItem? _selectedItem;
         private Grid _contentHost = null!;
         private TextBlock _pageTitle = null!;
@@ -77,7 +83,7 @@ namespace Launcher
             var button = CreatePrimaryButton("Sign in", 130);
 
             var panel = new StackPanel { Width = 430, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-            panel.Children.Add(CreateLogoMark());
+            panel.Children.Add(CreateLogoMark(_branding, 58));
             panel.Children.Add(new TextBlock { Text = "Package library", FontSize = 34, FontWeight = FontWeights.SemiBold, Foreground = Text, Margin = new Thickness(0, 22, 0, 8) });
             panel.Children.Add(new TextBlock { Text = "Sign in to browse installed and available VIZZIO deployments.", FontSize = 15, Foreground = Muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 28) });
             panel.Children.Add(CreateLabel("Server URL"));
@@ -99,7 +105,17 @@ namespace Launcher
                     message.Text = "Signing in...";
                     _api.ApiBaseUrl = server.Text.Trim();
                     var login = await _api.LoginAsync(username.Text.Trim(), password.Password, CancellationToken.None);
-                    PersistSession(login);
+                    try
+                    {
+                        PersistSession(login);
+                    }
+                    catch (Exception saveError)
+                    {
+                        _api.ClearToken();
+                        message.Foreground = Warning;
+                        message.Text = $"Session could not be saved: {FriendlyError(saveError)}";
+                        return;
+                    }
                     await LoadItemsAsync();
                     ShowManager();
                 }
@@ -141,6 +157,7 @@ namespace Launcher
             _searchBox = CreateTextBox();
             _searchBox.Margin = new Thickness(0);
             _searchBox.MinWidth = 280;
+            _searchBox.BorderThickness = new Thickness(0);
             _searchBox.TextChanged += (_, _) => RenderCards();
             _startButton = CreatePrimaryButton("Download", 120);
             _pauseButton = CreateSecondaryButton("Pause", 90);
@@ -157,6 +174,7 @@ namespace Launcher
             shell.Children.Add(sidebar);
 
             var page = new DockPanel { Margin = new Thickness(28) };
+            page.LastChildFill = true;
             Grid.SetColumn(page, 1);
             var header = CreateHeader(refreshButton);
             DockPanel.SetDock(header, Dock.Top);
@@ -173,18 +191,24 @@ namespace Launcher
             refreshButton.Click += async (_, _) => await RefreshAsync();
             SelectSection("Library");
             _pollTimer.Start();
+            _ = ResumePendingDownloadsAsync();
         }
 
         private async Task StartDownloadAsync()
         {
-            if (!TryApplyInstallRootFromText())
-            {
-                return;
-            }
-
             if (_selectedItem is not DownloadItem item)
             {
                 _status.Text = "Choose a package first.";
+                return;
+            }
+
+            await StartDownloadAsync(item, deletePartialsOnCancel: true);
+        }
+
+        private async Task StartDownloadAsync(DownloadItem item, bool deletePartialsOnCancel)
+        {
+            if (!TryApplyInstallRootFromText())
+            {
                 return;
             }
 
@@ -196,25 +220,36 @@ namespace Launcher
 
             var installFolder = GetInstallFolder(item);
             var fileName = string.IsNullOrWhiteSpace(item.FileName) ? $"{item.DeploymentName}-{item.VersionNumber}.zip" : item.FileName;
-            var targetPath = Path.Combine(installFolder, fileName);
-            if (File.Exists(targetPath))
+            var targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
+            if (IsInstalled(item))
             {
                 _status.Text = "This version is already installed.";
                 RenderCards();
                 return;
             }
 
+            if (string.IsNullOrWhiteSpace(item.Checksum))
+            {
+                _status.Text = "This package cannot be installed because the server did not provide a checksum.";
+                return;
+            }
+
             try
             {
+                EnsureDiskSpaceForInstall(targetPath, (item.Size ?? 0) * 2);
                 _startButton.IsEnabled = false;
                 _pauseButton.IsEnabled = true;
                 _pauseGate.Set();
+                _deletePartialOnCancel = false;
+                _activeDownloadTargetPath = targetPath;
                 _downloadCancellation = new CancellationTokenSource();
                 _status.Text = "Creating download session...";
                 var session = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
                 fileName = string.IsNullOrWhiteSpace(session.File.Name) ? fileName : session.File.Name;
-                targetPath = Path.Combine(installFolder, fileName);
-                var uri = _api.BuildFileUri(item.FileId, session.Token);
+                targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
+                _activeDownloadTargetPath = targetPath;
+                var downloadToken = session.Token;
+                var tokenIssuedAt = DateTimeOffset.UtcNow;
 
                 var progress = new Progress<DownloadProgress>(value =>
                 {
@@ -224,7 +259,52 @@ namespace Launcher
                 });
 
                 _status.Text = "Downloading...";
-                await _downloader.DownloadAsync(uri, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, _downloadCancellation.Token);
+                var attempt = 0;
+                while (true)
+                {
+                    try
+                    {
+                        attempt++;
+                        await _downloader.DownloadAsync(async () =>
+                        {
+                            if (DateTimeOffset.UtcNow - tokenIssuedAt >= TimeSpan.FromMinutes(55))
+                            {
+                                var refreshed = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
+                                downloadToken = refreshed.Token;
+                                tokenIssuedAt = DateTimeOffset.UtcNow;
+                            }
+
+                            return _api.BuildFileUri(item.FileId, downloadToken);
+                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, _downloadCancellation.Token);
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (InvalidDataException) when (attempt < 3)
+                    {
+                        DeleteDownloadArtifacts(targetPath);
+                        _status.Text = $"Package verification failed. Retrying ({attempt + 1}/3)...";
+                    }
+                    catch (Exception) when (attempt < 3)
+                    {
+                        _status.Text = $"Connection problem. Retrying ({attempt + 1}/3)...";
+                        await Task.Delay(TimeSpan.FromSeconds(2), _downloadCancellation.Token);
+                    }
+                    catch (InvalidDataException)
+                    {
+                        throw new InvalidDataException("Package verification failed 3 times. Please contact support.");
+                    }
+                    catch
+                    {
+                        _pauseGate.Reset();
+                        _pauseButton.Content = "Resume";
+                        throw new IOException("The connection failed 3 times. Check your connection, then resume the download.");
+                    }
+                }
+                _status.Text = "Extracting package...";
+                ExtractPackage(targetPath, installFolder);
                 await _api.UpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
                 _progress.Value = 100;
                 _status.Text = $"Installed to {installFolder}";
@@ -232,7 +312,15 @@ namespace Launcher
             }
             catch (OperationCanceledException)
             {
-                _status.Text = "Download canceled. Start again to resume from existing part files.";
+                if (_deletePartialOnCancel && deletePartialsOnCancel)
+                {
+                    DeleteDownloadArtifacts(_activeDownloadTargetPath);
+                    _status.Text = "Download canceled. Partial package files were removed.";
+                }
+                else
+                {
+                    _status.Text = "Download interrupted. Start again to resume from existing part files.";
+                }
             }
             catch (Exception ex)
             {
@@ -244,6 +332,8 @@ namespace Launcher
                 _startButton.IsEnabled = true;
                 _pauseButton.IsEnabled = false;
                 _pauseButton.Content = "Pause";
+                _deletePartialOnCancel = false;
+                _activeDownloadTargetPath = "";
             }
         }
 
@@ -265,6 +355,7 @@ namespace Launcher
 
         private async Task CancelDownloadAsync()
         {
+            _deletePartialOnCancel = true;
             _downloadCancellation?.Cancel();
             await Task.CompletedTask;
         }
@@ -285,6 +376,21 @@ namespace Launcher
             {
                 if (showStatus) _status.Text = FriendlyError(ex);
             }
+        }
+
+        private async Task ResumePendingDownloadsAsync()
+        {
+            if (_autoResumeAttempted) return;
+            _autoResumeAttempted = true;
+
+            await Task.Delay(400);
+            var pending = _items.FirstOrDefault(HasPartialDownload);
+            if (pending is null) return;
+
+            _selectedItem = pending;
+            SelectSection("Download");
+            _status.Text = $"Resuming {pending.DeploymentName} {pending.VersionNumber}...";
+            await StartDownloadAsync(pending, deletePartialsOnCancel: false);
         }
 
         private DockPanel CreateHeader(Button refreshButton)
@@ -311,13 +417,7 @@ namespace Launcher
             var panel = new DockPanel { Margin = new Thickness(18, 24, 18, 18) };
 
             var brand = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 34) };
-            brand.Children.Add(new Border
-            {
-                Width = 42,
-                Height = 42,
-                Background = Primary,
-                Child = new TextBlock { Text = "V", Foreground = Brushes.White, FontSize = 20, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
-            });
+            brand.Children.Add(CreateLogoMark(_branding, 42));
             var brandText = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             brandText.Children.Add(new TextBlock { Text = "VIZZIO", Foreground = Text, FontSize = 20, FontWeight = FontWeights.Bold });
             brandText.Children.Add(new TextBlock { Text = "Deployment Portal", Foreground = Muted, FontSize = 12 });
@@ -451,25 +551,48 @@ namespace Launcher
 
         private UIElement CreateLibraryPage()
         {
-            _cardsPanel = new WrapPanel { Orientation = Orientation.Horizontal };
-            return new ScrollViewer
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition());
+
+            var toolbar = CreateToolbar();
+            Grid.SetRow(toolbar, 0);
+            root.Children.Add(toolbar);
+
+            _cardsPanel = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+
+            var scroller = new ScrollViewer
             {
                 Content = _cardsPanel,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             };
+            Grid.SetRow(scroller, 1);
+            root.Children.Add(scroller);
+
+            return root;
         }
 
         private UIElement CreateDownloadPage()
         {
-            var panel = new StackPanel { Width = 620 };
+            var panel = new Grid { Width = GetPortalContentWidth() };
             panel.Children.Add(CreateDownloadPanel());
-            return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            return new ScrollViewer
+            {
+                Content = panel,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            };
         }
 
         private UIElement CreateSettingsPage()
         {
             DetachFromParent(_installPath);
-            var panel = new StackPanel { Width = 620 };
+            var panel = new StackPanel { Width = GetPortalContentWidth(), HorizontalAlignment = HorizontalAlignment.Stretch };
             var installPanel = new StackPanel();
             installPanel.Children.Add(_installPath);
             var saveInstallRoot = CreatePrimaryButton("Save install root", 150);
@@ -485,7 +608,12 @@ namespace Launcher
             panel.Children.Add(CreateSettingsCard("Install location", "Root install folder", installPanel));
             panel.Children.Add(CreateSettingsCard("Server", "API endpoint", new TextBlock { Text = _api.ApiBaseUrl, Foreground = Text, FontSize = 14, TextWrapping = TextWrapping.Wrap }));
             panel.Children.Add(CreateSettingsCard("Account", "Session", new TextBlock { Text = "Signed in to the launcher.", Foreground = Text, FontSize = 14 }));
-            return new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+            return new ScrollViewer
+            {
+                Content = panel,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            };
         }
 
         private Border CreateSettingsCard(string title, string label, UIElement content)
@@ -495,7 +623,16 @@ namespace Launcher
             panel.Children.Add(new TextBlock { Text = title.ToUpperInvariant(), Foreground = Text, FontSize = 13, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 12) });
             panel.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 12, Margin = new Thickness(0, 0, 0, 6) });
             panel.Children.Add(content);
-            return new Border { Background = Surface, BorderBrush = UiBorder, BorderThickness = new Thickness(1), Padding = new Thickness(18), Margin = new Thickness(0, 0, 0, 16), Child = panel };
+            return new Border
+            {
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(18),
+                Margin = new Thickness(0, 0, 0, 16),
+                Child = panel,
+            };
         }
 
         private Border CreateDownloadPanel()
@@ -525,17 +662,22 @@ namespace Launcher
             buttons.Children.Add(cancelButton);
             panel.Children.Add(buttons);
 
-            return new Border { Background = Surface, BorderBrush = UiBorder, BorderThickness = new Thickness(1), Padding = new Thickness(20), Child = panel };
+            return new Border
+            {
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(20),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Child = panel,
+            };
         }
 
         private void RenderCards()
         {
             if (_cardsPanel is null) return;
             _cardsPanel.Children.Clear();
-
-            var toolbar = CreateToolbar();
-            toolbar.Width = Math.Max(720, ActualWidth - 360);
-            _cardsPanel.Children.Add(toolbar);
 
             var query = (_searchBox?.Text ?? "").Trim();
             var visible = _items.Where(item =>
@@ -565,13 +707,19 @@ namespace Launcher
 
         private Border CreateToolbar()
         {
-            var toolbar = new DockPanel { Margin = new Thickness(0, 0, 0, 18) };
+            var toolbar = new DockPanel { Margin = new Thickness(0, 0, 0, 18), LastChildFill = false };
             if (_searchBox.Parent is Panel previousParent)
             {
                 previousParent.Children.Remove(_searchBox);
             }
-            DockPanel.SetDock(_searchBox, Dock.Left);
-            toolbar.Children.Add(_searchBox);
+            else if (_searchBox.Parent is Decorator previousDecorator)
+            {
+                previousDecorator.Child = null;
+            }
+
+            var searchShell = CreateSearchBoxShell();
+            DockPanel.SetDock(searchShell, Dock.Left);
+            toolbar.Children.Add(searchShell);
 
             var filters = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             foreach (var filter in new[] { "All", "Stable", "Beta", "Installed" })
@@ -580,13 +728,69 @@ namespace Launcher
                 button.Click += (_, _) =>
                 {
                     _activeFilter = filter;
-                    RenderCards();
+                    RenderPortalPage();
                 };
                 filters.Children.Add(button);
             }
+            DockPanel.SetDock(filters, Dock.Right);
             toolbar.Children.Add(filters);
 
-            return new Border { Child = toolbar, MinWidth = 720 };
+            return new Border
+            {
+                Child = toolbar,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+        }
+
+        private Border CreateSearchBoxShell()
+        {
+            DetachFromParent(_searchBox);
+            var shell = new DockPanel
+            {
+                Width = 350,
+                Height = 42,
+                LastChildFill = true,
+            };
+
+            var icon = CreateSearchIcon();
+            DockPanel.SetDock(icon, Dock.Left);
+            shell.Children.Add(icon);
+            shell.Children.Add(_searchBox);
+
+            return new Border
+            {
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 0, 8, 0),
+                Child = shell,
+            };
+        }
+
+        private static Canvas CreateSearchIcon()
+        {
+            var canvas = new Canvas { Width = 18, Height = 18, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
+            canvas.Children.Add(new System.Windows.Shapes.Ellipse
+            {
+                Width = 11,
+                Height = 11,
+                Stroke = Muted,
+                StrokeThickness = 1.8,
+            });
+            var handle = new System.Windows.Shapes.Line
+            {
+                X1 = 11,
+                Y1 = 11,
+                X2 = 17,
+                Y2 = 17,
+                Stroke = Muted,
+                StrokeThickness = 1.8,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+            };
+            canvas.Children.Add(handle);
+            return canvas;
         }
 
         private Border CreatePackageCard(DownloadItem item)
@@ -659,6 +863,7 @@ namespace Launcher
                 Background = Surface,
                 BorderBrush = selected ? Primary : UiBorder,
                 BorderThickness = new Thickness(selected ? 2 : 1),
+                CornerRadius = new CornerRadius(8),
                 Child = card,
             };
         }
@@ -666,17 +871,17 @@ namespace Launcher
         private async Task TryRestoreSessionAsync()
         {
             if (Content is not Border) return;
-            if (string.IsNullOrWhiteSpace(_settings.Token)) return;
-            if (IsExpiredJwt(_settings.Token))
+            var token = WindowsCredentialStore.ReadToken();
+            if (string.IsNullOrWhiteSpace(token)) return;
+            if (IsExpiredJwt(token))
             {
-                _settings.Token = "";
-                SaveLauncherSettings(_settings);
+                WindowsCredentialStore.ClearToken();
                 return;
             }
 
             try
             {
-                _api.SetToken(_settings.Token);
+                _api.SetToken(token);
                 await LoadItemsAsync();
                 ShowManager();
             }
@@ -688,10 +893,27 @@ namespace Launcher
 
         private Border CreateEmptyState()
         {
-            var stack = new StackPanel { Width = 500 };
+            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             stack.Children.Add(new TextBlock { Text = "No packages found", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextAlignment = TextAlignment.Center });
             stack.Children.Add(new TextBlock { Text = "Try adjusting your filter or search term to locate available packages.", Foreground = Muted, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 10, 0, 0) });
-            return new Border { Width = 680, Padding = new Thickness(28), Background = Surface, BorderBrush = UiBorder, BorderThickness = new Thickness(1), Child = stack };
+            return new Border
+            {
+                Width = GetPortalContentWidth(),
+                Padding = new Thickness(28),
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Child = stack,
+            };
+        }
+
+        private double GetPortalContentWidth()
+        {
+            var sidebarWidth = 260;
+            var pageHorizontalMargin = 56;
+            var scrollbarAllowance = 24;
+            return Math.Max(680, ActualWidth - sidebarWidth - pageHorizontalMargin - scrollbarAllowance);
         }
 
         private string GetInstallFolder(DownloadItem item)
@@ -703,7 +925,16 @@ namespace Launcher
         private bool IsInstalled(DownloadItem item)
         {
             var folder = GetInstallFolder(item);
-            return Directory.Exists(folder) && Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Any();
+            return Directory.Exists(folder) && Directory.EnumerateFiles(folder, "*.bat", SearchOption.TopDirectoryOnly).Any();
+        }
+
+        private bool HasPartialDownload(DownloadItem item)
+        {
+            var fileName = string.IsNullOrWhiteSpace(item.FileName) ? $"{item.DeploymentName}-{item.VersionNumber}.zip" : item.FileName;
+            var targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
+            var directory = Path.GetDirectoryName(targetPath);
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return false;
+            return Directory.EnumerateFiles(directory, $"{Path.GetFileName(targetPath)}.part*").Any();
         }
 
         private void OpenInstallFolder(DownloadItem item)
@@ -744,6 +975,153 @@ namespace Launcher
             var invalid = Path.GetInvalidFileNameChars();
             var cleaned = new string(value.Select(ch => invalid.Contains(ch) ? '_' : ch).ToArray()).Trim();
             return string.IsNullOrWhiteSpace(cleaned) ? "Package" : cleaned;
+        }
+
+        private string GetPackageCacheFolder()
+        {
+            return Path.Combine(GetActiveInstallRoot(), ".packages");
+        }
+
+        private static void ExtractPackage(string archivePath, string installFolder)
+        {
+            var tempFolder = $"{installFolder}.extracting";
+            if (Directory.Exists(tempFolder)) Directory.Delete(tempFolder, recursive: true);
+            Directory.CreateDirectory(Path.GetDirectoryName(installFolder)!);
+
+            try
+            {
+                var extension = Path.GetExtension(archivePath);
+                if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+                {
+                    ZipFile.ExtractToDirectory(archivePath, tempFolder);
+                }
+                else if (string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
+                {
+                    Extract7ZipPackage(archivePath, tempFolder);
+                }
+                else
+                {
+                    throw new InvalidDataException("This package type cannot be extracted by the launcher. Please provide a ZIP or 7z package.");
+                }
+
+                NormalizeExtractedRoot(tempFolder);
+                if (!Directory.EnumerateFiles(tempFolder, "*.bat", SearchOption.TopDirectoryOnly).Any())
+                {
+                    throw new InvalidDataException("The package did not contain the expected launch batch script.");
+                }
+
+                if (Directory.Exists(installFolder)) Directory.Delete(installFolder, recursive: true);
+                Directory.Move(tempFolder, installFolder);
+                File.Delete(archivePath);
+            }
+            catch
+            {
+                if (Directory.Exists(tempFolder)) Directory.Delete(tempFolder, recursive: true);
+                throw;
+            }
+        }
+
+        private static void Extract7ZipPackage(string archivePath, string tempFolder)
+        {
+            var executable = Find7ZipExecutable();
+            if (string.IsNullOrWhiteSpace(executable))
+            {
+                throw new InvalidDataException("7z extraction requires 7z.exe or 7za.exe beside the launcher or available on PATH.");
+            }
+
+            Directory.CreateDirectory(tempFolder);
+            var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = executable,
+                Arguments = $"x -y -o\"{tempFolder}\" \"{archivePath}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+            });
+            if (process is null)
+            {
+                throw new InvalidDataException("Could not start the 7z extractor.");
+            }
+
+            process.WaitForExit();
+            if (process.ExitCode != 0)
+            {
+                var error = process.StandardError.ReadToEnd();
+                throw new InvalidDataException(string.IsNullOrWhiteSpace(error) ? "7z extraction failed." : error.Trim());
+            }
+        }
+
+        private static string? Find7ZipExecutable()
+        {
+            var baseDirectory = AppContext.BaseDirectory;
+            foreach (var localName in new[] { "7z.exe", "7za.exe" })
+            {
+                var localPath = Path.Combine(baseDirectory, localName);
+                if (File.Exists(localPath)) return localPath;
+            }
+
+            var pathValue = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var directory in pathValue.Split(Path.PathSeparator).Where(Directory.Exists))
+            {
+                foreach (var name in new[] { "7z.exe", "7za.exe" })
+                {
+                    var candidate = Path.Combine(directory, name);
+                    if (File.Exists(candidate)) return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static void NormalizeExtractedRoot(string tempFolder)
+        {
+            if (Directory.EnumerateFiles(tempFolder, "*.bat", SearchOption.TopDirectoryOnly).Any()) return;
+
+            var files = Directory.EnumerateFiles(tempFolder).ToList();
+            var directories = Directory.EnumerateDirectories(tempFolder).ToList();
+            if (files.Count != 0 || directories.Count != 1) return;
+
+            var nestedRoot = directories[0];
+            var stagingRoot = $"{tempFolder}.root";
+            if (Directory.Exists(stagingRoot)) Directory.Delete(stagingRoot, recursive: true);
+            Directory.Move(nestedRoot, stagingRoot);
+            Directory.Delete(tempFolder, recursive: true);
+            Directory.Move(stagingRoot, tempFolder);
+        }
+
+        private static void EnsureDiskSpaceForInstall(string targetPath, long requiredBytes)
+        {
+            if (requiredBytes <= 0) return;
+            var root = Path.GetPathRoot(Path.GetFullPath(targetPath)) ?? "";
+            var drive = new DriveInfo(root);
+            if (drive.AvailableFreeSpace < requiredBytes)
+            {
+                throw new IOException($"Not enough free disk space. Required {FormatBytes(requiredBytes)}, available {FormatBytes(drive.AvailableFreeSpace)}.");
+            }
+        }
+
+        private static void DeleteDownloadArtifacts(string targetPath)
+        {
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+
+            try
+            {
+                if (File.Exists(targetPath)) File.Delete(targetPath);
+
+                var directory = Path.GetDirectoryName(targetPath);
+                var fileName = Path.GetFileName(targetPath);
+                if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory)) return;
+
+                foreach (var partPath in Directory.EnumerateFiles(directory, $"{fileName}.part*"))
+                {
+                    File.Delete(partPath);
+                }
+            }
+            catch
+            {
+                // The next retry can overwrite or resume any file still locked by the OS.
+            }
         }
 
         private static string NormalizeChannel(string value)
@@ -808,7 +1186,7 @@ namespace Launcher
             _pollTimer.Stop();
             _downloadCancellation?.Cancel();
             _api.ClearToken();
-            _settings.Token = "";
+            WindowsCredentialStore.ClearToken();
             _settings.Username = "";
             SaveLauncherSettings(_settings);
             _items.Clear();
@@ -846,6 +1224,20 @@ namespace Launcher
             }
         }
 
+        private static LauncherBrandingSettings LoadBrandingSettings()
+        {
+            try
+            {
+                var path = Path.Combine(AppContext.BaseDirectory, "launcher-branding.json");
+                if (!File.Exists(path)) return new LauncherBrandingSettings();
+                return JsonSerializer.Deserialize<LauncherBrandingSettings>(File.ReadAllText(path)) ?? new LauncherBrandingSettings();
+            }
+            catch
+            {
+                return new LauncherBrandingSettings();
+            }
+        }
+
         private static void SaveLauncherSettings(LauncherUserSettings settings)
         {
             var path = GetSettingsPath();
@@ -864,7 +1256,7 @@ namespace Launcher
 
         private void PersistSession(LoginResponse login)
         {
-            _settings.Token = login.Token;
+            WindowsCredentialStore.SaveToken(login.Token);
             _settings.Username = ExtractUsername(login) ?? _settings.Username;
             SaveLauncherSettings(_settings);
         }
@@ -954,15 +1346,61 @@ namespace Launcher
             };
         }
 
-        private static Border CreateLogoMark()
+        private static Border CreateLogoMark(LauncherBrandingSettings branding, double size)
         {
+            var logo = TryCreateLogoImage(branding, size);
+            if (logo is not null)
+            {
+                return new Border
+                {
+                    Width = size,
+                    Height = size,
+                    Background = Brushes.Transparent,
+                    Child = logo,
+                };
+            }
+
             return new Border
             {
-                Width = 58,
-                Height = 58,
+                Width = size,
+                Height = size,
                 Background = PrimarySoft,
-                Child = new TextBlock { Text = "V", Foreground = Primary, FontSize = 28, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                Child = new TextBlock { Text = "V", Foreground = Primary, FontSize = Math.Max(18, size * 0.48), FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
             };
+        }
+
+        private static Image? TryCreateLogoImage(LauncherBrandingSettings branding, double size)
+        {
+            try
+            {
+                var path = ResolveLogoPath(branding.LogoPath);
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return null;
+
+                var extension = Path.GetExtension(path).ToLowerInvariant();
+                if (extension is not ".png" and not ".jpg" and not ".jpeg" and not ".ico") return null;
+                if (new FileInfo(path).Length > 5 * 1024 * 1024) return null;
+
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.UriSource = new Uri(path);
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                return new Image { Source = bitmap, Width = size, Height = size, Stretch = Stretch.Uniform };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? ResolveLogoPath(string? logoPath)
+        {
+            if (string.IsNullOrWhiteSpace(logoPath)) return null;
+            return Path.IsPathRooted(logoPath)
+                ? Path.GetFullPath(logoPath)
+                : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, logoPath));
         }
 
         private static string FriendlyError(Exception ex)
@@ -1017,8 +1455,12 @@ namespace Launcher
         private sealed class LauncherUserSettings
         {
             public string InstallRoot { get; set; } = "";
-            public string Token { get; set; } = "";
             public string Username { get; set; } = "";
+        }
+
+        private sealed class LauncherBrandingSettings
+        {
+            public string LogoPath { get; set; } = "";
         }
     }
 }

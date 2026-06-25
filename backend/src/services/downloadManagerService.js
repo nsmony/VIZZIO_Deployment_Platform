@@ -157,7 +157,15 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
   };
 }
 
-export async function updateManagedDownloadSession({ sessionId, user, status, downloadedSize, totalSize }) {
+export async function updateManagedDownloadSession({
+  sessionId,
+  user,
+  status,
+  downloadedSize,
+  totalSize,
+  ipAddress,
+  userAgent,
+}) {
   if (String(sessionId || '').startsWith('virtual:')) {
     return {
       id: sessionId,
@@ -199,6 +207,8 @@ export async function updateManagedDownloadSession({ sessionId, user, status, do
       data: {
         userId: user.userId,
         versionId: session.versionId,
+        ipAddress,
+        userAgent,
       },
     });
   }

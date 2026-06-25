@@ -6,20 +6,23 @@ const mockUsers = [
   {
     id: 'admin-1',
     username: 'admin',
-    passwordHash: bcrypt.hashSync('password', 10),
+    passwordHash: bcrypt.hashSync('password', 12),
     role: 'admin',
   },
   {
     id: 'user-1',
     username: 'user',
-    passwordHash: bcrypt.hashSync('password', 10),
+    passwordHash: bcrypt.hashSync('password', 12),
     role: 'user',
   },
 ];
 
 export async function authenticateUser(username, password) {
   const normalizedUsername = username.trim();
-  const user = mockUsers.find((item) => item.username.toLowerCase() === normalizedUsername.toLowerCase());
+  const demoUsersEnabled = String(process.env.ENABLE_DEMO_USERS || 'true').toLowerCase() !== 'false';
+  const user = demoUsersEnabled
+    ? mockUsers.find((item) => item.username.toLowerCase() === normalizedUsername.toLowerCase())
+    : null;
   if (user) {
     const validPassword = await bcrypt.compare(password, user.passwordHash);
     if (!validPassword) {

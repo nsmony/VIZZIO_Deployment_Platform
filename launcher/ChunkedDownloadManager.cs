@@ -35,14 +35,26 @@ namespace Launcher
             ManualResetEventSlim pauseGate,
             CancellationToken cancellationToken)
         {
+            return await DownloadAsync(() => Task.FromResult(source), targetPath, expectedSize, expectedSha256, progress, pauseGate, cancellationToken);
+        }
+
+        public async Task<string> DownloadAsync(
+            Func<Task<Uri>> sourceFactory,
+            string targetPath,
+            long expectedSize,
+            string? expectedSha256,
+            IProgress<DownloadProgress> progress,
+            ManualResetEventSlim pauseGate,
+            CancellationToken cancellationToken)
+        {
             Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
             EnsureDiskSpace(targetPath, expectedSize);
 
-            var totalBytes = expectedSize > 0 ? expectedSize : await GetRemoteLengthAsync(source, cancellationToken);
+            var totalBytes = expectedSize > 0 ? expectedSize : await GetRemoteLengthAsync(await sourceFactory(), cancellationToken);
             var chunks = CreateChunks(totalBytes, targetPath);
             var stopwatch = Stopwatch.StartNew();
 
-            await Task.WhenAll(chunks.Select(chunk => DownloadChunkAsync(source, chunk, progress, pauseGate, stopwatch, totalBytes, cancellationToken)));
+            await Task.WhenAll(chunks.Select(chunk => DownloadChunkAsync(sourceFactory, chunk, progress, pauseGate, stopwatch, totalBytes, cancellationToken)));
             MergeChunks(chunks, targetPath);
 
             if (!string.IsNullOrWhiteSpace(expectedSha256))
@@ -86,7 +98,7 @@ namespace Launcher
         }
 
         private async Task DownloadChunkAsync(
-            Uri source,
+            Func<Task<Uri>> sourceFactory,
             DownloadChunk chunk,
             IProgress<DownloadProgress> progress,
             ManualResetEventSlim pauseGate,
@@ -98,7 +110,7 @@ namespace Launcher
             var start = chunk.Start + existing;
             if (start > chunk.End) return;
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, source);
+            using var request = new HttpRequestMessage(HttpMethod.Get, await sourceFactory());
             request.Headers.Range = new RangeHeaderValue(start, chunk.End);
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 

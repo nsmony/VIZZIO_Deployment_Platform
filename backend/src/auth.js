@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 
-const jwtOptions = { expiresIn: '1h' };
+const jwtOptions = { expiresIn: '24h' };
 
 function getJwtSecret() {
   return process.env.JWT_SECRET || 'replace-with-secure-secret';

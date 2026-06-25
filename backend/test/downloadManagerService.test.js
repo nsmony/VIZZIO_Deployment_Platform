@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { parseRangeHeader, validateDownloadTokenFileAccess } from '../src/services/downloadManagerService.js';
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../src/downloadManagerToken.js';
 import { verifySha256 } from '../src/services/downloadIntegrityService.js';
+import { inspectPackageSource } from '../src/services/packageArchiveService.js';
 
 test('normal ranged download requests parse a byte range', () => {
   assert.deepEqual(parseRangeHeader('bytes=0-99', 1000), { start: 0, end: 99 });
@@ -44,6 +45,41 @@ test('corrupted file detection fails when SHA-256 does not match', async () => {
   await fs.writeFile(filePath, 'corrupted content');
   const expected = crypto.createHash('sha256').update('original content').digest('hex');
   assert.equal(await verifySha256(filePath, expected), false);
+});
+
+test('server staging folders are packaged into downloadable ZIP archives', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'digital-twin', 'v1.0.0');
+    await fs.mkdir(path.join(stagingFolder, 'web'), { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    await fs.writeFile(path.join(stagingFolder, 'web', 'index.html'), '<h1>ok</h1>');
+
+    const result = await inspectPackageSource({
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      deploymentName: 'Digital Twin',
+      versionNumber: 'v1.0.0',
+      deploymentId: 'deployment-1',
+      createArchive: true,
+    });
+
+    assert.equal(result.packageSource, 'generatedArchive');
+    assert.equal(result.fileName, 'v1.0.0.zip');
+    assert.equal(result.fileType, 'application/zip');
+    assert.ok(result.packageSize > 0n);
+    assert.match(result.checksum, /^[a-f0-9]{64}$/);
+
+    const archive = await fs.readFile(result.packagePath);
+    assert.equal(archive.subarray(0, 2).toString('utf8'), 'PK');
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 

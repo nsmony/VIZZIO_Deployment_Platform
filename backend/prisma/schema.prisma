@@ -62,6 +62,7 @@ model Deployment {
   versions        DeploymentVersion[]
   groupAccesses   GroupDeploymentAccess[]
 
+  @@unique([name])
   @@map("deployments")
 }
 

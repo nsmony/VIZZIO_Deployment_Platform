@@ -75,6 +75,16 @@
   overflow: visible;
 }
 
+.users-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  margin: 16px 0 24px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
 .credentials-panel,
 .groups-panel {
   background: white;
@@ -108,8 +118,7 @@
 }
 
 .credential-lines {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 10px;
   margin-top: 12px;
 }
@@ -122,6 +131,10 @@
   background: white;
   color: var(--text);
   font-size: 13px;
+}
+
+.credential-modal .credential-lines {
+  margin-top: 0;
 }
 
 .users-alert {
@@ -310,7 +323,7 @@
   white-space: nowrap;
 }
 
-.icon-btn {
+.users-page .icon-btn {
   min-width: 68px;
   height: 40px;
   border: 1px solid var(--border);
@@ -327,11 +340,11 @@
   white-space: nowrap;
 }
 
-.icon-btn:hover {
+.users-page .icon-btn:hover {
   background: var(--bg);
 }
 
-.icon-btn.danger {
+.users-page .icon-btn.danger {
   border-color: rgba(239, 68, 68, 0.2);
   color: var(--danger);
 }

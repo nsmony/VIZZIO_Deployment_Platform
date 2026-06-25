@@ -34,6 +34,18 @@ export function findUserByEmail(email) {
   });
 }
 
+export function findUserByUsername(username) {
+  return prisma.user.findFirst({
+    where: {
+      username: {
+        equals: username,
+        mode: 'insensitive',
+      },
+    },
+    include: userInclude,
+  });
+}
+
 export function findUserByUsernameOrEmail(identifier) {
   return prisma.user.findFirst({
     where: {

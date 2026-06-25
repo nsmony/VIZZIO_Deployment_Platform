@@ -211,6 +211,12 @@
   font-weight: 700;
 }
 
+.deployment-card-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .deployment-empty-state,
 .version-empty {
   display: grid;

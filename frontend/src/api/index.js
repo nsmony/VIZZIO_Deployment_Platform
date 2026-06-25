@@ -40,6 +40,14 @@ export async function createDeployment(token, deployment) {
   });
 }
 
+export async function updateDeployment(token, deploymentId, deployment) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(deployment),
+  });
+}
+
 export async function registerDeploymentVersion(token, deploymentId, version) {
   return request(`/deployments/${deploymentId}/versions`, token, {
     method: 'POST',
@@ -60,11 +68,11 @@ export async function fetchDeploymentDetails(token, deploymentId) {
   return request(`/deployments/${encodeURIComponent(deploymentId)}`, token);
 }
 
-export async function validateDeploymentPackage(token, packagePath) {
+export async function validateDeploymentPackage(token, packagePath, sourceType) {
   return request('/deployment-versions/validate-package', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ packagePath }),
+    body: JSON.stringify({ packagePath, sourceType }),
   });
 }
 
@@ -191,4 +199,52 @@ export async function deleteUser(token, userId) {
   return request(`/users/${userId}`, token, {
     method: 'DELETE',
   });
+}
+
+export async function fetchAdminDashboard(token) {
+  return request('/admin/dashboard', token);
+}
+
+export async function fetchNotifications(token) {
+  return request('/admin/notifications', token);
+}
+
+export async function fetchDownloadLogs(token, deploymentId) {
+  const params = new URLSearchParams();
+  if (deploymentId) params.set('deploymentId', deploymentId);
+  const query = params.toString();
+  return request(`/admin/download-logs${query ? `?${query}` : ''}`, token);
+}
+
+export async function exportDownloadLogs(token, deploymentId) {
+  const params = new URLSearchParams();
+  if (deploymentId) params.set('deploymentId', deploymentId);
+  const query = params.toString();
+  const response = await fetch(`${API_BASE}/admin/download-logs/export${query ? `?${query}` : ''}`, {
+    headers: {
+      Authorization: token ? `Bearer ${token}` : undefined,
+    },
+  });
+
+  const text = await response.text();
+  if (!response.ok) {
+    let message = 'Download log export failed';
+    try {
+      message = JSON.parse(text).error || message;
+    } catch (error) {
+      message = text || message;
+    }
+    throw new Error(message);
+  }
+
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const date = new Date().toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `download-logs-${date}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

@@ -16,14 +16,17 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 - **Admin**: A privileged operator who manages users, deployments, and versions via the Admin Web Panel.
 - **User**: An authorized person who authenticates via the Launcher to access and download deployments.
 - **Deployment**: A named software product (e.g., a specific Unreal Engine game or application) managed within the platform.
-- **Version**: A specific numbered release of a Deployment, stored as a folder of files on the server.
+- **Version**: A specific numbered release of a Deployment, distributed as a package archive and installed as a folder on the User's machine.
+- **Deployment Package Archive**: A ZIP or 7z archive containing the complete deployment folder contents for one Version, including the Unreal executable folder, two web folders, and the provided batch script.
+- **Server Staging Folder**: A completed deployment folder that an Admin has copied directly onto the server before registering it as a Version.
+- **Launch Batch Script**: The `.bat` file included in each extracted deployment package that the User runs manually after opening the install folder.
 - **Stable Version**: A Version designated as production-ready.
 - **Beta Version**: A Version designated for pre-release testing.
 - **Released Version**: A Version visible to authorized Users in the Launcher.
 - **Archived Version**: A Version hidden from Users in the Launcher; still accessible to Admins.
-- **Access Control**: The per-user permission set that determines which Deployments a User may see and download.
+- **Access Control**: The group-based permission set that determines which Deployments members of each User Group may see and download.
 - **Install Root**: A user-configurable local directory under which all Deployment versions are installed in separate subdirectories.
-- **Download Token**: A short-lived, signed JWT issued by the API and validated by the File Server to authorize file downloads.
+- **Download Token**: A short-lived, signed JWT issued by the API and validated by the File Server to authorize package archive downloads.
 - **Admin Web Panel**: The React + Vite SPA for platform administration.
 - **Launcher**: The Windows C# .NET 8 WPF desktop application.
 - **API**: The Node.js + Express RESTful backend.
@@ -94,31 +97,35 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 #### Acceptance Criteria
 
-1. THE Admin_Web_Panel SHALL allow an Admin to add a new Version to a Deployment by specifying a version number and a server-side folder path where the build files reside; both the version number and folder path are required fields during the version addition operation.
-2. WHEN a new Version is added, THE API SHALL verify that the specified folder path exists on the server before recording the Version in the Database.
-3. IF the specified folder path does not exist, THEN THE API SHALL return an HTTP 422 response and THE Admin_Web_Panel SHALL display an error message indicating the folder was not found.
-4. THE Admin_Web_Panel SHALL allow an Admin to designate a Version as Stable or Beta at the time of creation and allow changing this designation at any time after creation.
-5. THE Admin_Web_Panel SHALL allow an Admin to designate a Version as Released or Archived at the time of creation and allow changing this designation at any time after creation.
-6. WHEN a Version is marked as Archived, THE Launcher SHALL no longer display that Version to Users on the next API refresh.
-7. WHEN a Version is marked as Released, THE Launcher SHALL display that Version to all Users who have access to the parent Deployment on the next API refresh.
-8. THE Admin_Web_Panel SHALL display all Versions for a Deployment grouped by their channel (Stable / Beta) and status (Released / Archived).
+1. THE Admin_Web_Panel SHALL allow an Admin to add a new Version to a Deployment by specifying a version number and one package source: an uploaded Deployment Package Archive, a server-side archive path, or a server-side Server Staging Folder path.
+2. WHEN a new Version is added from a server-side archive path, THE API SHALL verify that the archive file exists on the server before recording the Version in the Database.
+3. WHEN a new Version is added from a Server Staging Folder path, THE API SHALL verify that the folder exists on the server and contains the expected launch batch script, create a Deployment Package Archive from that folder, and record the generated archive as the Version artifact.
+4. IF the specified archive file or Server Staging Folder does not exist, THEN THE API SHALL return an HTTP 422 response and THE Admin_Web_Panel SHALL display an error message indicating the package source was not found.
+5. THE Admin_Web_Panel SHALL allow an Admin to designate a Version as Stable or Beta at the time of creation and allow changing this designation at any time after creation.
+6. THE Admin_Web_Panel SHALL allow an Admin to designate a Version as Released or Archived at the time of creation and allow changing this designation at any time after creation.
+7. WHEN a Version is marked as Archived, THE Launcher SHALL no longer display that Version to Users on the next API refresh.
+8. WHEN a Version is marked as Released, THE Launcher SHALL display that Version to all Users who have access to the parent Deployment on the next API refresh.
+9. THE Admin_Web_Panel SHALL display all Versions for a Deployment grouped by their channel (Stable / Beta) and status (Released / Archived), including package source, package archive name, size, and checksum status.
 
 ---
 
-### Requirement 5: Access Control
+### Requirement 5: Group-Based Access Control
 
-**User Story:** As an Admin, I want to grant and revoke per-user access to Deployments, so that only authorized users can see and download specific products.
+**User Story:** As an Admin, I want to grant deployment access to groups of users, so that each client or team can be managed without assigning deployments to every user individually.
 
 #### Acceptance Criteria
 
-1. WHEN an Admin grants a specific User access to a specific Deployment, THE API SHALL record the permission and THE Admin_Web_Panel SHALL display a confirmation that access was granted.
-2. IF an Admin attempts to grant a User access to a Deployment that the User already has access to, THEN THE API SHALL return an HTTP 409 response and THE Admin_Web_Panel SHALL display a message indicating the User already has access.
-3. WHEN an Admin revokes a specific User's access to a specific Deployment, THE API SHALL remove the permission and THE Admin_Web_Panel SHALL display a confirmation that access was revoked.
-4. IF an Admin attempts to revoke a User's access to a Deployment that the User does not currently have access to, THEN THE API SHALL return an HTTP 404 response and THE Admin_Web_Panel SHALL display a message indicating no active access record was found.
-5. WHEN a User requests the deployment list, THE API SHALL return only the Deployments for which that User has been granted access.
-6. WHEN an Admin revokes a User's access to a Deployment, THE API SHALL stop returning that Deployment in subsequent requests from that User within 5 seconds of the revocation being recorded.
-7. WHEN an Admin navigates to a Deployment's detail page, THE Admin_Web_Panel SHALL display the list of Users who currently have access to that Deployment.
-8. WHEN an Admin navigates to a User's detail page, THE Admin_Web_Panel SHALL display the list of Deployments to which that User currently has access.
+1. THE Admin_Web_Panel SHALL allow an Admin to create and edit User Groups with unique group names.
+2. THE Admin_Web_Panel SHALL allow an Admin to add Users to and remove Users from User Groups.
+3. THE Admin_Web_Panel SHALL allow an Admin to grant and revoke Deployment access for a User Group.
+4. WHEN an Admin grants a User Group access to a Deployment, THE API SHALL record the group-to-deployment permission and THE Admin_Web_Panel SHALL display a confirmation that access was granted.
+5. IF an Admin attempts to grant a User Group access to a Deployment that the group already has access to, THEN THE API SHALL return an HTTP 409 response and THE Admin_Web_Panel SHALL display a message indicating the group already has access.
+6. WHEN an Admin revokes a User Group's access to a Deployment, THE API SHALL remove the group-to-deployment permission and THE Admin_Web_Panel SHALL display a confirmation that access was revoked.
+7. IF an Admin attempts to revoke a User Group's access to a Deployment that the group does not currently have access to, THEN THE API SHALL return an HTTP 404 response and THE Admin_Web_Panel SHALL display a message indicating no active access record was found.
+8. WHEN a User requests the deployment list, THE API SHALL return only the Deployments granted to at least one User Group that contains that User.
+9. WHEN an Admin changes a User's group membership or changes a User Group's Deployment access, THE API SHALL reflect the resulting Deployment visibility in subsequent requests from affected Users within 5 seconds.
+10. WHEN an Admin navigates to a User Group detail view, THE Admin_Web_Panel SHALL display the Users in that group and the Deployments granted to that group.
+11. WHEN an Admin navigates to a User detail view, THE Admin_Web_Panel SHALL display the User's group memberships and the Deployments inherited through those groups.
 
 ---
 
@@ -147,7 +154,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 #### Acceptance Criteria
 
-1. WHEN a User requests the deployment list, THE API SHALL require a valid JWT and SHALL return only the Deployments to which that User has been granted access; THE Launcher SHALL display the returned Deployments.
+1. WHEN a User requests the deployment list, THE API SHALL require a valid JWT and SHALL return only the Deployments granted to at least one User Group that contains that User; THE Launcher SHALL display the returned Deployments.
 2. THE Launcher SHALL display all Released Versions of each accessible Deployment, grouped by channel: Stable versions listed separately from Beta versions.
 3. THE Launcher SHALL NOT display Archived Versions to the User.
 4. WHEN a Version becomes Archived after the deployment list has been loaded, THE Launcher SHALL remove it from the display on the next API refresh.
@@ -158,41 +165,42 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 ---
 
-### Requirement 8: File Download
+### Requirement 8: Package Download
 
-**User Story:** As a User, I want to download a selected version with fast, resumable parallel downloads, so that I can install large Unreal Engine builds reliably even over unstable connections.
+**User Story:** As a User, I want to download a selected version package with fast, resumable parallel downloads, so that I can install large Unreal Engine builds reliably even over unstable connections.
 
 #### Acceptance Criteria
 
-1. WHEN a User initiates a download for a Version, THE Launcher SHALL request a short-lived Download Token from the API for that Version.
+1. WHEN a User initiates a download for a Version, THE Launcher SHALL request a short-lived Download Token from the API for that Version's Deployment Package Archive.
 2. THE API SHALL issue a Download Token as a signed JWT valid for no more than 1 hour, scoped to the specific Version and User.
-3. THE File_Server SHALL validate each file request against the API and SHALL reject requests with missing or invalid Download Tokens with an HTTP 401 response.
-4. WHEN a download is in progress, THE Launcher SHALL download files using between 4 and 16 parallel HTTP range-request streams per Version download.
+3. THE File_Server SHALL validate each package archive request against the API and SHALL reject requests with missing or invalid Download Tokens with an HTTP 401 response.
+4. WHEN a download is in progress, THE Launcher SHALL download the package archive using between 4 and 16 parallel HTTP range-request streams per Version download.
 5. THE Launcher SHALL support a minimum of 4 concurrent download streams per Version download.
-6. WHEN a download is interrupted by a network failure or application restart, THE Launcher SHALL automatically resume the download from the last successfully received byte offset for each incomplete file upon reconnection or restart, without requiring User intervention.
-7. THE Launcher SHALL persist download progress state to disk so that resumption survives a machine restart.
+6. WHEN a download is interrupted by a network failure or application restart, THE Launcher SHALL automatically resume the package archive download from the last successfully received byte offset for each incomplete range upon reconnection or restart, without requiring User intervention.
+7. THE Launcher SHALL persist package download progress state to disk so that resumption survives a machine restart.
 8. THE Launcher SHALL provide Pause, Resume, and Cancel controls for each active or paused download.
-9. WHEN a download is cancelled, THE Launcher SHALL remove all partially downloaded files for that Version from disk.
+9. WHEN a download is cancelled, THE Launcher SHALL remove all partially downloaded package archive parts for that Version from disk.
 10. WHILE a download is in progress, THE Launcher SHALL update and display the current download speed in MB/s, the remaining data size in MB or GB, and the estimated time remaining, refreshing these values at intervals of no more than 2 seconds.
-11. WHEN a User initiates a download for a Version, THE Launcher SHALL calculate the total size of the Version and verify that the Install Root has at least that much free disk space before beginning any file transfers.
-12. IF the available disk space is insufficient to accommodate the Version download, THEN THE Launcher SHALL display a message stating both the required size and the available size in MB (if less than 1 GB) or GB with two decimal places (if 1 GB or more), and SHALL NOT begin the download.
+11. WHEN a User initiates a download for a Version, THE Launcher SHALL calculate the total size required for both the package archive and the extracted deployment folder, then verify that the Install Root has enough free disk space before beginning any file transfers.
+12. IF the available disk space is insufficient to accommodate the package archive and extracted deployment folder, THEN THE Launcher SHALL display a message stating both the required size and the available size in MB (if less than 1 GB) or GB with two decimal places (if 1 GB or more), and SHALL NOT begin the download.
 13. WHILE a download is active and the Download Token age reaches 55 minutes, THE Launcher SHALL request a refreshed Download Token from the API and replace the expiring token before the 60-minute expiry is reached.
-14. WHEN available disk space on the Install Root falls below the remaining download size during an active download, THE Launcher SHALL pause the download and display a message stating the size shortfall in MB or GB.
+14. WHEN available disk space on the Install Root falls below the remaining package download or extraction size during an active operation, THE Launcher SHALL pause the operation and display a message stating the size shortfall in MB or GB.
 
 ---
 
-### Requirement 9: File Integrity Verification
+### Requirement 9: Package Integrity Verification and Extraction
 
-**User Story:** As a User, I want downloaded files to be verified for integrity, so that I can trust that the installed build is complete and uncorrupted.
+**User Story:** As a User, I want downloaded package archives to be verified and extracted cleanly, so that I can trust that the installed deployment folder is complete and uncorrupted.
 
 #### Acceptance Criteria
 
-1. WHEN a Version is added to the platform, THE API SHALL compute and store a SHA-256 checksum for each file in the Version folder.
-2. WHEN a file download completes, THE Launcher SHALL compute the SHA-256 checksum of the downloaded file and compare it against the value provided by the API.
-3. IF a file's checksum does not match, THEN THE Launcher SHALL delete the corrupted file, display an error message identifying the affected file, and offer the User the option to retry the download; IF the file fails checksum verification 3 consecutive times, THEN THE Launcher SHALL abort the download of that file and display a message advising the User to contact support.
-4. WHEN all files in a Version have been downloaded and their checksums verified, THE Launcher SHALL mark that Version as fully installed.
-5. IF a Version download required file deletion and retry due to checksum failures but all files ultimately pass checksum verification, THEN THE Launcher SHALL still mark that Version as fully installed.
-6. IF the API does not provide a SHA-256 checksum for a file in a Version, THEN THE Launcher SHALL skip checksum verification for that file and log a warning, but SHALL still include the file as part of the completed download.
+1. WHEN a Version is added to the platform, THE API SHALL compute and store a SHA-256 checksum for the Deployment Package Archive.
+2. WHEN a package archive download completes, THE Launcher SHALL compute the SHA-256 checksum of the downloaded archive and compare it against the checksum provided by the API.
+3. IF the package archive checksum does not match, THEN THE Launcher SHALL delete the corrupted archive, display an error message identifying the affected Version, and offer the User the option to retry the download; IF the archive fails checksum verification 3 consecutive times, THEN THE Launcher SHALL abort the download and display a message advising the User to contact support.
+4. WHEN a package archive passes checksum verification, THE Launcher SHALL extract the archive into the Version's install subdirectory under the Install Root.
+5. WHEN extraction completes successfully and the expected batch script is present in the extracted deployment folder, THE Launcher SHALL mark that Version as fully installed.
+6. IF extraction fails, THEN THE Launcher SHALL leave the Version marked as Not Installed, remove the incomplete extracted folder, and display a friendly error message advising the User to retry.
+7. IF the API does not provide a SHA-256 checksum for the package archive, THEN THE Launcher SHALL NOT install the package and SHALL display an error stating that the package could not be verified.
 
 ---
 
@@ -205,7 +213,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 1. THE Launcher SHALL install each Version into a distinct subdirectory under the Install Root, using a path of the form `<InstallRoot>/<DeploymentName>/<VersionNumber>/`.
 2. THE Launcher SHALL allow multiple Versions of the same Deployment to be installed concurrently without overwriting or modifying other installed Versions.
 3. IF a User initiates a download for a Version that is already fully installed, THEN THE Launcher SHALL display a message indicating the Version is already installed and SHALL NOT begin a new download.
-4. THE Launcher SHALL track the installation state of each Version as either Installed or Not Installed, where Installed means the Version's subdirectory exists and all expected files are present.
+4. THE Launcher SHALL track the installation state of each Version as either Installed or Not Installed, where Installed means the Version's extracted subdirectory exists and contains the expected batch script.
 5. WHEN a User uninstalls a specific Version, THE Launcher SHALL delete only the subdirectory for that Version and SHALL leave other installed Versions of the same Deployment intact.
 
 ---
@@ -232,7 +240,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 #### Acceptance Criteria
 
-1. WHILE a Version's installation is complete and all expected files are present in its install subdirectory, THE Launcher SHALL display an "Open Folder" button for that Version.
+1. WHILE a Version's installation is complete and its extracted install subdirectory exists with the expected batch script, THE Launcher SHALL display an "Open Folder" button for that Version.
 2. WHEN the User activates the "Open Folder" button for an installed Version, THE Launcher SHALL open the Version's install subdirectory in Windows File Explorer.
 3. IF the Version's install subdirectory no longer exists when the User activates the "Open Folder" button, THEN THE Launcher SHALL display an error message stating the folder could not be found and SHALL NOT attempt to open File Explorer.
 
@@ -244,10 +252,10 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 #### Acceptance Criteria
 
-1. WHEN a network error occurs during a download, THE Launcher SHALL display a descriptive message indicating a connection problem and offer the User the option to retry or pause the download; IF the network error recurs on 3 consecutive retry attempts, THE Launcher SHALL pause the download automatically and display a message advising the User to check their connection.
+1. WHEN a network error occurs during a package archive download, THE Launcher SHALL display a descriptive message indicating a connection problem and offer the User the option to retry or pause the download; IF the network error recurs on 3 consecutive retry attempts, THE Launcher SHALL pause the download automatically and display a message advising the User to check their connection.
 2. WHEN the API returns an unexpected error (HTTP 5xx), THE Launcher SHALL display a message stating that the server is temporarily unavailable and to try again later.
-3. WHEN a file integrity check fails, THE Launcher SHALL display a message naming the affected file and offering a retry option; IF the integrity check fails 3 consecutive times for the same file, THE Launcher SHALL abort the download and display a message advising the User to contact support.
-4. WHEN disk space is insufficient to begin a download, THE Launcher SHALL display the required space and the available space — in MB if the value is less than 1 GB, or in GB with two decimal places otherwise — and SHALL offer the User the option to proceed anyway or cancel; IF the disk space information cannot be determined, THE Launcher SHALL display a message stating that available space could not be checked and offer the User the option to proceed or cancel.
+3. WHEN a package archive integrity check fails, THE Launcher SHALL display a message naming the affected Version and offering a retry option; IF the integrity check fails 3 consecutive times for the same Version, THE Launcher SHALL abort the download and display a message advising the User to contact support.
+4. WHEN disk space is insufficient to begin a package download or extraction, THE Launcher SHALL display the required space and the available space — in MB if the value is less than 1 GB, or in GB with two decimal places otherwise — and SHALL offer the User the option to choose a different Install Root or cancel; IF the disk space information cannot be determined, THE Launcher SHALL display a message stating that available space could not be checked and offer the User the option to choose a different Install Root or cancel.
 5. THE Launcher SHALL NOT display raw HTTP status codes, stack traces, or internal error identifiers to the User in any error message.
 
 ---
@@ -267,16 +275,16 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 ### Requirement 15: Download Token Security
 
-**User Story:** As a platform operator, I want file downloads to require short-lived signed tokens, so that unauthorized users cannot access build files directly.
+**User Story:** As a platform operator, I want package archive downloads to require short-lived signed tokens, so that unauthorized users cannot access deployment packages directly.
 
 #### Acceptance Criteria
 
-1. THE File_Server SHALL reject all requests for Version files that do not include a valid Download Token, returning HTTP 401.
+1. THE File_Server SHALL reject all requests for Version package archives that do not include a valid Download Token, returning HTTP 401.
 2. THE API SHALL sign Download Tokens using a secret key not exposed to clients.
 3. WHEN a Download Token's remaining lifetime falls below 60 seconds or the token has expired, THE Launcher SHALL request a new Download Token from the API; THE API SHALL issue new Download Tokens with a lifetime between 60 and 900 seconds.
 4. THE API SHALL scope each Download Token to a specific User and a specific Version; IF a token is presented for a different User or Version than the one it was issued for, THE API SHALL return an HTTP 403 response.
-5. WHEN the File Server receives a file request, THE File Server SHALL verify the Download Token is valid and has not expired before serving any file data.
-6. IF the token validation service is unavailable when the File Server receives a file request, THEN THE File Server SHALL deny the request and SHALL NOT serve any file data.
+5. WHEN the File Server receives a package archive request, THE File Server SHALL verify the Download Token is valid and has not expired before serving any archive data.
+6. IF the token validation service is unavailable when the File Server receives a package archive request, THEN THE File Server SHALL deny the request and SHALL NOT serve any archive data.
 
 ---
 
@@ -290,3 +298,4 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 2. THE Launcher installer SHALL create desktop and Start Menu shortcuts pointing to the installed Launcher executable; IF shortcut creation fails due to system permissions or policy restrictions, THE installer SHALL continue and complete the installation without the shortcuts.
 3. THE Launcher SHALL be self-contained such that installation completes successfully on a clean Windows machine without internet access and without requiring the end-user to separately install the .NET 8 runtime.
 4. WHEN a newer version of the Launcher installer is run on a machine that already has the Launcher installed, THE installer SHALL replace the existing Launcher binaries with the new version and SHALL preserve the User's existing configuration (Install Root path and persisted JWT) without requiring the User to reconfigure the application.
+

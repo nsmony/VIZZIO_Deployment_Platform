@@ -28,7 +28,7 @@ const emptyGroupForm = {
   memberIds: [],
 };
 
-const credentialStorageKey = 'vizzio_user_credentials';
+const pageSize = 25;
 
 export default function Users() {
   const [users, setUsers] = useState([]);
@@ -37,6 +37,7 @@ export default function Users() {
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('All Users');
   const [filterGroup, setFilterGroup] = useState('All Groups');
+  const [page, setPage] = useState(1);
   const [form, setForm] = useState(emptyForm);
   const [groupForm, setGroupForm] = useState(emptyGroupForm);
   const [editingUser, setEditingUser] = useState(null);
@@ -46,7 +47,6 @@ export default function Users() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [credentials, setCredentials] = useState(null);
-  const [userCredentials, setUserCredentials] = useState(loadStoredCredentials);
   const [openUserMenuId, setOpenUserMenuId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -80,6 +80,17 @@ export default function Users() {
       return matchesSearch && matchesRole && matchesGroup;
     });
   }, [users, search, filterRole, filterGroup]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterRole, filterGroup]);
+
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   async function loadData() {
     setIsLoading(true);
@@ -233,7 +244,6 @@ export default function Users() {
             password: data.temporaryPassword,
           };
           setCredentials(credential);
-          setUserCredentials((current) => storeCredentials({ ...current, [data.user.id]: credential }));
         }
         setMessage(`${data.user.name} was created.`);
       }
@@ -329,7 +339,6 @@ export default function Users() {
         password: data.temporaryPassword,
       };
       setCredentials(credential);
-      setUserCredentials((current) => storeCredentials({ ...current, [data.user.id]: credential }));
       setMessage(`Password was reset for ${data.user.name}.`);
     } catch (resetError) {
       setError(resetError.message);
@@ -348,11 +357,6 @@ export default function Users() {
     try {
       await deleteUser(token, user.id);
       setUsers((current) => current.filter((item) => item.id !== user.id));
-      setUserCredentials((current) => {
-        const next = { ...current };
-        delete next[user.id];
-        return storeCredentials(next);
-      });
       setMessage(`${user.name} was deleted.`);
     } catch (deleteError) {
       setError(deleteError.message);
@@ -373,32 +377,6 @@ export default function Users() {
     try {
       await copyText(text);
       setMessage('Credentials copied to clipboard.');
-    } catch (copyError) {
-      setError('Clipboard copy failed. Select the credentials and copy them manually.');
-    }
-  }
-
-  async function copyUserCredentials(user) {
-    setOpenUserMenuId(null);
-    const credential = userCredentials[user.id];
-    if (!credential) {
-      setError(`No temporary password is available for ${user.name}. Reset the password to generate one.`);
-      setMessage('');
-      return;
-    }
-
-    const text = [
-      `VIZZIO Deployment Platform credentials`,
-      `Name: ${credential.name}`,
-      `Username: ${credential.username || credential.email}`,
-      `Email: ${credential.email}`,
-      `Password: ${credential.password}`,
-    ].join('\n');
-
-    try {
-      await copyText(text);
-      setMessage(`Credentials copied for ${credential.name}.`);
-      setError('');
     } catch (copyError) {
       setError('Clipboard copy failed. Select the credentials and copy them manually.');
     }
@@ -476,21 +454,6 @@ export default function Users() {
         </div>
       )}
 
-      {credentials && (
-        <section className="credentials-panel">
-          <div>
-            <h3>Latest Credentials</h3>
-            <p>{credentials.name} can sign in with this email and temporary password.</p>
-            <div className="credential-lines">
-              <span>Username: {credentials.username || credentials.email}</span>
-              <span>Email: {credentials.email}</span>
-              <span>Password: {credentials.password}</span>
-            </div>
-          </div>
-          <button className="secondary-btn" onClick={copyCredentials}>Copy Credentials</button>
-        </section>
-      )}
-
       <section className="users-panel">
         {isLoading ? (
           <div className="users-empty">Loading users...</div>
@@ -501,13 +464,13 @@ export default function Users() {
                 <th>User</th>
                 <th>Role</th>
                 <th>Status</th>
-                <th>Deployments</th>
+                <th>Access</th>
                 <th>Last Login</th>
                 <th>Controls</th>
               </tr>
             </thead>
             <tbody>
-              {filteredUsers.map((user) => (
+              {pagedUsers.map((user) => (
                 <tr key={user.id}>
                   <td>
                     <div className="user-cell">
@@ -547,7 +510,6 @@ export default function Users() {
                         <div className="row-menu-panel">
                           <button type="button" onClick={() => openEditForm(user)}>Edit</button>
                           <button type="button" onClick={() => handleResetPassword(user)}>Reset Password</button>
-                          <button type="button" onClick={() => copyUserCredentials(user)}>Copy Credentials</button>
                           <button
                             type="button"
                             disabled={user.status === 'Inactive'}
@@ -575,6 +537,14 @@ export default function Users() {
           </table>
         )}
       </section>
+
+      {filteredUsers.length > pageSize && (
+        <div className="users-pagination">
+          <button className="secondary-btn" type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <span>Page {page} of {pageCount}</span>
+          <button className="secondary-btn" type="button" disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</button>
+        </div>
+      )}
 
       <section className="groups-panel">
         <div className="section-heading">
@@ -711,6 +681,36 @@ export default function Users() {
         </div>
       )}
 
+      {credentials && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="user-modal credential-modal" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <div>
+                <h3>Temporary Credentials</h3>
+                <p>Copy these credentials now. The password is not stored in the admin portal.</p>
+              </div>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setCredentials(null)}
+                aria-label="Close credentials"
+              >
+                x
+              </button>
+            </div>
+            <div className="credential-lines">
+              <span>Username: {credentials.username || credentials.email}</span>
+              <span>Email: {credentials.email}</span>
+              <span>Password: {credentials.password}</span>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setCredentials(null)}>Done</button>
+              <button type="button" className="primary-btn" onClick={copyCredentials}>Copy Credentials</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {isGroupFormOpen && (
         <div className="modal-backdrop" role="presentation">
           <form className="user-modal" onSubmit={saveGroup}>
@@ -813,17 +813,4 @@ async function copyText(text) {
   textArea.select();
   document.execCommand('copy');
   document.body.removeChild(textArea);
-}
-
-function loadStoredCredentials() {
-  try {
-    return JSON.parse(sessionStorage.getItem(credentialStorageKey) || '{}');
-  } catch (error) {
-    return {};
-  }
-}
-
-function storeCredentials(credentialsByUserId) {
-  sessionStorage.setItem(credentialStorageKey, JSON.stringify(credentialsByUserId));
-  return credentialsByUserId;
 }

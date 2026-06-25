@@ -5,6 +5,7 @@ import Version from './pages/admin/Version';
 import Deployment from './pages/admin/Deployment';
 import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
+import Notifications from './pages/admin/Notifications';
 import UserPanel from './pages/user/UserPanel';
 import AdminLayout from './layouts/AdminLayout';
 import './styles/App.css';
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="/deployment" element={<Deployment />} />
           <Route path="/users" element={<Users />} />
           <Route path="/logs/download" element={<Logs />} />
+          <Route path="/notifications" element={<Notifications />} />
         </Route>
 
         <Route

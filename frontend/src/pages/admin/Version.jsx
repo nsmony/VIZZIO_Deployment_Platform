@@ -13,6 +13,7 @@ import '../../styles/Version.css';
 const emptyVersion = {
   versionNumber: '',
   releaseType: 'stable',
+  sourceType: 'stagingFolder',
   packagePath: '',
   fileName: '',
   fileType: '',
@@ -125,10 +126,11 @@ export default function Version() {
     setValidatingPackage(true);
     setError('');
     try {
-      const result = await validateDeploymentPackage(token, form.packagePath);
+      const result = await validateDeploymentPackage(token, form.packagePath, form.sourceType);
       const packageInfo = result.package;
       setForm((current) => ({
         ...current,
+        sourceType: packageInfo.packageSource || current.sourceType,
         fileName: packageInfo.fileName || '',
         fileType: packageInfo.fileType || '',
         packageSize: packageInfo.packageSize || '',
@@ -215,18 +217,41 @@ export default function Version() {
               <option value="beta">Beta</option>
             </select>
           </label>
-          <label className="version-path-field">
-            Server package path
-            <input value={form.packagePath} onChange={(event) => updatePackagePath(event.target.value)} placeholder="/var/vizzio/packages/digital-twin-v1.3.0.zip" required />
+          <label>
+            Package source
+            <select
+              value={form.sourceType}
+              onChange={(event) => {
+                setSelectedFile(null);
+                setPackageValidated(false);
+                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '' });
+              }}
+            >
+              <option value="stagingFolder">Server staging folder</option>
+              <option value="serverArchive">Server archive path</option>
+              <option value="upload">Upload archive</option>
+            </select>
           </label>
-          <div className="version-form-actions">
-            <button className="secondary-btn" type="button" disabled={validatingPackage || !form.packagePath || Boolean(selectedFile)} onClick={handleValidatePackage}>
-              {validatingPackage ? 'Validating...' : 'Validate package'}
-            </button>
-            {packageValidated && <span className="version-validation-ok">Package validated</span>}
-          </div>
-          <label className="version-file-field">
-            Upload small package <span>(optional)</span>
+          <label className="version-path-field">
+            {form.sourceType === 'stagingFolder' ? 'Server staging folder path' : 'Server archive path'}
+            <input
+              value={form.packagePath}
+              onChange={(event) => updatePackagePath(event.target.value)}
+              placeholder={form.sourceType === 'stagingFolder' ? '/var/vizzio/packages/digital-twin/v1.3.0' : '/var/vizzio/packages/digital-twin-v1.3.0.zip'}
+              required={form.sourceType !== 'upload'}
+              disabled={form.sourceType === 'upload'}
+            />
+          </label>
+          {form.sourceType !== 'upload' && (
+            <div className="version-form-actions">
+              <button className="secondary-btn" type="button" disabled={validatingPackage || !form.packagePath || Boolean(selectedFile)} onClick={handleValidatePackage}>
+                {validatingPackage ? 'Validating...' : form.sourceType === 'stagingFolder' ? 'Validate folder' : 'Validate archive'}
+              </button>
+              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' ? 'Folder ready for packaging' : 'Archive validated'}</span>}
+            </div>
+          )}
+          {form.sourceType === 'upload' && <label className="version-file-field">
+            Upload package archive
             <input
               type="file"
               onChange={(event) => {
@@ -236,6 +261,7 @@ export default function Version() {
                 if (file) {
                   setForm({
                     ...form,
+                    sourceType: 'upload',
                     packagePath: file.name,
                     fileName: file.name,
                     fileType: file.type || form.fileType,
@@ -244,10 +270,10 @@ export default function Version() {
                 }
               }}
             />
-          </label>
+          </label>}
           <label>
             File name
-            <input value={form.fileName} readOnly placeholder="Validate a server package first" />
+            <input value={form.fileName} readOnly placeholder={form.sourceType === 'stagingFolder' ? 'Generated when the version is registered' : 'Validate or upload a package first'} />
           </label>
           <label>
             File type
@@ -262,7 +288,7 @@ export default function Version() {
             <input value={form.checksum} readOnly placeholder="SHA-256 checksum" />
           </label>
           <div className="version-form-actions">
-            <button className="primary-btn" type="submit" disabled={saving || (!selectedFile && !packageValidated)}>{saving ? 'Registering...' : 'Register version'}</button>
+            <button className="primary-btn" type="submit" disabled={saving || (form.sourceType === 'upload' ? !selectedFile : !packageValidated)}>{saving ? 'Registering...' : 'Register version'}</button>
           </div>
         </form>
       )}
@@ -296,9 +322,9 @@ export default function Version() {
                       <td><strong>{version.versionNumber}</strong></td>
                       <td>
                         <div className="version-package-details">
-                          <strong>{version.fileName || 'Folder release'}</strong>
+                          <strong>{version.fileName || 'Generated package'}</strong>
                           <span className="version-path" title={version.packagePath || ''}>{version.packagePath || 'Path not set'}</span>
-                          <span>{version.fileType || 'Type not set'} · {formatPackageSize(version.packageSize)}</span>
+                          <span>{version.packageSource || 'package'} - {version.fileType || 'Type not set'} - {formatPackageSize(version.packageSize)}</span>
                           {version.checksum && <span className="version-checksum" title={version.checksum}>Checksum: {version.checksum}</span>}
                         </div>
                       </td>
