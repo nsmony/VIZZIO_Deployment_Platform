@@ -26,6 +26,7 @@ namespace Launcher
         private const int ChunkCount = 4;
         private const int MaxChunkAttempts = 5;
         private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan ProgressReportInterval = TimeSpan.FromMilliseconds(250);
         private readonly HttpClient _httpClient = new()
         {
             Timeout = Timeout.InfiniteTimeSpan,
@@ -56,22 +57,54 @@ namespace Launcher
             EnsureDiskSpace(targetPath, expectedSize);
 
             var totalBytes = expectedSize > 0 ? expectedSize : await GetRemoteLengthAsync(await sourceFactory(), cancellationToken);
-            var chunks = CreateChunks(totalBytes, targetPath);
-            var stopwatch = Stopwatch.StartNew();
-
-            await Task.WhenAll(chunks.Select(chunk => DownloadChunkAsync(sourceFactory, chunk, progress, pauseGate, stopwatch, totalBytes, cancellationToken)));
-            MergeChunks(chunks, targetPath);
-
-            if (!string.IsNullOrWhiteSpace(expectedSha256))
+            if (!await SupportsRangeRequestsAsync(await sourceFactory(), cancellationToken))
             {
-                var actual = await ComputeSha256Async(targetPath, cancellationToken);
-                if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidDataException("Downloaded file checksum did not match. Please re-download the package.");
-                }
+                return await DownloadSingleStreamAsync(sourceFactory, targetPath, totalBytes, expectedSha256, progress, pauseGate, cancellationToken);
             }
 
-            return targetPath;
+            try
+            {
+                var chunks = CreateChunks(totalBytes, targetPath);
+                var stopwatch = Stopwatch.StartNew();
+                var progressState = new ProgressReportState();
+
+                await Task.WhenAll(chunks.Select(chunk => DownloadChunkAsync(sourceFactory, chunk, progress, pauseGate, stopwatch, progressState, totalBytes, cancellationToken)));
+                MergeChunks(chunks, targetPath);
+                ReportProgress(progress, totalBytes, stopwatch, totalBytes);
+
+                if (!string.IsNullOrWhiteSpace(expectedSha256))
+                {
+                    var actual = await ComputeSha256Async(targetPath, cancellationToken);
+                    if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidDataException("Downloaded file checksum did not match. Please re-download the package.");
+                    }
+                }
+
+                return targetPath;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (InvalidDataException)
+            {
+                throw;
+            }
+            catch
+            {
+                return await DownloadSingleStreamAsync(sourceFactory, targetPath, totalBytes, expectedSha256, progress, pauseGate, cancellationToken);
+            }
+        }
+
+        private async Task<bool> SupportsRangeRequestsAsync(Uri source, CancellationToken cancellationToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, source);
+            request.Headers.Range = new RangeHeaderValue(0, 0);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.PartialContent) return true;
+            response.EnsureSuccessStatusCode();
+            return false;
         }
 
         private async Task<long> GetRemoteLengthAsync(Uri source, CancellationToken cancellationToken)
@@ -114,9 +147,11 @@ namespace Launcher
             IProgress<DownloadProgress> progress,
             ManualResetEventSlim pauseGate,
             Stopwatch stopwatch,
+            ProgressReportState progressState,
             long totalBytes,
             CancellationToken cancellationToken)
         {
+            Exception? lastError = null;
             for (var attempt = 1; attempt <= MaxChunkAttempts; attempt++)
             {
                 try
@@ -140,16 +175,23 @@ namespace Launcher
                     var buffer = new byte[1024 * 128];
                     while (true)
                     {
-                        pauseGate.Wait(cancellationToken);
                         var read = await input.ReadAsync(buffer, cancellationToken);
                         if (read == 0) break;
+                        pauseGate.Wait(cancellationToken);
                         await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-                        ReportProgress(progress, totalBytes, stopwatch, chunk.PartPath);
+                        if (ShouldReportProgress(progressState, force: false))
+                        {
+                            ReportProgress(progress, totalBytes, stopwatch, chunk.PartPath);
+                        }
                     }
 
                     var expectedPartSize = chunk.End - chunk.Start + 1;
                     var actualPartSize = File.Exists(chunk.PartPath) ? new FileInfo(chunk.PartPath).Length : 0;
-                    if (actualPartSize >= expectedPartSize) return;
+                    if (actualPartSize >= expectedPartSize)
+                    {
+                        ReportProgress(progress, totalBytes, stopwatch, chunk.PartPath);
+                        return;
+                    }
 
                     throw new IOException($"Download stream ended early for bytes {chunk.Start}-{chunk.End}.");
                 }
@@ -157,13 +199,76 @@ namespace Launcher
                 {
                     throw;
                 }
-                catch when (attempt < MaxChunkAttempts)
+                catch (Exception ex) when (attempt < MaxChunkAttempts)
                 {
+                    lastError = ex;
                     await Task.Delay(RetryDelay, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
                 }
             }
 
-            throw new IOException($"The connection failed while downloading bytes {chunk.Start}-{chunk.End}.");
+            throw new IOException($"The connection failed while downloading bytes {chunk.Start}-{chunk.End}: {lastError?.Message ?? "unknown error"}", lastError);
+        }
+
+        private async Task<string> DownloadSingleStreamAsync(
+            Func<Task<Uri>> sourceFactory,
+            string targetPath,
+            long totalBytes,
+            string? expectedSha256,
+            IProgress<DownloadProgress> progress,
+            ManualResetEventSlim pauseGate,
+            CancellationToken cancellationToken)
+        {
+            DeletePartFiles(targetPath);
+            var tempPath = $"{targetPath}.download";
+            var stopwatch = Stopwatch.StartNew();
+            var progressState = new ProgressReportState();
+            long downloaded = 0;
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, await sourceFactory());
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using (var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read, 1024 * 128, true))
+            {
+                var buffer = new byte[1024 * 128];
+                while (true)
+                {
+                    var read = await input.ReadAsync(buffer, cancellationToken);
+                    if (read == 0) break;
+                    pauseGate.Wait(cancellationToken);
+                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                    downloaded += read;
+                    if (ShouldReportProgress(progressState, force: false))
+                    {
+                        ReportProgress(progress, totalBytes, stopwatch, downloaded);
+                    }
+                }
+            }
+            ReportProgress(progress, totalBytes, stopwatch, downloaded);
+
+            if (totalBytes > 0 && downloaded < totalBytes)
+            {
+                throw new IOException("Download stream ended early.");
+            }
+
+            if (File.Exists(targetPath)) File.Delete(targetPath);
+            File.Move(tempPath, targetPath);
+
+            if (!string.IsNullOrWhiteSpace(expectedSha256))
+            {
+                var actual = await ComputeSha256Async(targetPath, cancellationToken);
+                if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("Downloaded file checksum did not match. Please re-download the package.");
+                }
+            }
+
+            return targetPath;
         }
 
         private static void NormalizePartFile(DownloadChunk chunk)
@@ -183,6 +288,11 @@ namespace Launcher
             var directory = Path.GetDirectoryName(partPath)!;
             var prefix = Path.GetFileNameWithoutExtension(partPath);
             var downloaded = Directory.GetFiles(directory, $"{prefix}.part*").Sum(path => new FileInfo(path).Length);
+            ReportProgress(progress, totalBytes, stopwatch, downloaded);
+        }
+
+        private static void ReportProgress(IProgress<DownloadProgress> progress, long totalBytes, Stopwatch stopwatch, long downloaded)
+        {
             var speed = stopwatch.Elapsed.TotalSeconds <= 0 ? 0 : downloaded / stopwatch.Elapsed.TotalSeconds;
             var remainingSeconds = speed <= 0 ? 0 : (totalBytes - downloaded) / speed;
             progress.Report(new DownloadProgress
@@ -192,6 +302,31 @@ namespace Launcher
                 BytesPerSecond = speed,
                 Eta = TimeSpan.FromSeconds(Math.Max(0, remainingSeconds)),
             });
+        }
+
+        private static bool ShouldReportProgress(ProgressReportState state, bool force)
+        {
+            if (force) return true;
+
+            var now = DateTimeOffset.UtcNow;
+            lock (state)
+            {
+                if (now - state.LastReportAt < ProgressReportInterval) return false;
+                state.LastReportAt = now;
+                return true;
+            }
+        }
+
+        private static void DeletePartFiles(string targetPath)
+        {
+            var directory = Path.GetDirectoryName(targetPath);
+            var fileName = Path.GetFileName(targetPath);
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory)) return;
+
+            foreach (var partPath in Directory.EnumerateFiles(directory, $"{fileName}.part*"))
+            {
+                File.Delete(partPath);
+            }
         }
 
         private static void MergeChunks(IEnumerable<DownloadChunk> chunks, string targetPath)
@@ -236,5 +371,10 @@ namespace Launcher
         }
 
         private sealed record DownloadChunk(long Start, long End, string PartPath);
+
+        private sealed class ProgressReportState
+        {
+            public DateTimeOffset LastReportAt { get; set; } = DateTimeOffset.MinValue;
+        }
     }
 }

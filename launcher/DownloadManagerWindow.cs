@@ -257,13 +257,22 @@ namespace Launcher
                 {
                     _progress.Value = value.Percent;
                     _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
-                    var now = DateTimeOffset.UtcNow;
-                    if (sessionProgressUpdateRunning || now - lastSessionProgressUpdate < TimeSpan.FromSeconds(1)) return;
+                    if (value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes)
+                    {
+                        _pauseGate.Set();
+                        _pauseButton.IsEnabled = false;
+                        _pauseButton.Content = "Pause";
+                    }
 
-                    lastSessionProgressUpdate = now;
-                    sessionProgressUpdateRunning = true;
-                    _ = _api.UpdateSessionAsync(session.Session.Id, "downloading", value.DownloadedBytes, value.TotalBytes, CancellationToken.None)
-                        .ContinueWith(_ => sessionProgressUpdateRunning = false, TaskScheduler.FromCurrentSynchronizationContext());
+                    var now = DateTimeOffset.UtcNow;
+                    if (!sessionProgressUpdateRunning &&
+                        (now - lastSessionProgressUpdate >= TimeSpan.FromSeconds(2) || value.DownloadedBytes >= value.TotalBytes))
+                    {
+                        lastSessionProgressUpdate = now;
+                        sessionProgressUpdateRunning = true;
+                        _ = TryUpdateSessionAsync(session.Session.Id, "downloading", value.DownloadedBytes, value.TotalBytes, CancellationToken.None)
+                            .ContinueWith(_ => Dispatcher.Invoke(() => sessionProgressUpdateRunning = false));
+                    }
                 });
 
                 _status.Text = "Downloading...";
@@ -308,12 +317,13 @@ namespace Launcher
                     {
                         _pauseGate.Reset();
                         _pauseButton.Content = "Resume";
-                        throw new IOException("The connection failed 3 times. Check your connection, then resume the download.");
+                        throw;
                     }
                 }
                 _status.Text = "Extracting package...";
-                InstallPackage(targetPath, installFolder);
-                await _api.UpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
+                _pauseButton.IsEnabled = false;
+                await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
+                await TryUpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
                 _progress.Value = 100;
                 _status.Text = $"Installed to {installFolder}";
                 RenderCards();
@@ -342,6 +352,22 @@ namespace Launcher
                 _pauseButton.Content = "Pause";
                 _deletePartialOnCancel = false;
                 _activeDownloadTargetPath = "";
+            }
+        }
+
+        private async Task TryUpdateSessionAsync(string sessionId, string status, long downloadedSize, long totalSize, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _api.UpdateSessionAsync(sessionId, status, downloadedSize, totalSize, cancellationToken);
+            }
+            catch (LauncherApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+            {
+                // Progress telemetry should not fail a completed package download.
+            }
+            catch
+            {
+                // The next progress tick or refresh can repair stale session state.
             }
         }
 
@@ -942,7 +968,8 @@ namespace Launcher
             var targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
             var directory = Path.GetDirectoryName(targetPath);
             if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return false;
-            return Directory.EnumerateFiles(directory, $"{Path.GetFileName(targetPath)}.part*").Any();
+            return File.Exists($"{targetPath}.download")
+                || Directory.EnumerateFiles(directory, $"{Path.GetFileName(targetPath)}.part*").Any();
         }
 
         private void OpenInstallFolder(DownloadItem item)
@@ -994,7 +1021,9 @@ namespace Launcher
         {
             var extension = Path.GetExtension(packagePath);
             if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
+                string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase) ||
+                IsZipArchive(packagePath) ||
+                IsSevenZipArchive(packagePath))
             {
                 ExtractPackage(packagePath, installFolder);
                 return;
@@ -1014,17 +1043,17 @@ namespace Launcher
             try
             {
                 var extension = Path.GetExtension(archivePath);
-                if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase) || IsZipArchive(archivePath))
                 {
                     ZipFile.ExtractToDirectory(archivePath, tempFolder);
                 }
-                else if (string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
+                else if (string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase) || IsSevenZipArchive(archivePath))
                 {
                     Extract7ZipPackage(archivePath, tempFolder);
                 }
                 else
                 {
-                    throw new InvalidDataException("This package type cannot be extracted by the launcher. Please provide a ZIP or 7z package.");
+                    throw new InvalidDataException($"This package type cannot be extracted by the launcher. The downloaded file has extension '{(string.IsNullOrWhiteSpace(extension) ? "(none)" : extension)}' and signature '{ReadFileSignature(archivePath)}'. Please provide a ZIP or 7z package.");
                 }
 
                 NormalizeExtractedRoot(tempFolder);
@@ -1042,6 +1071,44 @@ namespace Launcher
                 if (Directory.Exists(tempFolder)) Directory.Delete(tempFolder, recursive: true);
                 throw;
             }
+        }
+
+        private static bool IsZipArchive(string archivePath)
+        {
+            var signature = ReadFileHeader(archivePath, 4);
+            return signature.Length >= 4
+                && signature[0] == 0x50
+                && signature[1] == 0x4B
+                && (signature[2] == 0x03 || signature[2] == 0x05 || signature[2] == 0x07)
+                && (signature[3] == 0x04 || signature[3] == 0x06 || signature[3] == 0x08);
+        }
+
+        private static bool IsSevenZipArchive(string archivePath)
+        {
+            var signature = ReadFileHeader(archivePath, 6);
+            return signature.Length >= 6
+                && signature[0] == 0x37
+                && signature[1] == 0x7A
+                && signature[2] == 0xBC
+                && signature[3] == 0xAF
+                && signature[4] == 0x27
+                && signature[5] == 0x1C;
+        }
+
+        private static byte[] ReadFileHeader(string path, int byteCount)
+        {
+            var buffer = new byte[byteCount];
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var read = stream.Read(buffer, 0, buffer.Length);
+            if (read == buffer.Length) return buffer;
+            Array.Resize(ref buffer, read);
+            return buffer;
+        }
+
+        private static string ReadFileSignature(string path)
+        {
+            var signature = ReadFileHeader(path, 8);
+            return signature.Length == 0 ? "(empty)" : Convert.ToHexString(signature);
         }
 
         private static void Extract7ZipPackage(string archivePath, string tempFolder)
