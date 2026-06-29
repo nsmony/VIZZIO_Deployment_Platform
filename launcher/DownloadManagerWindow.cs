@@ -250,12 +250,20 @@ namespace Launcher
                 _activeDownloadTargetPath = targetPath;
                 var downloadToken = session.Token;
                 var tokenIssuedAt = DateTimeOffset.UtcNow;
+                var lastSessionProgressUpdate = DateTimeOffset.MinValue;
+                var sessionProgressUpdateRunning = false;
 
                 var progress = new Progress<DownloadProgress>(value =>
                 {
                     _progress.Value = value.Percent;
                     _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
-                    _ = _api.UpdateSessionAsync(session.Session.Id, "downloading", value.DownloadedBytes, value.TotalBytes, CancellationToken.None);
+                    var now = DateTimeOffset.UtcNow;
+                    if (sessionProgressUpdateRunning || now - lastSessionProgressUpdate < TimeSpan.FromSeconds(1)) return;
+
+                    lastSessionProgressUpdate = now;
+                    sessionProgressUpdateRunning = true;
+                    _ = _api.UpdateSessionAsync(session.Session.Id, "downloading", value.DownloadedBytes, value.TotalBytes, CancellationToken.None)
+                        .ContinueWith(_ => sessionProgressUpdateRunning = false, TaskScheduler.FromCurrentSynchronizationContext());
                 });
 
                 _status.Text = "Downloading...";
@@ -304,7 +312,7 @@ namespace Launcher
                     }
                 }
                 _status.Text = "Extracting package...";
-                ExtractPackage(targetPath, installFolder);
+                InstallPackage(targetPath, installFolder);
                 await _api.UpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
                 _progress.Value = 100;
                 _status.Text = $"Installed to {installFolder}";
@@ -980,6 +988,21 @@ namespace Launcher
         private string GetPackageCacheFolder()
         {
             return Path.Combine(GetActiveInstallRoot(), ".packages");
+        }
+
+        private static void InstallPackage(string packagePath, string installFolder)
+        {
+            var extension = Path.GetExtension(packagePath);
+            if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
+            {
+                ExtractPackage(packagePath, installFolder);
+                return;
+            }
+
+            if (Directory.Exists(installFolder)) Directory.Delete(installFolder, recursive: true);
+            Directory.CreateDirectory(installFolder);
+            File.Move(packagePath, Path.Combine(installFolder, Path.GetFileName(packagePath)), overwrite: true);
         }
 
         private static void ExtractPackage(string archivePath, string installFolder)

@@ -6,7 +6,6 @@ import Deployment from './pages/admin/Deployment';
 import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
 import Notifications from './pages/admin/Notifications';
-import UserPanel from './pages/user/UserPanel';
 import AdminLayout from './layouts/AdminLayout';
 import './styles/App.css';
 
@@ -17,8 +16,7 @@ function ProtectedRoute({ children }) {
 
 export default function App() {
   const token = localStorage.getItem('vizzio_token');
-  const role = localStorage.getItem('vizzio_role');
-  const homePath = token ? (role && role.toLowerCase() !== 'admin' ? '/user' : '/dashboard') : '/';
+  const homePath = token ? '/dashboard' : '/';
 
   return (
     <BrowserRouter>
@@ -39,15 +37,6 @@ export default function App() {
           <Route path="/logs/download" element={<Logs />} />
           <Route path="/notifications" element={<Notifications />} />
         </Route>
-
-        <Route
-          path="/user/*"
-          element={
-            <ProtectedRoute>
-              <UserPanel />
-            </ProtectedRoute>
-          }
-        />
 
         <Route path="*" element={<Navigate to={homePath} />} />
       </Routes>

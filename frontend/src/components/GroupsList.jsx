@@ -5,7 +5,6 @@ export default function GroupsList({ groups }) {
     <div className="groups-section">
       <div className="section-header">
         <h3>Groups</h3>
-        <button className="btn-invite">Invite</button>
       </div>
       <div className="groups-list">
         {groups.map((group, idx) => (

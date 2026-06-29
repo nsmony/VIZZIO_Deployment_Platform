@@ -17,15 +17,15 @@ export default function Login() {
     const result = await login(username, password);
     setLoading(false);
     if (result.token) {
+      if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
+        setError('Only admin accounts can access this panel.');
+        return;
+      }
+
       localStorage.setItem('vizzio_token', result.token);
       localStorage.setItem('vizzio_username', result.user?.username || username);
-      if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
-        localStorage.setItem('vizzio_role', result.user.role);
-        navigate('/user');
-      } else {
-        localStorage.setItem('vizzio_role', result.user?.role || 'admin');
-        navigate('/dashboard');
-      }
+      localStorage.setItem('vizzio_role', result.user?.role || 'admin');
+      navigate('/dashboard');
     } else {
       setError(result.error || 'Login failed');
     }
@@ -72,7 +72,6 @@ export default function Login() {
           <div className="login-footer">
             <p>Demo credentials:</p>
             <p>Admin — admin / password</p>
-            <p>User — user / password</p>
           </div>
         </div>
       </div>

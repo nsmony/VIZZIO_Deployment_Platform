@@ -79,7 +79,6 @@ export default function StatCard({ title, value, change, trend, subtitle, icon =
           <h3>{title}</h3>
           <p className="stat-subtitle">{subtitle}</p>
         </div>
-        <div className="stat-menu">⋯</div>
       </div>
       <div className="stat-value">{value}</div>
       <div className={`stat-trend ${trend}`}>

@@ -11,20 +11,6 @@
   color: var(--text);
 }
 
-.btn-invite {
-  padding: 6px 14px;
-  background: var(--primary);
-  color: white;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  transition: background 0.2s;
-}
-
-.btn-invite:hover {
-  background: #1d4ed8;
-}
-
 .groups-list {
   margin-top: 16px;
 }

@@ -34,14 +34,6 @@
   line-height: 1.45;
 }
 
-.stat-menu {
-  margin-left: auto;
-  font-size: 18px;
-  color: var(--text-muted);
-  cursor: pointer;
-  opacity: 0.5;
-}
-
 .stat-icon {
   width: 42px;
   height: 42px;

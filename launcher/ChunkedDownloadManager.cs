@@ -91,12 +91,18 @@ namespace Launcher
 
         private static List<DownloadChunk> CreateChunks(long totalBytes, string targetPath)
         {
-            var chunkSize = Math.Max(1, totalBytes / ChunkCount);
+            if (totalBytes <= 0)
+            {
+                throw new InvalidOperationException("Server did not provide a valid file size.");
+            }
+
+            var chunkCount = (int)Math.Min(ChunkCount, totalBytes);
+            var chunkSize = Math.Max(1, totalBytes / chunkCount);
             var chunks = new List<DownloadChunk>();
-            for (var i = 0; i < ChunkCount; i++)
+            for (var i = 0; i < chunkCount; i++)
             {
                 var start = i * chunkSize;
-                var end = i == ChunkCount - 1 ? totalBytes - 1 : Math.Min(totalBytes - 1, start + chunkSize - 1);
+                var end = i == chunkCount - 1 ? totalBytes - 1 : Math.Min(totalBytes - 1, start + chunkSize - 1);
                 chunks.Add(new DownloadChunk(start, end, $"{targetPath}.part{i}"));
             }
             return chunks;
