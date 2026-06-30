@@ -270,8 +270,11 @@ namespace Launcher
                     {
                         lastSessionProgressUpdate = now;
                         sessionProgressUpdateRunning = true;
-                        _ = TryUpdateSessionAsync(session.Session.Id, "downloading", value.DownloadedBytes, value.TotalBytes, CancellationToken.None)
-                            .ContinueWith(_ => Dispatcher.Invoke(() => sessionProgressUpdateRunning = false));
+                        _ = UpdateSessionProgressInBackgroundAsync(
+                            session.Session.Id,
+                            value.DownloadedBytes,
+                            value.TotalBytes,
+                            () => sessionProgressUpdateRunning = false);
                     }
                 });
 
@@ -368,6 +371,32 @@ namespace Launcher
             catch
             {
                 // The next progress tick or refresh can repair stale session state.
+            }
+        }
+
+        private async Task UpdateSessionProgressInBackgroundAsync(string sessionId, long downloadedSize, long totalSize, Action markComplete)
+        {
+            try
+            {
+                await TryUpdateSessionAsync(sessionId, "downloading", downloadedSize, totalSize, CancellationToken.None);
+            }
+            catch
+            {
+                // Progress telemetry should never surface as an unobserved launcher exception.
+            }
+            finally
+            {
+                if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+                {
+                    try
+                    {
+                        await Dispatcher.InvokeAsync(markComplete);
+                    }
+                    catch
+                    {
+                        // The window may be closing while a telemetry update is unwinding.
+                    }
+                }
             }
         }
 
