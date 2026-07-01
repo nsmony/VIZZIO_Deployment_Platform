@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
+import TopNavbar from '../components/TopNavbar';
 
 function PageTitle() {
   const location = useLocation();
@@ -8,7 +9,7 @@ function PageTitle() {
     '/dashboard': 'Dashboard',
     '/version': 'Version',
     '/users': 'Users & Permissions',
-    '/deployment': 'Deployment',
+    '/deployment': 'Deployments',
     '/logs/download': 'Download Logs',
     '/notifications': 'Notifications',
   };
@@ -49,55 +50,34 @@ export default function AdminLayout() {
     <div className="app-layout">
       <Sidebar isOpen={sidebarOpen} />
       <div className="app-main">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              className="hamburger"
-              onClick={() => setSidebarOpen((open) => !open)}
-              aria-label="Toggle sidebar"
-            >
-              Menu
-            </button>
-            <PageTitle />
-          </div>
-          <div className="topbar-right">
-            <button
-              className="icon-btn notification-btn"
-              onClick={() => navigate('/notifications')}
-              aria-label="Notifications"
-            >
-              Alerts
-            </button>
-            <div className="profile-menu">
-              <button
-                className="profile-circle"
-                onClick={() => setProfileOpen((open) => !open)}
-                aria-label="Open profile menu"
-                aria-expanded={profileOpen}
-              >
-                {profileImage ? <img src={profileImage} alt="" /> : initials}
-              </button>
-              {profileOpen && (
-                <div className="profile-dropdown">
-                  <div className="profile-summary">
-                    <div className="profile-preview">
-                      {profileImage ? <img src={profileImage} alt="" /> : initials}
-                    </div>
-                    <div>
-                      <strong>{username}</strong>
-                      <span>{role}</span>
-                    </div>
-                  </div>
-                  <label className="profile-upload">
-                    Update Profile Image
-                    <input type="file" accept="image/*" onChange={handleProfileImageChange} />
-                  </label>
-                  <button type="button" onClick={handleLogout}>Sign Out</button>
+        <TopNavbar
+          title={<PageTitle />}
+          onMenuToggle={() => setSidebarOpen((open) => !open)}
+          username={username}
+          profileImage={profileImage}
+          initials={initials}
+          onProfileClick={() => setProfileOpen((open) => !open)}
+          profileOpen={profileOpen}
+        >
+          {profileOpen && (
+            <div className="profile-dropdown">
+              <div className="profile-summary">
+                <div className="profile-preview">
+                  {profileImage ? <img src={profileImage} alt="" /> : initials}
                 </div>
-              )}
+                <div>
+                  <strong>{username}</strong>
+                  <span>{role}</span>
+                </div>
+              </div>
+              <label className="profile-upload">
+                Update Profile Image
+                <input type="file" accept="image/*" onChange={handleProfileImageChange} />
+              </label>
+              <button type="button" onClick={handleLogout}>Sign Out</button>
             </div>
-          </div>
-        </header>
+          )}
+        </TopNavbar>
         <div className="app-content">
           <Outlet />
         </div>

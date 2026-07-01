@@ -325,10 +325,11 @@ namespace Launcher
                 }
                 _status.Text = "Extracting package...";
                 _pauseButton.IsEnabled = false;
-                await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
+                var installedPath = await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
                 await TryUpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
                 _progress.Value = 100;
-                _status.Text = $"Installed to {installFolder}";
+                _status.Text = $"Installed to {installedPath}";
+                OpenFolder(installFolder);
                 RenderCards();
             }
             catch (OperationCanceledException)
@@ -988,7 +989,16 @@ namespace Launcher
         private bool IsInstalled(DownloadItem item)
         {
             var folder = GetInstallFolder(item);
-            return Directory.Exists(folder) && Directory.EnumerateFiles(folder, "*.bat", SearchOption.TopDirectoryOnly).Any();
+            if (!Directory.Exists(folder)) return false;
+
+            var extension = Path.GetExtension(item.FileName);
+            if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
+            {
+                return Directory.EnumerateFiles(folder, "*.bat", SearchOption.TopDirectoryOnly).Any();
+            }
+
+            return Directory.EnumerateFileSystemEntries(folder).Any();
         }
 
         private bool HasPartialDownload(DownloadItem item)
@@ -1011,7 +1021,7 @@ namespace Launcher
                 return;
             }
 
-            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+            OpenFolder(folder);
         }
 
         private void UninstallVersion(DownloadItem item)
@@ -1046,7 +1056,7 @@ namespace Launcher
             return Path.Combine(GetActiveInstallRoot(), ".packages");
         }
 
-        private static void InstallPackage(string packagePath, string installFolder)
+        private static string InstallPackage(string packagePath, string installFolder)
         {
             var extension = Path.GetExtension(packagePath);
             if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase) ||
@@ -1055,12 +1065,19 @@ namespace Launcher
                 IsSevenZipArchive(packagePath))
             {
                 ExtractPackage(packagePath, installFolder);
-                return;
+                return installFolder;
             }
 
             if (Directory.Exists(installFolder)) Directory.Delete(installFolder, recursive: true);
             Directory.CreateDirectory(installFolder);
-            File.Move(packagePath, Path.Combine(installFolder, Path.GetFileName(packagePath)), overwrite: true);
+            var installedFilePath = Path.Combine(installFolder, Path.GetFileName(packagePath));
+            File.Move(packagePath, installedFilePath, overwrite: true);
+            return installedFilePath;
+        }
+
+        private static void OpenFolder(string folder)
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
         }
 
         private static void ExtractPackage(string archivePath, string installFolder)
