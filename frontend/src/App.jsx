@@ -9,6 +9,8 @@ import Notifications from './pages/admin/Notifications';
 import AdminLayout from './layouts/AdminLayout';
 import './styles/App.css';
 
+// Route guard for the admin portal. Authentication state is intentionally read
+// from localStorage because the API client and launcher share this token name.
 function ProtectedRoute({ children }) {
   const token = localStorage.getItem('vizzio_token');
   return token ? children : <Navigate to="/" />;
@@ -23,6 +25,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={token ? <Navigate to={homePath} /> : <Login />} />
 
+        {/* Admin pages share the sidebar/topbar shell and must be protected. */}
         <Route
           element={
             <ProtectedRoute>

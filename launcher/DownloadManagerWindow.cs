@@ -14,20 +14,30 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
+using ShapePath = System.Windows.Shapes.Path;
 
 namespace Launcher
 {
+    // Main WPF launcher window. It owns UI state, queue orchestration, persisted
+    // resume state, and package installation after ChunkedDownloadManager
+    // finishes writing the cache file.
     public sealed class DownloadManagerWindow : Window
     {
         private readonly DownloadManagerApiClient _api = new();
         private readonly ChunkedDownloadManager _downloader = new();
         private readonly ObservableCollection<DownloadItem> _items = new();
         private readonly Dictionary<string, Button> _navButtons = new();
+        private readonly Queue<DownloadItem> _downloadQueue = new();
+        private readonly HashSet<string> _queuedDownloadKeys = new(StringComparer.OrdinalIgnoreCase);
         private readonly ManualResetEventSlim _pauseGate = new(true);
         private readonly DispatcherTimer _pollTimer = new() { Interval = TimeSpan.FromMinutes(5) };
         private LauncherUserSettings _settings = LoadLauncherSettings();
         private LauncherBrandingSettings _branding = LoadBrandingSettings();
         private CancellationTokenSource? _downloadCancellation;
+        private bool _isDownloadActive;
+        private DownloadItem? _activeDownloadItem;
+        private DownloadItem? _failedDownloadItem;
+        private string _failedDownloadTargetPath = "";
         private string _activeDownloadTargetPath = "";
         private bool _deletePartialOnCancel;
         private bool _autoResumeAttempted;
@@ -68,7 +78,11 @@ namespace Launcher
             MinWidth = 940;
             MinHeight = 640;
             Background = PageBackground;
-            Closing += (_, _) => _pollTimer.Stop();
+            Closing += (_, _) =>
+            {
+                PersistDownloadState();
+                _pollTimer.Stop();
+            };
             _pollTimer.Tick += async (_, _) => await RefreshAsync(showStatus: false);
             ShowLogin();
             Loaded += async (_, _) => await TryRestoreSessionAsync();
@@ -196,7 +210,8 @@ namespace Launcher
 
         private async Task StartDownloadAsync()
         {
-            if (_selectedItem is not DownloadItem item)
+            var item = _selectedItem ?? _failedDownloadItem;
+            if (item is null)
             {
                 _status.Text = "Choose a package first.";
                 return;
@@ -205,8 +220,17 @@ namespace Launcher
             await StartDownloadAsync(item, deletePartialsOnCancel: true);
         }
 
-        private async Task StartDownloadAsync(DownloadItem item, bool deletePartialsOnCancel)
+        private async Task StartDownloadAsync(DownloadItem item, bool deletePartialsOnCancel, bool startPaused = false)
         {
+            if (_isDownloadActive)
+            {
+                // Steam-style behavior: only one package installs at a time, but
+                // additional clicks become visible queued downloads.
+                QueueDownload(item);
+                SelectSection("Download");
+                return;
+            }
+
             if (!TryApplyInstallRootFromText())
             {
                 return;
@@ -234,20 +258,41 @@ namespace Launcher
                 return;
             }
 
+            var ownsDownload = false;
             try
             {
+                _isDownloadActive = true;
+                _activeDownloadItem = item;
+                _failedDownloadItem = null;
+                _failedDownloadTargetPath = "";
+                ownsDownload = true;
+                PersistDownloadState();
+                RenderCards();
+                RefreshDownloadPageIfVisible();
                 EnsureDiskSpaceForInstall(targetPath, (item.Size ?? 0) * 2);
                 _startButton.IsEnabled = false;
                 _pauseButton.IsEnabled = true;
-                _pauseGate.Set();
+                if (startPaused)
+                {
+                    _pauseGate.Reset();
+                    _pauseButton.Content = "Resume";
+                }
+                else
+                {
+                    _pauseGate.Set();
+                    _pauseButton.Content = "Pause";
+                }
                 _deletePartialOnCancel = false;
                 _activeDownloadTargetPath = targetPath;
                 _downloadCancellation = new CancellationTokenSource();
-                _status.Text = "Creating download session...";
+                _status.Text = startPaused ? "Restored paused download." : "Creating download session...";
+                // Session creation returns a short-lived file token. The token
+                // may be refreshed during long Unreal-sized downloads.
                 var session = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
                 fileName = string.IsNullOrWhiteSpace(session.File.Name) ? fileName : session.File.Name;
                 targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
                 _activeDownloadTargetPath = targetPath;
+                PersistDownloadState();
                 var downloadToken = session.Token;
                 var tokenIssuedAt = DateTimeOffset.UtcNow;
                 var lastSessionProgressUpdate = DateTimeOffset.MinValue;
@@ -255,10 +300,17 @@ namespace Launcher
 
                 var progress = new Progress<DownloadProgress>(value =>
                 {
-                    _progress.Value = value.Percent;
-                    _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
-                    if (value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes)
-                    {
+                        _progress.Value = value.Percent;
+                        _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
+                        if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, value.TotalBytes - value.DownloadedBytes, out var shortfall))
+                        {
+                            _pauseGate.Reset();
+                            _pauseButton.Content = "Resume";
+                            _status.Text = $"Download paused because disk space is low. Shortfall: {FormatDiskSpace(shortfall)}.";
+                        }
+                        PersistDownloadState();
+                        if (value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes)
+                        {
                         _pauseGate.Set();
                         _pauseButton.IsEnabled = false;
                         _pauseButton.Content = "Pause";
@@ -287,7 +339,9 @@ namespace Launcher
                         attempt++;
                         await _downloader.DownloadAsync(async () =>
                         {
-                            if (DateTimeOffset.UtcNow - tokenIssuedAt >= TimeSpan.FromMinutes(55))
+                            // Refresh the download token before range requests
+                            // start failing with authorization errors.
+                            if (DateTimeOffset.UtcNow - tokenIssuedAt >= TimeSpan.FromMinutes(55) || IsTokenExpiring(downloadToken, TimeSpan.FromSeconds(60)))
                             {
                                 var refreshed = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
                                 downloadToken = refreshed.Token;
@@ -295,7 +349,7 @@ namespace Launcher
                             }
 
                             return _api.BuildFileUri(item.FileId, downloadToken);
-                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, _downloadCancellation.Token);
+                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, _downloadCancellation.Token, CreateDownloadOptions());
                         break;
                     }
                     catch (OperationCanceledException)
@@ -307,22 +361,32 @@ namespace Launcher
                         DeleteDownloadArtifacts(targetPath);
                         _status.Text = $"Package verification failed. Retrying ({attempt + 1}/3)...";
                     }
-                    catch (Exception) when (attempt < 3)
+                    catch (Exception ex) when (attempt < 3)
                     {
-                        _status.Text = $"Connection problem. Retrying ({attempt + 1}/3)...";
+                        _status.Text = $"Connection problem: {FriendlyDownloadError(ex)} Retrying ({attempt + 1}/3)...";
                         await Task.Delay(TimeSpan.FromSeconds(2), _downloadCancellation.Token);
                     }
                     catch (InvalidDataException)
                     {
                         throw new InvalidDataException("Package verification failed 3 times. Please contact support.");
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        // Keep partial files and pause the workflow after all
+                        // automatic retries fail. Pressing Resume continues from
+                        // the saved .part files.
                         _pauseGate.Reset();
                         _pauseButton.Content = "Resume";
-                        throw;
+                        _status.Text = $"Download paused after repeated connection problems: {FriendlyDownloadError(ex)} Check the network, then resume.";
+                        PersistDownloadState();
+                        while (!_pauseGate.IsSet)
+                        {
+                            await Task.Delay(250, _downloadCancellation.Token);
+                        }
+                        attempt = 0;
                     }
                 }
+                RemoveDownloadState(item);
                 _status.Text = "Extracting package...";
                 _pauseButton.IsEnabled = false;
                 var installedPath = await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
@@ -337,25 +401,53 @@ namespace Launcher
                 if (_deletePartialOnCancel && deletePartialsOnCancel)
                 {
                     DeleteDownloadArtifacts(_activeDownloadTargetPath);
+                    RemoveDownloadState(item);
                     _status.Text = "Download canceled. Partial package files were removed.";
                 }
                 else
                 {
+                    PersistDownloadState();
                     _status.Text = "Download interrupted. Start again to resume from existing part files.";
+                }
+            }
+            catch (IOException ex) when (ex.Message.StartsWith("Not enough free disk space.", StringComparison.OrdinalIgnoreCase))
+            {
+                _status.Text = FriendlyError(ex);
+                var result = MessageBox.Show(
+                    $"{FriendlyError(ex)}\n\nChoose a different install root now?",
+                    "Insufficient disk space",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+                if (result == MessageBoxResult.Yes)
+                {
+                    SelectSection("Settings");
                 }
             }
             catch (Exception ex)
             {
+                _selectedItem = item;
+                _failedDownloadItem = item;
+                _failedDownloadTargetPath = string.IsNullOrWhiteSpace(_activeDownloadTargetPath) ? targetPath : _activeDownloadTargetPath;
+                RemoveDownloadState(item);
                 _status.Text = FriendlyError(ex);
-                MessageBox.Show(FriendlyError(ex), "Download failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
             finally
             {
-                _startButton.IsEnabled = true;
-                _pauseButton.IsEnabled = false;
-                _pauseButton.Content = "Pause";
-                _deletePartialOnCancel = false;
-                _activeDownloadTargetPath = "";
+                if (ownsDownload)
+                {
+                    _startButton.IsEnabled = true;
+                    _pauseButton.IsEnabled = false;
+                    _pauseButton.Content = "Pause";
+                    _downloadCancellation = null;
+                    _deletePartialOnCancel = false;
+                    _activeDownloadTargetPath = "";
+                    _activeDownloadItem = null;
+                    _isDownloadActive = false;
+                    PersistDownloadState();
+                    RenderCards();
+                    RefreshDownloadPageIfVisible();
+                    await StartNextQueuedDownloadAsync();
+                }
             }
         }
 
@@ -405,23 +497,51 @@ namespace Launcher
         {
             if (_pauseGate.IsSet)
             {
+                // The downloader checks this gate between network reads/writes,
+                // so pause does not abort the active HTTP stream immediately.
                 _pauseGate.Reset();
                 _pauseButton.Content = "Resume";
                 _status.Text = "Download paused.";
+                PersistDownloadState();
             }
             else
             {
                 _pauseGate.Set();
                 _pauseButton.Content = "Pause";
                 _status.Text = "Download resumed.";
+                PersistDownloadState();
             }
         }
 
         private async Task CancelDownloadAsync()
         {
+            // Cancel always opens the pause gate first so a paused worker can
+            // observe cancellation instead of waiting forever.
             _deletePartialOnCancel = true;
+            _pauseGate.Set();
             _downloadCancellation?.Cancel();
             await Task.CompletedTask;
+        }
+
+        private void ClearFailedDownload()
+        {
+            if (!string.IsNullOrWhiteSpace(_failedDownloadTargetPath))
+            {
+                DeleteDownloadArtifacts(_failedDownloadTargetPath);
+            }
+
+            if (_failedDownloadItem is not null)
+            {
+                RemoveDownloadState(_failedDownloadItem);
+            }
+
+            _failedDownloadItem = null;
+            _failedDownloadTargetPath = "";
+            _progress.Value = 0;
+            _metrics.Text = "Speed: -   ETA: -";
+            _status.Text = "Failed download cleared.";
+            RenderCards();
+            RefreshDownloadPageIfVisible();
         }
 
         private async Task RefreshAsync(bool showStatus = true)
@@ -448,13 +568,38 @@ namespace Launcher
             _autoResumeAttempted = true;
 
             await Task.Delay(400);
-            var pending = _items.FirstOrDefault(HasPartialDownload);
+            var savedState = LoadDownloadState();
+            // Restore queued cards before resuming the active item so the user
+            // sees the same queue order after relaunch.
+            foreach (var queued in savedState.Downloads
+                .Where(entry => string.Equals(entry.Status, "queued", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(entry => entry.QueuedAt))
+            {
+                var queuedItem = FindDownloadItem(queued);
+                if (queuedItem is not null && !IsInstalled(queuedItem) && queuedItem.Available)
+                {
+                    QueueDownload(queuedItem, showStatus: false);
+                }
+            }
+
+            var activeState = savedState.Downloads
+                .Where(entry => string.Equals(entry.Status, "downloading", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(entry.Status, "paused", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(entry => entry.UpdatedAt)
+                .FirstOrDefault();
+            var pending = activeState is null ? null : FindDownloadItem(activeState);
+            // If state JSON is missing but .part files exist, still offer a
+            // resume path because the chunks are the source of downloaded bytes.
+            pending ??= _items.FirstOrDefault(HasPartialDownload);
             if (pending is null) return;
 
             _selectedItem = pending;
             SelectSection("Download");
-            _status.Text = $"Resuming {pending.DeploymentName} {pending.VersionNumber}...";
-            await StartDownloadAsync(pending, deletePartialsOnCancel: false);
+            var restorePaused = string.Equals(activeState?.Status, "paused", StringComparison.OrdinalIgnoreCase);
+            _status.Text = restorePaused
+                ? $"Restored paused download: {pending.DeploymentName} {pending.VersionNumber}."
+                : $"Resuming {pending.DeploymentName} {pending.VersionNumber}...";
+            await StartDownloadAsync(pending, deletePartialsOnCancel: false, startPaused: restorePaused);
         }
 
         private DockPanel CreateHeader(Button refreshButton)
@@ -513,11 +658,11 @@ namespace Launcher
 
             var nav = new StackPanel();
             nav.Children.Add(CreateNavSection("Library"));
-            nav.Children.Add(CreateNavButton("PK", "All Packages", "Library"));
-            nav.Children.Add(CreateNavButton("IN", "Installed", "Installed"));
-            nav.Children.Add(CreateNavButton("DL", "Download", "Download"));
+            nav.Children.Add(CreateNavButton("packages", "All Packages", "Library"));
+            nav.Children.Add(CreateNavButton("installed", "Installed", "Installed"));
+            nav.Children.Add(CreateNavButton("download", "Download", "Download"));
             nav.Children.Add(CreateNavSection("Account"));
-            nav.Children.Add(CreateNavButton("ST", "Settings", "Settings"));
+            nav.Children.Add(CreateNavButton("settings", "Settings", "Settings"));
             panel.Children.Add(nav);
 
             return new Border { Background = Surface, BorderBrush = UiBorder, BorderThickness = new Thickness(0, 0, 1, 0), Child = panel };
@@ -536,7 +681,7 @@ namespace Launcher
                 Width = 28,
                 Height = 28,
                 Background = PageBackground,
-                Child = new TextBlock { Text = icon, Foreground = Muted, FontSize = 10, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                Child = CreateNavIcon(icon),
             });
             row.Children.Add(new TextBlock { Text = label, Foreground = Text, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) });
 
@@ -552,6 +697,62 @@ namespace Launcher
             button.Click += (_, _) => SelectSection(section);
             _navButtons[section] = button;
             return button;
+        }
+
+        private static UIElement CreateNavIcon(string icon)
+        {
+            var canvas = new Canvas { Width = 24, Height = 24 };
+            foreach (var geometry in GetNavIconGeometry(icon))
+            {
+                canvas.Children.Add(new ShapePath
+                {
+                    Data = Geometry.Parse(geometry),
+                    Stroke = Muted,
+                    StrokeThickness = 2,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Fill = Brushes.Transparent,
+                });
+            }
+
+            return new Viewbox
+            {
+                Width = 17,
+                Height = 17,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = canvas,
+            };
+        }
+
+        private static IEnumerable<string> GetNavIconGeometry(string icon)
+        {
+            return icon switch
+            {
+                "installed" => new[]
+                {
+                    "M21 8V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V5A2 2 0 0 1 5 3H16",
+                    "M9 11L12 14L22 4",
+                },
+                "download" => new[]
+                {
+                    "M21 15V19A2 2 0 0 1 19 21H5A2 2 0 0 1 3 19V15",
+                    "M7 10L12 15L17 10",
+                    "M12 15V3",
+                },
+                "settings" => new[]
+                {
+                    "M12 15.5A3.5 3.5 0 1 0 12 8.5A3.5 3.5 0 0 0 12 15.5",
+                    "M19.4 15A1.65 1.65 0 0 0 19.7 16.8L19.8 16.9A2 2 0 1 1 16.9 19.8L16.8 19.7A1.65 1.65 0 0 0 15 19.4A1.65 1.65 0 0 0 14 20.9V21A2 2 0 1 1 10 21V20.9A1.65 1.65 0 0 0 9 19.4A1.65 1.65 0 0 0 7.2 19.7L7.1 19.8A2 2 0 1 1 4.2 16.9L4.3 16.8A1.65 1.65 0 0 0 4.6 15A1.65 1.65 0 0 0 3.1 14H3A2 2 0 1 1 3 10H3.1A1.65 1.65 0 0 0 4.6 9A1.65 1.65 0 0 0 4.3 7.2L4.2 7.1A2 2 0 1 1 7.1 4.2L7.2 4.3A1.65 1.65 0 0 0 9 4.6A1.65 1.65 0 0 0 10 3.1V3A2 2 0 1 1 14 3V3.1A1.65 1.65 0 0 0 15 4.6A1.65 1.65 0 0 0 16.8 4.3L16.9 4.2A2 2 0 1 1 19.8 7.1L19.7 7.2A1.65 1.65 0 0 0 19.4 9A1.65 1.65 0 0 0 20.9 10H21A2 2 0 1 1 21 14H20.9A1.65 1.65 0 0 0 19.4 15",
+                },
+                _ => new[]
+                {
+                    "M21 8L12 3L3 8L12 13L21 8",
+                    "M3 8V16L12 21L21 16V8",
+                    "M12 13V21",
+                },
+            };
         }
 
         private void SelectSection(string section)
@@ -643,8 +844,9 @@ namespace Launcher
 
         private UIElement CreateDownloadPage()
         {
-            var panel = new Grid { Width = GetPortalContentWidth() };
+            var panel = new StackPanel { Width = GetPortalContentWidth(), HorizontalAlignment = HorizontalAlignment.Stretch };
             panel.Children.Add(CreateDownloadPanel());
+            panel.Children.Add(CreateQueuedDownloadsPanel());
             return new ScrollViewer
             {
                 Content = panel,
@@ -670,6 +872,7 @@ namespace Launcher
             };
             installPanel.Children.Add(saveInstallRoot);
             panel.Children.Add(CreateSettingsCard("Install location", "Root install folder", installPanel));
+            panel.Children.Add(CreateSettingsCard("Download performance", "Parallel streams and shared bandwidth cap", CreateDownloadSettingsPanel()));
             panel.Children.Add(CreateSettingsCard("Server", "API endpoint", new TextBlock { Text = _api.ApiBaseUrl, Foreground = Text, FontSize = 14, TextWrapping = TextWrapping.Wrap }));
             panel.Children.Add(CreateSettingsCard("Account", "Session", new TextBlock { Text = "Signed in to the launcher.", Foreground = Text, FontSize = 14 }));
             return new ScrollViewer
@@ -678,6 +881,48 @@ namespace Launcher
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             };
+        }
+
+        private UIElement CreateDownloadSettingsPanel()
+        {
+            var panel = new StackPanel();
+            var streams = CreateTextBox(GetParallelStreamCount().ToString());
+            streams.Margin = new Thickness(0, 6, 0, 10);
+            panel.Children.Add(new TextBlock { Text = "Parallel streams (4-16)", Foreground = Muted, FontSize = 12, Margin = new Thickness(0, 0, 0, 2) });
+            panel.Children.Add(streams);
+
+            var bandwidth = CreateTextBox(_settings.BandwidthLimitMbps <= 0 ? "0" : _settings.BandwidthLimitMbps.ToString("0.##"));
+            bandwidth.Margin = new Thickness(0, 6, 0, 10);
+            panel.Children.Add(new TextBlock { Text = "Bandwidth cap in MB/s (0 = unlimited)", Foreground = Muted, FontSize = 12, Margin = new Thickness(0, 0, 0, 2) });
+            panel.Children.Add(bandwidth);
+
+            var save = CreatePrimaryButton("Save download settings", 190);
+            save.Margin = new Thickness(0, 10, 0, 0);
+            save.Click += (_, _) =>
+            {
+                if (!int.TryParse(streams.Text.Trim(), out var streamCount))
+                {
+                    _status.Text = "Parallel streams must be a number between 4 and 16.";
+                    return;
+                }
+
+                if (!double.TryParse(bandwidth.Text.Trim(), out var bandwidthLimit))
+                {
+                    _status.Text = "Bandwidth cap must be a number in MB/s.";
+                    return;
+                }
+
+                _settings.ParallelStreams = Math.Clamp(streamCount, 4, 16);
+                _settings.BandwidthLimitMbps = Math.Max(0, bandwidthLimit);
+                streams.Text = _settings.ParallelStreams.ToString();
+                bandwidth.Text = _settings.BandwidthLimitMbps <= 0 ? "0" : _settings.BandwidthLimitMbps.ToString("0.##");
+                SaveLauncherSettings(_settings);
+                _status.Text = _settings.BandwidthLimitMbps <= 0
+                    ? $"Download settings saved. Using {_settings.ParallelStreams} streams with no bandwidth cap."
+                    : $"Download settings saved. Using {_settings.ParallelStreams} streams capped at {_settings.BandwidthLimitMbps:0.##} MB/s.";
+            };
+            panel.Children.Add(save);
+            return panel;
         }
 
         private Border CreateSettingsCard(string title, string label, UIElement content)
@@ -708,11 +953,30 @@ namespace Launcher
             DetachFromParent(_startButton);
             DetachFromParent(_pauseButton);
 
-            var cancelButton = CreateSecondaryButton("Cancel", 90);
-            cancelButton.Click += async (_, _) => await CancelDownloadAsync();
+            var hasFailedDownload = _failedDownloadItem is not null && !_isDownloadActive;
+            var displayItem = _activeDownloadItem ?? _failedDownloadItem;
+            _startButton.Content = hasFailedDownload ? "Retry" : "Download";
+            _startButton.IsEnabled = !_isDownloadActive && (hasFailedDownload || _selectedItem is not null);
+            _pauseButton.IsEnabled = _isDownloadActive;
+            _pauseButton.Content = _pauseGate.IsSet ? "Pause" : "Resume";
+
+            var cancelButton = CreateSecondaryButton(hasFailedDownload ? "Clear" : "Cancel", 90);
+            cancelButton.IsEnabled = _isDownloadActive || hasFailedDownload;
+            cancelButton.Click += async (_, _) =>
+            {
+                if (hasFailedDownload)
+                {
+                    ClearFailedDownload();
+                }
+                else
+                {
+                    await CancelDownloadAsync();
+                }
+            };
 
             var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = "Download", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text });
+            panel.Children.Add(new TextBlock { Text = displayItem is null ? "No active download" : $"{displayItem.DeploymentName} {displayItem.VersionNumber}", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = displayItem is null ? "Choose Download on a package to start immediately." : $"{displayItem.FileName}    {FormatBytes(displayItem.Size ?? 0)}", Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = "Install root", Margin = new Thickness(0, 22, 0, 6), Foreground = Muted });
             panel.Children.Add(_installPath);
             panel.Children.Add(new TextBlock { Text = "Progress", Margin = new Thickness(0, 22, 0, 0), Foreground = Muted });
@@ -763,7 +1027,35 @@ namespace Launcher
                 return;
             }
 
+            if (_activeFilter == "All")
+            {
+                AddChannelGroup("Stable", visible);
+                AddChannelGroup("Beta", visible);
+                return;
+            }
+
             foreach (var item in visible)
+            {
+                _cardsPanel.Children.Add(CreatePackageCard(item));
+            }
+        }
+
+        private void AddChannelGroup(string channel, List<DownloadItem> items)
+        {
+            var group = items.Where(item => string.Equals(NormalizeChannel(item.ReleaseType), channel, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (group.Count == 0) return;
+
+            _cardsPanel.Children.Add(new TextBlock
+            {
+                Text = channel,
+                Width = GetPortalContentWidth(),
+                Foreground = Text,
+                FontSize = 20,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, _cardsPanel.Children.Count == 0 ? 0 : 14, 0, 12),
+            });
+
+            foreach (var item in group)
             {
                 _cardsPanel.Children.Add(CreatePackageCard(item));
             }
@@ -877,7 +1169,7 @@ namespace Launcher
             card.Children.Add(new TextBlock { Text = item.DeploymentName, FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextWrapping = TextWrapping.Wrap });
             card.Children.Add(new TextBlock
             {
-                Text = string.IsNullOrWhiteSpace(item.Description) ? "Ready for download and side-by-side installation." : item.Description,
+                Text = string.IsNullOrWhiteSpace(item.Description) ? "Ready to install alongside other versions." : item.Description,
                 Foreground = Muted,
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = 22,
@@ -889,15 +1181,24 @@ namespace Launcher
             card.Children.Add(meta);
 
             var actions = new StackPanel { Orientation = Orientation.Horizontal };
-            var selectButton = installed ? CreatePrimaryButton("Open folder", 120) : CreatePrimaryButton("Download", 120);
+            var activeDownload = ReferenceEquals(item, _activeDownloadItem);
+            var queuedDownload = _queuedDownloadKeys.Contains(GetDownloadKey(item));
+            var buttonText = installed ? "Open folder" : activeDownload ? "Downloading" : queuedDownload ? "Queued" : "Download";
+            var selectButton = CreatePrimaryButton(buttonText, 120);
+            selectButton.IsEnabled = installed || !activeDownload;
             selectButton.Click += (_, _) =>
             {
                 _selectedItem = item;
                 if (installed) OpenInstallFolder(item);
+                else if (_isDownloadActive)
+                {
+                    QueueDownload(item);
+                    SelectSection("Download");
+                }
                 else
                 {
-                    _status.Text = $"{item.DeploymentName} {item.VersionNumber} selected.";
                     SelectSection("Download");
+                    _ = StartDownloadAsync(item, deletePartialsOnCancel: true);
                 }
             };
             actions.Children.Add(selectButton);
@@ -932,6 +1233,154 @@ namespace Launcher
             };
         }
 
+        private Border CreateQueuedDownloadsPanel()
+        {
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock { Text = "Queue", FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = Text });
+
+            var queued = _downloadQueue.ToList();
+            if (queued.Count == 0)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "No queued downloads.",
+                    Foreground = Muted,
+                    Margin = new Thickness(0, 10, 0, 0),
+                });
+            }
+            else
+            {
+                for (var i = 0; i < queued.Count; i++)
+                {
+                    panel.Children.Add(CreateQueuedDownloadCard(queued[i], i + 1));
+                }
+            }
+
+            return new Border
+            {
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(20),
+                Margin = new Thickness(0, 16, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Child = panel,
+            };
+        }
+
+        private Border CreateQueuedDownloadCard(DownloadItem item, int position)
+        {
+            var row = new DockPanel { LastChildFill = true };
+            var removeButton = CreateSecondaryButton("Remove", 90);
+            removeButton.Click += (_, _) => RemoveQueuedDownload(item);
+            DockPanel.SetDock(removeButton, Dock.Right);
+            row.Children.Add(removeButton);
+
+            var text = new StackPanel();
+            text.Children.Add(new TextBlock { Text = $"{position}. {item.DeploymentName} {item.VersionNumber}", Foreground = Text, FontWeight = FontWeights.SemiBold, FontSize = 14, TextWrapping = TextWrapping.Wrap });
+            text.Children.Add(new TextBlock { Text = $"{item.FileName}    {FormatBytes(item.Size ?? 0)}", Foreground = Muted, FontSize = 12, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
+            row.Children.Add(text);
+
+            return new Border
+            {
+                Background = PageBackground,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 12, 0, 0),
+                Child = row,
+            };
+        }
+
+        private void QueueDownload(DownloadItem item, bool showStatus = true)
+        {
+            if (ReferenceEquals(item, _activeDownloadItem))
+            {
+                if (showStatus) _status.Text = $"{item.DeploymentName} {item.VersionNumber} is already downloading.";
+                return;
+            }
+
+            var key = GetDownloadKey(item);
+            if (_queuedDownloadKeys.Contains(key))
+            {
+                if (showStatus) _status.Text = $"{item.DeploymentName} {item.VersionNumber} is already queued.";
+                return;
+            }
+
+            _downloadQueue.Enqueue(item);
+            _queuedDownloadKeys.Add(key);
+            PersistDownloadState();
+            if (showStatus) _status.Text = $"Queued {item.DeploymentName} {item.VersionNumber}. It will start after the active download.";
+            RenderCards();
+            RefreshDownloadPageIfVisible();
+        }
+
+        private void RemoveQueuedDownload(DownloadItem item)
+        {
+            var key = GetDownloadKey(item);
+            if (!_queuedDownloadKeys.Contains(key)) return;
+
+            var remaining = _downloadQueue.Where(entry => !string.Equals(GetDownloadKey(entry), key, StringComparison.OrdinalIgnoreCase)).ToList();
+            _downloadQueue.Clear();
+            _queuedDownloadKeys.Clear();
+            foreach (var entry in remaining)
+            {
+                _downloadQueue.Enqueue(entry);
+                _queuedDownloadKeys.Add(GetDownloadKey(entry));
+            }
+
+            PersistDownloadState();
+            _status.Text = $"Removed {item.DeploymentName} {item.VersionNumber} from the queue.";
+            RenderCards();
+            RefreshDownloadPageIfVisible();
+        }
+
+        private async Task StartNextQueuedDownloadAsync()
+        {
+            while (_downloadQueue.Count > 0)
+            {
+                var next = _downloadQueue.Dequeue();
+                _queuedDownloadKeys.Remove(GetDownloadKey(next));
+                PersistDownloadState();
+                RefreshDownloadPageIfVisible();
+                if (IsInstalled(next) || !next.Available) continue;
+
+                _selectedItem = next;
+                SelectSection("Download");
+                _status.Text = $"Starting queued download: {next.DeploymentName} {next.VersionNumber}...";
+                await StartDownloadAsync(next, deletePartialsOnCancel: true);
+                return;
+            }
+        }
+
+        private void RefreshDownloadPageIfVisible()
+        {
+            if (_activeSection == "Download")
+            {
+                RenderPortalPage();
+            }
+        }
+
+        private static string GetDownloadKey(DownloadItem item)
+        {
+            return string.IsNullOrWhiteSpace(item.VersionId) ? $"{item.DeploymentName}:{item.VersionNumber}:{item.FileId}" : item.VersionId;
+        }
+
+        private DownloadItem? FindDownloadItem(DownloadStateEntry entry)
+        {
+            return _items.FirstOrDefault(item =>
+                (!string.IsNullOrWhiteSpace(entry.VersionId) && string.Equals(item.VersionId, entry.VersionId, StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(entry.FileId) && string.Equals(item.FileId, entry.FileId, StringComparison.OrdinalIgnoreCase)) ||
+                (string.Equals(item.DeploymentName, entry.DeploymentName, StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(item.VersionNumber, entry.VersionNumber, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private static string GetDownloadLabel(DownloadItem? item)
+        {
+            return item is null ? "the active download" : $"{item.DeploymentName} {item.VersionNumber}";
+        }
+
         private async Task TryRestoreSessionAsync()
         {
             if (Content is not Border) return;
@@ -958,8 +1407,9 @@ namespace Launcher
         private Border CreateEmptyState()
         {
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-            stack.Children.Add(new TextBlock { Text = "No packages found", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextAlignment = TextAlignment.Center });
-            stack.Children.Add(new TextBlock { Text = "Try adjusting your filter or search term to locate available packages.", Foreground = Muted, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 10, 0, 0) });
+            var noItems = _items.Count == 0 && string.IsNullOrWhiteSpace(_searchBox?.Text);
+            stack.Children.Add(new TextBlock { Text = noItems ? "No deployments are currently available" : "No packages found", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextAlignment = TextAlignment.Center });
+            stack.Children.Add(new TextBlock { Text = noItems ? "Your account does not currently have access to any released deployments." : "Try adjusting your filter or search term to locate available packages.", Foreground = Muted, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 10, 0, 0) });
             return new Border
             {
                 Width = GetPortalContentWidth(),
@@ -1233,7 +1683,26 @@ namespace Launcher
             var drive = new DriveInfo(root);
             if (drive.AvailableFreeSpace < requiredBytes)
             {
-                throw new IOException($"Not enough free disk space. Required {FormatBytes(requiredBytes)}, available {FormatBytes(drive.AvailableFreeSpace)}.");
+                throw new IOException($"Not enough free disk space. Required: {FormatDiskSpace(requiredBytes)}, Available: {FormatDiskSpace(drive.AvailableFreeSpace)}.");
+            }
+        }
+
+        private static bool IsDiskSpaceBelowRemaining(string targetPath, long remainingBytes, out long shortfall)
+        {
+            shortfall = 0;
+            if (remainingBytes <= 0 || string.IsNullOrWhiteSpace(targetPath)) return false;
+
+            try
+            {
+                var root = Path.GetPathRoot(Path.GetFullPath(targetPath)) ?? "";
+                var drive = new DriveInfo(root);
+                if (drive.AvailableFreeSpace >= remainingBytes) return false;
+                shortfall = remainingBytes - drive.AvailableFreeSpace;
+                return true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -1244,6 +1713,8 @@ namespace Launcher
             try
             {
                 if (File.Exists(targetPath)) File.Delete(targetPath);
+                var tempPath = $"{targetPath}.download";
+                if (File.Exists(tempPath)) File.Delete(tempPath);
 
                 var directory = Path.GetDirectoryName(targetPath);
                 var fileName = Path.GetFileName(targetPath);
@@ -1270,6 +1741,149 @@ namespace Launcher
             return string.IsNullOrWhiteSpace(_settings.InstallRoot)
                 ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Vizzio", "packages")
                 : _settings.InstallRoot;
+        }
+
+        private DownloadOptions CreateDownloadOptions()
+        {
+            var bandwidthLimit = _settings.BandwidthLimitMbps <= 0
+                ? 0
+                : (long)(_settings.BandwidthLimitMbps * 1024 * 1024);
+            return new DownloadOptions
+            {
+                ParallelStreams = GetParallelStreamCount(),
+                BandwidthLimitBytesPerSecond = bandwidthLimit,
+            };
+        }
+
+        private int GetParallelStreamCount()
+        {
+            return Math.Clamp(_settings.ParallelStreams <= 0 ? 4 : _settings.ParallelStreams, 4, 16);
+        }
+
+        private void PersistDownloadState()
+        {
+            try
+            {
+                var document = new DownloadStateDocument();
+                if (_activeDownloadItem is not null)
+                {
+                    document.Downloads.Add(CreateDownloadStateEntry(
+                        _activeDownloadItem,
+                        _pauseGate.IsSet ? "downloading" : "paused",
+                        _activeDownloadTargetPath));
+                }
+
+                foreach (var item in _downloadQueue)
+                {
+                    document.Downloads.Add(CreateDownloadStateEntry(item, "queued", ""));
+                }
+
+                SaveDownloadState(document);
+            }
+            catch
+            {
+                // Download state is best-effort; .part files still preserve byte offsets.
+            }
+        }
+
+        private void RemoveDownloadState(DownloadItem item)
+        {
+            try
+            {
+                var key = GetDownloadKey(item);
+                var document = LoadDownloadState();
+                document.Downloads = document.Downloads
+                    .Where(entry => !string.Equals(GetDownloadStateKey(entry), key, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                SaveDownloadState(document);
+            }
+            catch
+            {
+                // A stale state file only causes a harmless resume attempt later.
+            }
+        }
+
+        private DownloadStateEntry CreateDownloadStateEntry(DownloadItem item, string status, string targetPath)
+        {
+            var resolvedTargetPath = string.IsNullOrWhiteSpace(targetPath) ? GetTargetPath(item) : targetPath;
+            return new DownloadStateEntry
+            {
+                VersionId = item.VersionId,
+                FileId = item.FileId,
+                DeploymentName = item.DeploymentName,
+                VersionNumber = item.VersionNumber,
+                FileName = item.FileName,
+                Status = status,
+                InstallRoot = GetActiveInstallRoot(),
+                TargetPath = resolvedTargetPath,
+                Chunks = GetPartOffsets(resolvedTargetPath),
+                QueuedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+        }
+
+        private static List<DownloadChunkState> GetPartOffsets(string targetPath)
+        {
+            var directory = Path.GetDirectoryName(targetPath);
+            var fileName = Path.GetFileName(targetPath);
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory))
+            {
+                return new List<DownloadChunkState>();
+            }
+
+            return Directory.EnumerateFiles(directory, $"{fileName}.part*")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .Select(path => new DownloadChunkState
+                {
+                    PartName = Path.GetFileName(path),
+                    BytesDownloaded = new FileInfo(path).Length,
+                })
+                .ToList();
+        }
+
+        private DownloadStateDocument LoadDownloadState()
+        {
+            try
+            {
+                var path = GetDownloadStatePath();
+                if (!File.Exists(path)) return new DownloadStateDocument();
+                return JsonSerializer.Deserialize<DownloadStateDocument>(File.ReadAllText(path)) ?? new DownloadStateDocument();
+            }
+            catch
+            {
+                return new DownloadStateDocument();
+            }
+        }
+
+        private void SaveDownloadState(DownloadStateDocument document)
+        {
+            var path = GetDownloadStatePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            if (document.Downloads.Count == 0)
+            {
+                if (File.Exists(path)) File.Delete(path);
+                return;
+            }
+
+            File.WriteAllText(path, JsonSerializer.Serialize(document, new JsonSerializerOptions { WriteIndented = true }));
+        }
+
+        private string GetDownloadStatePath()
+        {
+            return Path.Combine(GetActiveInstallRoot(), ".vizzio", "downloads", "download-state.json");
+        }
+
+        private string GetTargetPath(DownloadItem item)
+        {
+            var fileName = string.IsNullOrWhiteSpace(item.FileName) ? $"{item.DeploymentName}-{item.VersionNumber}.zip" : item.FileName;
+            return Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
+        }
+
+        private static string GetDownloadStateKey(DownloadStateEntry entry)
+        {
+            return string.IsNullOrWhiteSpace(entry.VersionId)
+                ? $"{entry.DeploymentName}:{entry.VersionNumber}:{entry.FileId}"
+                : entry.VersionId;
         }
 
         private bool TryApplyInstallRootFromText()
@@ -1427,6 +2041,24 @@ namespace Launcher
             }
         }
 
+        private static bool IsTokenExpiring(string token, TimeSpan threshold)
+        {
+            try
+            {
+                var parts = token.Split('.');
+                if (parts.Length < 2) return false;
+                var payload = DecodeBase64Url(parts[1]);
+                using var document = JsonDocument.Parse(payload);
+                if (!document.RootElement.TryGetProperty("exp", out var expElement)) return false;
+                var exp = DateTimeOffset.FromUnixTimeSeconds(expElement.GetInt64());
+                return exp - DateTimeOffset.UtcNow <= threshold;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static byte[] DecodeBase64Url(string value)
         {
             var padded = value.Replace('-', '+').Replace('_', '/');
@@ -1569,6 +2201,56 @@ namespace Launcher
             return string.IsNullOrWhiteSpace(message) ? "Something went wrong. Please try again." : message;
         }
 
+        private static string FriendlyDownloadError(Exception ex)
+        {
+            var message = ex.GetBaseException().Message;
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return "the connection was interrupted.";
+            }
+
+            if (message.Contains("401") || message.Contains("expired", StringComparison.OrdinalIgnoreCase))
+            {
+                return "download authorization expired.";
+            }
+
+            if (message.Contains("403"))
+            {
+                return "your account no longer has access to this package.";
+            }
+
+            if (message.Contains("416"))
+            {
+                return "the saved partial file no longer matches the server file.";
+            }
+
+            if (message.Contains("Saved partial chunk", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("stuck chunk", StringComparison.OrdinalIgnoreCase))
+            {
+                return "one saved chunk was stuck, so the launcher is repairing that chunk.";
+            }
+
+            if (message.Contains("range", StringComparison.OrdinalIgnoreCase))
+            {
+                return "the server rejected a resume range request.";
+            }
+
+            if (message.Contains("ended early", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("response ended prematurely", StringComparison.OrdinalIgnoreCase))
+            {
+                return "the server closed a download stream early.";
+            }
+
+            if (message.Contains("actively refused", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("No connection", StringComparison.OrdinalIgnoreCase) ||
+                message.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            {
+                return "the server could not be reached reliably.";
+            }
+
+            return "one download stream failed before the chunk completed.";
+        }
+
         private static string FormatBytes(long value)
         {
             if (value <= 0) return "-";
@@ -1583,6 +2265,17 @@ namespace Launcher
             return $"{size:0.##} {units[unit]}";
         }
 
+        private static string FormatDiskSpace(long value)
+        {
+            var size = Math.Max(0, value);
+            if (size >= 1024L * 1024 * 1024)
+            {
+                return $"{size / 1024d / 1024d / 1024d:0.00} GB";
+            }
+
+            return $"{size / 1024d / 1024d:0.##} MB";
+        }
+
         private static SolidColorBrush BrushFrom(string value)
         {
             return (SolidColorBrush)new BrushConverter().ConvertFromString(value)!;
@@ -1592,6 +2285,34 @@ namespace Launcher
         {
             public string InstallRoot { get; set; } = "";
             public string Username { get; set; } = "";
+            public int ParallelStreams { get; set; } = 4;
+            public double BandwidthLimitMbps { get; set; }
+        }
+
+        private sealed class DownloadStateDocument
+        {
+            public List<DownloadStateEntry> Downloads { get; set; } = new();
+        }
+
+        private sealed class DownloadStateEntry
+        {
+            public string VersionId { get; set; } = "";
+            public string FileId { get; set; } = "";
+            public string DeploymentName { get; set; } = "";
+            public string VersionNumber { get; set; } = "";
+            public string FileName { get; set; } = "";
+            public string Status { get; set; } = "";
+            public string InstallRoot { get; set; } = "";
+            public string TargetPath { get; set; } = "";
+            public List<DownloadChunkState> Chunks { get; set; } = new();
+            public DateTimeOffset QueuedAt { get; set; } = DateTimeOffset.UtcNow;
+            public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+        }
+
+        private sealed class DownloadChunkState
+        {
+            public string PartName { get; set; } = "";
+            public long BytesDownloaded { get; set; }
         }
 
         private sealed class LauncherBrandingSettings

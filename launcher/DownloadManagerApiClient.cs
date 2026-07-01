@@ -9,6 +9,8 @@ using System.Threading.Tasks;
 
 namespace Launcher
 {
+    // Thin wrapper around the backend download-manager API. UI code should call
+    // this class instead of constructing URLs or parsing API errors directly.
     public sealed class DownloadManagerApiClient
     {
         private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -32,6 +34,8 @@ namespace Launcher
 
         public Uri BuildFileUri(string fileId, string downloadToken)
         {
+            // File streaming uses a query token so HttpClient range requests can
+            // be authorized without reusing the account bearer token.
             var root = ApiBaseUrl.TrimEnd('/');
             return new Uri($"{root}/download-manager/files/{Uri.EscapeDataString(fileId)}?token={Uri.EscapeDataString(downloadToken)}");
         }

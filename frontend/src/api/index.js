@@ -1,6 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
 const DOWNLOAD_BASE = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
 
+// Shared JSON API helper. It centralizes bearer auth and error extraction so
+// pages can show user-friendly failures without duplicating fetch boilerplate.
 async function request(endpoint, token, options = {}) {
   const { headers: optionHeaders = {}, ...requestOptions } = options;
 
@@ -109,6 +111,8 @@ export async function requestDownloadToken(token, fileId) {
   return request(`/download-token/${encodeURIComponent(fileId)}`, token);
 }
 
+// Browser downloads use a short-lived token in the URL. Do not replace this
+// with a bearer header unless the backend download controller changes too.
 export function buildDownloadUrl(fileId, downloadToken) {
   const url = new URL(`${DOWNLOAD_BASE.replace(/\/$/, '')}/${encodeURIComponent(fileId)}`);
   url.searchParams.set('token', downloadToken);
@@ -136,6 +140,8 @@ export async function updateDownloadManagerSession(token, sessionId, updates) {
 }
 
 export function buildManagedDownloadUrl(fileId, downloadToken) {
+  // Launcher managed downloads use the API range endpoint so pause/resume can
+  // rely on HTTP byte-range requests.
   const url = new URL(`${API_BASE.replace(/\/$/, '')}/download-manager/files/${encodeURIComponent(fileId)}`);
   url.searchParams.set('token', downloadToken);
   return url.toString();
@@ -238,6 +244,7 @@ export async function exportDownloadLogs(token, deploymentId) {
   }
 
   const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+  // Temporary anchor because browsers expose "save as file" through downloads.
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   const date = new Date().toISOString().slice(0, 10);

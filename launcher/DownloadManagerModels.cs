@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 
 namespace Launcher
 {
+    // DTOs mirror the JSON contracts returned by the backend. Keep these simple
+    // so API compatibility problems fail close to the network boundary.
     public sealed class LoginResponse
     {
         [JsonPropertyName("token")]

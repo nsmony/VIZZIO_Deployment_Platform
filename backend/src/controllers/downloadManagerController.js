@@ -55,12 +55,16 @@ export async function streamManagedDownloadFile(req, res) {
     const { file, filePath, stat } = await getTokenizedFileRequest({ fileId, token });
     const range = parseRangeHeader(req.headers.range, stat.size);
 
+    // Range support is required by the WPF launcher. Each .part file resumes by
+    // asking for the exact byte range it still needs.
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(file.originalName)}"`);
     res.setHeader('Content-Type', 'application/octet-stream');
 
     const accelRedirect = buildAccelRedirectPath(filePath);
     if (accelRedirect) {
+      // In production Nginx can serve large files directly after Node verifies
+      // the token. Node still controls auth; Nginx only handles file transfer.
       res.setHeader('X-Accel-Redirect', accelRedirect);
       return res.status(200).end();
     }
@@ -98,6 +102,7 @@ function buildAccelRedirectPath(filePath) {
   const absoluteFile = path.resolve(filePath);
   const relativePath = path.relative(root, absoluteFile);
 
+  // Never allow an accel redirect outside DOWNLOAD_ROOT.
   if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
     return null;
   }

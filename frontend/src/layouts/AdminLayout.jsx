@@ -3,6 +3,8 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import TopNavbar from '../components/TopNavbar';
 
+// The layout owns chrome state that must survive route changes: sidebar
+// visibility, profile dropdown state, and the locally stored profile image.
 function PageTitle() {
   const location = useLocation();
   const pageTitles = {
@@ -27,6 +29,7 @@ export default function AdminLayout() {
   const initials = username.slice(0, 1).toUpperCase();
 
   function handleLogout() {
+    // Clear every local auth field so a later admin cannot inherit this session.
     localStorage.removeItem('vizzio_token');
     localStorage.removeItem('vizzio_role');
     localStorage.removeItem('vizzio_username');
@@ -40,6 +43,7 @@ export default function AdminLayout() {
     const reader = new FileReader();
     reader.onload = () => {
       const result = String(reader.result || '');
+      // The profile image is local UI preference data, not backend account data.
       localStorage.setItem('vizzio_profile_image', result);
       setProfileImage(result);
     };

@@ -8,6 +8,8 @@ import { userCanAccessVersion } from './deploymentService.js';
 const VERSION_FILE_PREFIX = 'version:';
 const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
 
+// Parses the single-range form used by the launcher. Multi-range responses are
+// intentionally unsupported because each download stream owns one chunk.
 export function parseRangeHeader(rangeHeader, fileSize) {
   if (!rangeHeader) return null;
   const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
@@ -34,6 +36,8 @@ export function parseRangeHeader(rangeHeader, fileSize) {
 export async function getDownloadablesForUser(user) {
   const uploads = listUploadedFiles();
   const role = String(user?.role || '').toLowerCase();
+  // Uploaded packages are always visible to admins; normal users only see
+  // released deployment versions that their group membership allows.
   const uploadItems = uploads.map((upload) => ({
     deploymentId: null,
     deploymentName: upload.title || upload.originalName,
@@ -115,6 +119,8 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
 
   const uploadOnlySession = String(versionId).startsWith('upload:');
   const canWriteSession = isUuid(user?.userId) && isUuid(versionId);
+  // Upload-only downloads do not have deployment-version records, so they use a
+  // virtual session unless both IDs are real database UUIDs.
   const allowed = uploadOnlySession
     ? String(user?.role || '').toLowerCase() === 'admin'
     : await userCanAccessVersion(user, versionId);
@@ -218,6 +224,8 @@ export async function updateManagedDownloadSession({
 
 export async function getTokenizedFileRequest({ fileId, token }) {
   const payload = validateDownloadTokenFileAccess(token, fileId);
+  // A valid URL token is still rechecked against current access, so removing a
+  // user from a group takes effect before the token naturally expires.
   if (isUuid(payload.versionId) && !await userCanAccessVersion(payload, payload.versionId)) {
     const error = new Error('You are not allowed to download this version');
     error.status = 403;
@@ -279,6 +287,8 @@ function resolvePackageForVersion(uploads, version) {
 }
 
 async function resolveManagedFile({ fileId, versionId }) {
+  // Prefer deployment-version metadata because released packages may live on a
+  // configured package root instead of the upload scratch directory.
   if (String(versionId || '').startsWith('upload:')) {
     return resolveUploadedManagedFile(fileId);
   }
@@ -354,6 +364,8 @@ function resolveServerPackageFile(version) {
   for (const candidate of candidates) {
     try {
       const relativePath = path.relative(packageRoot, candidate);
+      // Admin-provided paths must stay under PACKAGE_ROOT before the API exposes
+      // them to launcher downloads.
       if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) continue;
       const stat = fs.statSync(candidate);
       if (stat.isFile()) {

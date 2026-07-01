@@ -15,6 +15,8 @@ export default function Dashboard() {
     if (!token) return undefined;
 
     let isMounted = true;
+    // Poll dashboard metrics because downloads and releases can change outside
+    // this page while an admin keeps the portal open.
     const loadDashboard = () => {
       fetchAdminDashboard(token)
         .then((nextData) => {
