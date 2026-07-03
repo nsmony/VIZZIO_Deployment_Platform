@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+<title>Deployment App — Project Brief</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    max-width: 860px;
+    margin: 40px auto;
+    padding: 0 24px;
+    color: #1a1a1a;
+    line-height: 1.55;
+  }
+  h1 { font-size: 28px; margin: 0 0 4px 0; }
+  .subtitle { color: #666; margin: 0 0 28px 0; }
+  h2 {
+    font-size: 19px;
+    margin: 28px 0 8px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e5e5e5;
+  }
+  h3 { font-size: 15px; margin: 18px 0 6px 0; color: #333; }
+  p { margin: 6px 0 10px 0; }
+  ul { margin: 6px 0 12px 0; padding-left: 22px; }
+  li { margin-bottom: 4px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px 0; }
+  td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e5e5e5;
+    vertical-align: top;
+  }
+  td:first-child { font-weight: 600; width: 30%; background: #fafafa; }
+  .note { color: #666; font-size: 13px; font-style: italic; }
+</style>
+</head>
+<body>
+
+<h1>Deployment App</h1>
+<p class="subtitle">Project Brief — 8 Week Intern Project</p>
+
+<h2>Project Overview</h2>
+<p>Build a Steam-style deployment system that lets authorized users download and install digital twin deployments on their machines. Each deployment is a self-contained package (an Unreal executable folder, two web folders, and a batch script that we provide). Multiple versions of each deployment must be able to coexist on the same machine so users can keep both stable and beta releases.</p>
+<p>The system has two products: a web admin panel for managing users and deployments, and a lightweight Windows launcher app that handles downloads and lets users open the install folder.</p>
+<p class="note">The brief below describes <strong>what</strong> the system should do. The team is expected to propose the technology choices and architecture in Week 1 and present them for sign-off.</p>
+
+<h2>What the System Does</h2>
+
+<h3>Admin Web Panel</h3>
+<ul>
+  <li>Admin logs in with a username and password.</li>
+  <li>Create, edit, disable, and reset passwords for users.</li>
+  <li>Create deployments and add new versions to each deployment.</li>
+  <li>Mark each version as either <strong>stable</strong> or <strong>beta</strong>.</li>
+  <li>Mark each version as <strong>released</strong> (visible to users) or <strong>archived</strong> (hidden).</li>
+  <li>Control which users can see which deployments.</li>
+  <li>Adding a new version: admin places the deployment folder on the server, then triggers an "Add version" action in the panel.</li>
+</ul>
+
+<h3>Launcher Client</h3>
+<ul>
+  <li>Simple, clean design. White background. Logo is swappable so we can rebrand it per client.</li>
+  <li>User logs in with the same username and password.</li>
+  <li>Sees only the deployments they have been given access to.</li>
+  <li>Sees every released version of each deployment, grouped by stable and beta.</li>
+  <li>Downloads run fast — files come in via multiple parallel streams.</li>
+  <li>Downloads are resumable. If the network drops or the machine restarts mid-download, it picks up where it left off.</li>
+  <li>Pause, resume, and cancel buttons.</li>
+  <li>Progress UI shows speed, remaining size, and time left.</li>
+  <li>Verifies that each downloaded file is complete and not corrupted.</li>
+  <li>Multiple versions can be installed side-by-side. A user can have stable 1.2 and beta 1.3 installed at the same time.</li>
+  <li>User picks the root folder where deployments get installed.</li>
+  <li>Each installed version has an "Open folder" button so the user can run the batch file we provide.</li>
+  <li>Checks for free disk space before starting a download.</li>
+  <li>Friendly error messages when things go wrong.</li>
+</ul>
+
+<h2>Confirmed Decisions</h2>
+<table>
+  <tbody><tr><td>Login</td><td>Simple username + password.</td></tr>
+  <tr><td>Versions on a machine</td><td>Side-by-side. Stable and beta can be installed together.</td></tr>
+  <tr><td>Updates</td><td>Users are not forced to update. They can stay on an older version.</td></tr>
+  <tr><td>Adding a version</td><td>Admin drops the folder on the server, then clicks to add it in the panel.</td></tr>
+  <tr><td>Install location</td><td>User picks the install root folder in the launcher settings.</td></tr>
+  <tr><td>Launching the app</td><td>For the main project, the user opens the install folder and runs the batch file themselves. See bonus objectives.</td></tr>
+</tbody></table>
+
+<h2>8-Week Timeline</h2>
+<p class="note">The team self-organises within each week. One or two demonstrable milestones per week. Friday demo every week so progress is visible.</p>
+
+<h3>Week 1 — Design</h3>
+<ul>
+  <li>Wireframes and user flows for both the admin panel and the launcher, signed off by mid-week.</li>
+  <li>Technology choices proposed and agreed.</li>
+</ul>
+
+<h3>Week 2 — Foundations</h3>
+<ul>
+  <li>Login working on both the admin panel and the launcher.</li>
+  <li>First proof-of-concept download working end-to-end.</li>
+</ul>
+
+<h3>Week 3 — Admin Core</h3>
+<ul>
+  <li>User management fully working in the admin panel.</li>
+  <li>Adding deployments and versions working: admin can drop a folder on the server and register it via the panel.</li>
+</ul>
+
+<h3>Week 4 — Admin Complete, Launcher Connects</h3>
+<ul>
+  <li>Admin can fully manage users, deployments, versions, and access.</li>
+  <li>Launcher logs in and shows each user the deployments they have access to.</li>
+</ul>
+
+<h3>Week 5 — Download Manager</h3>
+<ul>
+  <li>Full download functionality: parallel streams, resumable, pause / resume / cancel, file integrity verified.</li>
+</ul>
+
+<h3>Week 6 — Integration + Branding, Feature Freeze</h3>
+<ul>
+  <li>Side-by-side version installs, user-configurable install folder, swappable logo, "Open folder" button, disk space checks, friendly error messages.</li>
+  <li>End-to-end demo with a real multi-GB Unreal build on a clean machine.</li>
+</ul>
+
+<h3>Week 7 — Hardening + Debug</h3>
+<ul>
+  <li>Stress tested: slow network, dropped network mid-download, corrupted files, fresh machine.</li>
+  <li>All Week 6 demo bugs fixed.</li>
+</ul>
+
+<h3>Week 8 — Documentation + Handover</h3>
+<ul>
+  <li>Operations guide (how to publish a new version), admin user guide, handover document.</li>
+  <li>Final demo and sign-off.</li>
+</ul>
+
+<h2>Bonus Objectives</h2>
+<p class="note">If the core scope is on track by the end of Week 6, pick any of the following. None are required for sign-off.</p>
+<ul>
+  <li><strong>Launch deployments from the app.</strong> Run the deployment from inside the launcher, show a "Running" state, and have a "Stop" button that cleanly closes everything that was launched.</li>
+  <li><strong>Auto-install prerequisites on first run.</strong> Detect whether the required software is already installed and offer to install it if missing.</li>
+  <li><strong>Launcher auto-update.</strong> The launcher checks for a newer version of itself on startup and updates in place.</li>
+  <li><strong>Bandwidth cap setting.</strong> User can limit download speed so it doesn't saturate the office network.</li>
+  <li><strong>Port conflict detection.</strong> Before launch, check that the ports the deployment needs are free; show a clear error if not.</li>
+  <li><strong>Download history in admin.</strong> Show who downloaded what and when, with simple filters.</li>
+  <li><strong>Automatic error reporting.</strong> When something goes wrong, the launcher uploads its logs so we can debug.</li>
+</ul>
+
+<h2>Final Deliverables</h2>
+<ul>
+  <li>A working admin web panel.</li>
+  <li>A working launcher installer.</li>
+  <li>Operations guide (how to publish a new version).</li>
+  <li>Admin user guide.</li>
+  <li>Handover document covering how everything fits together and how to deploy it.</li>
+</ul>
+
+
+
+</body></html>
