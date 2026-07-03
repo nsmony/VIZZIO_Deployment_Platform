@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 
+// JWT helpers for launcher download-manager sessions.
 const downloadManagerTokenOptions = { expiresIn: '1h' };
 
 function getDownloadManagerSecret() {

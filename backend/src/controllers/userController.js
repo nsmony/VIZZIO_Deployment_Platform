@@ -12,6 +12,7 @@ import {
   updateGroupById,
 } from '../services/groupService.js';
 
+// HTTP handlers for user accounts and access groups.
 export async function listUsers(req, res) {
   res.json({ users: await getUsers() });
 }

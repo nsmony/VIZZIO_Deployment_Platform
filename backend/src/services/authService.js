@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { signToken } from '../auth.js';
 import { findUserByUsernameOrEmail, updateUserLastLogin } from '../repositories/userRepository.js';
 
+// Demo users are useful for local development and can be disabled by env.
 const mockUsers = [
   {
     id: 'admin-1',
@@ -17,6 +18,7 @@ const mockUsers = [
   },
 ];
 
+// Validate credentials and return a signed API token.
 export async function authenticateUser(username, password) {
   const normalizedUsername = username.trim();
   const demoUsersEnabled = String(process.env.ENABLE_DEMO_USERS || 'true').toLowerCase() !== 'false';

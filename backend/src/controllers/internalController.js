@@ -1,5 +1,6 @@
 import { verifyDownloadToken } from '../downloadToken.js';
 
+// Lets internal services verify short-lived direct download tokens.
 export function validateDownloadToken(req, res) {
   const { token } = req.query;
 

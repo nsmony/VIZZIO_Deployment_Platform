@@ -8,6 +8,7 @@ import {
   updateManagedDownloadSession,
 } from '../services/downloadManagerService.js';
 
+// HTTP handlers used by the Windows launcher download manager.
 export async function listDownloadManagerItems(req, res) {
   const items = await getDownloadablesForUser(req.user);
   res.json({ items });

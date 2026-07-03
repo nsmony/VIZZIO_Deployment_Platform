@@ -7,9 +7,12 @@ namespace Launcher
     // so API compatibility problems fail close to the network boundary.
     public sealed class LoginResponse
     {
+        // The JWT is stored by the launcher and sent back on every API request.
         [JsonPropertyName("token")]
         public string Token { get; set; } = "";
 
+        // Role is currently mostly informational in the launcher, but keeping it
+        // here makes the login contract match the admin web app contract.
         [JsonPropertyName("role")]
         public string Role { get; set; } = "";
 
@@ -25,6 +28,8 @@ namespace Launcher
 
     public sealed class DownloadItem
     {
+        // These display fields are flattened by the backend so the launcher does
+        // not need to understand the full deployment/version database shape.
         [JsonPropertyName("deploymentName")]
         public string DeploymentName { get; set; } = "";
 
@@ -49,9 +54,13 @@ namespace Launcher
         [JsonPropertyName("size")]
         public long? Size { get; set; }
 
+        // SHA-256 from the registered package. The download manager verifies it
+        // after writing the final file to disk.
         [JsonPropertyName("checksum")]
         public string? Checksum { get; set; }
 
+        // False means the version exists in the catalog but the package file is
+        // missing or unavailable on the server.
         [JsonPropertyName("available")]
         public bool Available { get; set; }
 
@@ -64,6 +73,8 @@ namespace Launcher
 
     public sealed class DownloadSessionResponse
     {
+        // Sessions allow the backend to issue short-lived download URLs/tokens
+        // without exposing the package storage path directly to the client.
         [JsonPropertyName("session")]
         public DownloadSessionDto Session { get; set; } = new();
 

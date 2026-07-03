@@ -1,6 +1,7 @@
 import { verifyDownloadToken } from '../downloadToken.js';
 import { findUploadedFile, getUploadedFilePath } from '../uploadStore.js';
 
+// Streams files uploaded through the admin panel.
 export function downloadUploadedFile(req, res) {
   const { fileId } = req.params;
   const { token } = req.query;

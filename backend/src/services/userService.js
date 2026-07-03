@@ -9,6 +9,7 @@ import {
   updateUser as updateUserRepo,
 } from '../repositories/userRepository.js';
 
+// Business rules for creating and maintaining user accounts.
 const BCRYPT_COST = 12;
 const MIN_PASSWORD_LENGTH = 8;
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,64}$/;

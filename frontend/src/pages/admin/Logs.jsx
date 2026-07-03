@@ -3,6 +3,7 @@ import { exportDownloadLogs, fetchDeployments, fetchDownloadLogs } from '../../a
 import '../../styles/Logs.css';
 
 export default function Logs() {
+  // Store filter options and the log rows shown in the table.
   const [deployments, setDeployments] = useState([]);
   const [deploymentId, setDeploymentId] = useState('');
   const [logs, setLogs] = useState([]);
@@ -13,10 +14,12 @@ export default function Logs() {
 
   const token = localStorage.getItem('vizzio_token');
 
+  // Load deployment options once when the page opens.
   useEffect(() => {
     loadDeployments();
   }, []);
 
+  // Reload logs whenever the selected deployment filter changes.
   useEffect(() => {
     loadLogs();
   }, [deploymentId]);
@@ -26,6 +29,7 @@ export default function Logs() {
     return deployments.find((deployment) => deployment.id === deploymentId);
   }, [deployments, deploymentId]);
 
+  // Fetch deployments for the filter dropdown.
   async function loadDeployments() {
     try {
       const data = await fetchDeployments(token);
@@ -35,6 +39,7 @@ export default function Logs() {
     }
   }
 
+  // Fetch logs for all deployments or one selected deployment.
   async function loadLogs() {
     setIsLoading(true);
     setError('');
@@ -49,6 +54,7 @@ export default function Logs() {
     }
   }
 
+  // Ask the backend to export the current log filter.
   async function handleDownload() {
     setIsExporting(true);
     setError('');
@@ -165,6 +171,7 @@ export default function Logs() {
   );
 }
 
+// Show dates in the user's local timezone.
 function formatDate(value) {
   if (!value) return '-';
   return new Date(value).toLocaleString();

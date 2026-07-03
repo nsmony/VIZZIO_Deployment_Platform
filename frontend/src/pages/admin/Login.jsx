@@ -4,6 +4,7 @@ import { login } from '../../api';
 import '../../styles/Login.css';
 
 export default function Login() {
+  // Keep login fields controlled by React.
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
@@ -12,16 +13,21 @@ export default function Login() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    // Send the credentials to the backend and show a loading state.
     setLoading(true);
     setError(null);
     const result = await login(username, password);
     setLoading(false);
+
     if (result.token) {
+      // Only admins should be able to enter the admin panel.
       if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
         setError('Only admin accounts can access this panel.');
         return;
       }
 
+      // Save the session so the other admin pages can call the API.
       localStorage.setItem('vizzio_token', result.token);
       localStorage.setItem('vizzio_username', result.user?.username || username);
       localStorage.setItem('vizzio_role', result.user?.role || 'admin');

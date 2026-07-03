@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 
+// Short-lived JWT helpers for direct package download links.
 const downloadTokenOptions = { expiresIn: '5m' };
 
 function getDownloadSecret() {

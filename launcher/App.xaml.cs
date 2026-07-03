@@ -10,6 +10,7 @@ namespace Launcher
     {
         public App()
         {
+            // Register global error handlers before any window is shown.
             DispatcherUnhandledException += OnDispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += (_, e) => LogException(e.ExceptionObject as Exception);
             TaskScheduler.UnobservedTaskException += (_, e) =>
@@ -21,6 +22,7 @@ namespace Launcher
 
         private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
         {
+            // Show a friendly message and write the full error to disk.
             LogException(e.Exception);
             MessageBox.Show(
                 $"The launcher could not continue. Details were written to:\n{GetLogPath()}\n\n{e.Exception.Message}",
@@ -49,6 +51,7 @@ namespace Launcher
 
         private static string GetLogPath()
         {
+            // Store logs under the current Windows user profile.
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "VIZZIO",

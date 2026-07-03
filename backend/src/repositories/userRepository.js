@@ -1,5 +1,6 @@
 import prisma from '../prisma.js';
 
+// Database access helpers for user accounts.
 const userInclude = {
   groupMemberships: {
     include: {

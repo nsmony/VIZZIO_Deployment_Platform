@@ -1,5 +1,6 @@
 import prisma from '../prisma.js';
 
+// Builds the data used by the admin dashboard widgets.
 export async function getAdminDashboard() {
   const [groups, users, deployments, versions, recentLogs] = await Promise.all([
     prisma.userGroup.findMany({

@@ -6,6 +6,7 @@ import {
   notifications,
 } from '../controllers/adminController.js';
 
+// Admin dashboard, notifications, and audit log routes.
 const router = express.Router();
 
 router.get('/dashboard', dashboard);

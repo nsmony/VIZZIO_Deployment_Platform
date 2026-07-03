@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
+// Small file manifest used for packages uploaded through the admin panel.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const downloadDir = path.resolve(__dirname, '../storage/downloads');

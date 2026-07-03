@@ -27,6 +27,9 @@ namespace Launcher
         // Steam-style downloads benefit from multiple streams, but the launcher
         // clamps this value so company networks are not overwhelmed.
         public int ParallelStreams { get; init; } = 4;
+
+        // A value of 0 means "unlimited". When set, the cap is shared across all
+        // chunks so four streams do not accidentally become four full-speed caps.
         public long BandwidthLimitBytesPerSecond { get; init; }
     }
 
@@ -69,6 +72,9 @@ namespace Launcher
             DownloadOptions? options = null)
         {
             options ??= new DownloadOptions();
+
+            // Keep the caller-facing option flexible, but enforce launcher-wide
+            // limits here so every download path behaves consistently.
             var parallelStreams = Math.Clamp(options.ParallelStreams, MinChunkCount, MaxChunkCount);
             var bandwidthLimiter = options.BandwidthLimitBytesPerSecond > 0
                 ? new BandwidthLimiter(options.BandwidthLimitBytesPerSecond)
@@ -87,6 +93,8 @@ namespace Launcher
 
             try
             {
+                // Each chunk writes to its own .part file. That keeps concurrent
+                // writes independent and makes resume state easy to inspect.
                 var chunks = CreateChunks(totalBytes, targetPath, parallelStreams);
                 var stopwatch = Stopwatch.StartNew();
                 var progressState = new ProgressReportState();
@@ -97,6 +105,8 @@ namespace Launcher
 
                 if (!string.IsNullOrWhiteSpace(expectedSha256))
                 {
+                    // The backend checksum is the final guard after transport
+                    // retries, range validation, and chunk merging have finished.
                     var actual = await ComputeSha256Async(targetPath, cancellationToken).ConfigureAwait(false);
                     if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
                     {
@@ -118,6 +128,8 @@ namespace Launcher
 
         private async Task<bool> SupportsRangeRequestsAsync(Uri source, CancellationToken cancellationToken)
         {
+            // Ask for one byte instead of trusting Accept-Ranges; some servers
+            // omit that header but still support byte-range responses correctly.
             using var request = new HttpRequestMessage(HttpMethod.Get, source);
             request.Headers.Range = new RangeHeaderValue(0, 0);
             using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -132,6 +144,8 @@ namespace Launcher
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                // A few storage providers reject HEAD. A 0-0 range request still
+                // exposes Content-Range, including the full file length.
                 using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, source);
                 rangeRequest.Headers.Range = new RangeHeaderValue(0, 0);
                 using var rangeResponse = await _httpClient.SendAsync(rangeRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
@@ -153,6 +167,8 @@ namespace Launcher
             var chunks = new List<DownloadChunk>();
             for (var i = 0; i < chunkCount; i++)
             {
+                // Ranges are inclusive in HTTP, so the final byte is total - 1.
+                // The last chunk absorbs any remainder from integer division.
                 var start = i * chunkSize;
                 var end = i == chunkCount - 1 ? totalBytes - 1 : Math.Min(totalBytes - 1, start + chunkSize - 1);
                 chunks.Add(new DownloadChunk(start, end, $"{targetPath}.part{i}"));
@@ -199,6 +215,8 @@ namespace Launcher
                             throw new IOException($"Server returned {(int)response.StatusCode} {response.StatusCode} for range bytes {start}-{chunk.End}.");
                         }
 
+                        // Validate the server actually honored the requested
+                        // range before appending bytes to the partial file.
                         ValidateContentRange(response, start, chunk.End, totalBytes);
 
                         await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -210,6 +228,9 @@ namespace Launcher
                             var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
                             if (read == 0) break;
                             await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
+
+                            // Throttle before writing so the on-disk byte count
+                            // never races ahead of the visible transfer budget.
                             if (bandwidthLimiter is not null)
                             {
                                 await bandwidthLimiter.WaitAsync(read, cancellationToken).ConfigureAwait(false);
@@ -266,6 +287,8 @@ namespace Launcher
             var range = response.Content.Headers.ContentRange;
             if (range is null) return;
 
+            // A mismatched Content-Range usually means a proxy, CDN, or stale URL
+            // served a different object than the one the backend registered.
             if (range.From != expectedStart || range.To != expectedEnd)
             {
                 throw new IOException($"Server returned range bytes {range.From}-{range.To}, expected bytes {expectedStart}-{expectedEnd}.");
@@ -287,6 +310,8 @@ namespace Launcher
             BandwidthLimiter? bandwidthLimiter,
             CancellationToken cancellationToken)
         {
+            // Single-stream mode is intentionally simpler: no .part files are
+            // kept because the server cannot prove it can resume byte ranges.
             DeletePartFiles(targetPath);
             var tempPath = $"{targetPath}.download";
             var stopwatch = Stopwatch.StartNew();
@@ -307,6 +332,9 @@ namespace Launcher
                     var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
                     if (read == 0) break;
                     await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
+
+                    // The same limiter is reused here so UI settings apply even
+                    // when the server does not support chunked downloads.
                     if (bandwidthLimiter is not null)
                     {
                         await bandwidthLimiter.WaitAsync(read, cancellationToken).ConfigureAwait(false);
@@ -345,6 +373,8 @@ namespace Launcher
         {
             if (!File.Exists(chunk.PartPath)) return;
 
+            // If a previous run wrote too many bytes before failing, trim the
+            // file back to the exact chunk size before calculating resume offset.
             var expectedPartSize = chunk.End - chunk.Start + 1;
             var actualPartSize = new FileInfo(chunk.PartPath).Length;
             if (actualPartSize <= expectedPartSize) return;
@@ -355,6 +385,8 @@ namespace Launcher
 
         private static void ReportProgress(IProgress<DownloadProgress> progress, long totalBytes, Stopwatch stopwatch, string partPath)
         {
+            // Progress is aggregated from all sibling .part files so every
+            // parallel stream contributes to a single UI progress snapshot.
             var directory = Path.GetDirectoryName(partPath)!;
             var prefix = Path.GetFileNameWithoutExtension(partPath);
             var downloaded = Directory.GetFiles(directory, $"{prefix}.part*").Sum(path => new FileInfo(path).Length);
@@ -378,6 +410,8 @@ namespace Launcher
         {
             if (force) return true;
 
+            // All chunk tasks share this timestamp; the lock prevents a burst of
+            // simultaneous progress events every time several streams write.
             var now = DateTimeOffset.UtcNow;
             lock (state)
             {
@@ -393,6 +427,8 @@ namespace Launcher
             var fileName = Path.GetFileName(targetPath);
             if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory)) return;
 
+            // Only delete files for this target package. Other downloads in the
+            // same install directory may still have valid resume data.
             foreach (var partPath in Directory.EnumerateFiles(directory, $"{fileName}.part*"))
             {
                 File.Delete(partPath);
@@ -433,6 +469,8 @@ namespace Launcher
 
         private static void EnsureDiskSpace(string targetPath, long expectedSize)
         {
+            // Check the drive that will receive the final package, not just the
+            // current working directory where the launcher happens to run.
             var root = Path.GetPathRoot(Path.GetFullPath(targetPath)) ?? "";
             var drive = new DriveInfo(root);
             if (drive.AvailableFreeSpace < expectedSize)

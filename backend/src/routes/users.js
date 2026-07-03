@@ -11,6 +11,7 @@ import {
   updateUserHandler,
 } from '../controllers/userController.js';
 
+// User account and group access routes.
 const router = express.Router();
 
 router.get('/', listUsers);

@@ -22,12 +22,14 @@ namespace Launcher
 
         public void SetToken(string token)
         {
+            // Keep the token in memory and apply it to future API requests.
             _token = token;
             ApplyBearerToken();
         }
 
         public void ClearToken()
         {
+            // Remove authorization when the user signs out.
             _token = "";
             ApplyBearerToken();
         }
@@ -42,6 +44,7 @@ namespace Launcher
 
         public async Task<LoginResponse> LoginAsync(string username, string password, CancellationToken cancellationToken)
         {
+            // Login returns the account token used by the rest of the launcher.
             var response = await _httpClient.PostAsJsonAsync($"{ApiBaseUrl.TrimEnd('/')}/auth/login", new { username, password }, cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
             var login = await response.Content.ReadFromJsonAsync<LoginResponse>(JsonOptions, cancellationToken);
@@ -51,6 +54,7 @@ namespace Launcher
 
         public async Task<DownloadItemsResponse> GetDownloadItemsAsync(CancellationToken cancellationToken)
         {
+            // Load only the packages the signed-in user can access.
             ApplyBearerToken();
             var response = await _httpClient.GetAsync($"{ApiBaseUrl.TrimEnd('/')}/download-manager/items", cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
@@ -59,6 +63,7 @@ namespace Launcher
 
         public async Task<DownloadSessionResponse> CreateSessionAsync(DownloadItem item, CancellationToken cancellationToken)
         {
+            // A session gives the launcher a short-lived token for file streaming.
             ApplyBearerToken();
             var response = await _httpClient.PostAsJsonAsync(
                 $"{ApiBaseUrl.TrimEnd('/')}/download-manager/sessions",
@@ -71,6 +76,8 @@ namespace Launcher
         public async Task UpdateSessionAsync(string sessionId, string status, long downloadedSize, long totalSize, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(sessionId)) return;
+
+            // Report progress back to the backend for logs and admin visibility.
             ApplyBearerToken();
             var response = await _httpClient.PatchAsJsonAsync(
                 $"{ApiBaseUrl.TrimEnd('/')}/download-manager/sessions/{Uri.EscapeDataString(sessionId)}",
@@ -89,6 +96,8 @@ namespace Launcher
         private static async Task EnsureSuccessAsync(HttpResponseMessage response, CancellationToken cancellationToken)
         {
             if (response.IsSuccessStatusCode) return;
+
+            // Convert backend error JSON into one launcher exception type.
             var body = await response.Content.ReadAsStringAsync(cancellationToken);
             var message = ExtractErrorMessage(body) ?? response.ReasonPhrase ?? "Request failed";
             var retryAfter = response.Headers.RetryAfter?.Delta;

@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 
+// Shared JWT helpers for normal user/admin API sessions.
 const jwtOptions = { expiresIn: '24h' };
 
 function getJwtSecret() {

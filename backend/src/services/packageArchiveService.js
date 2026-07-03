@@ -4,6 +4,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { findUploadedFile } from '../uploadStore.js';
 
+// Helpers for validating package paths and creating ZIP archives.
 export const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
 
 const ZIP_VERSION_NEEDED = 20;
@@ -15,6 +16,7 @@ export function getPackageRoot() {
   return path.resolve(process.env.PACKAGE_ROOT || DEFAULT_PACKAGE_ROOT);
 }
 
+// Inspect a staged folder, server archive, or uploaded package.
 export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive }) {
   const rawPackagePath = String(packagePath || '').trim();
   if (!rawPackagePath) throw new Error('Package source path is required.');

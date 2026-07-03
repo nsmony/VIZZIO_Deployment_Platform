@@ -31,13 +31,18 @@ const emptyGroupForm = {
 const pageSize = 25;
 
 export default function Users() {
+  // Main lists used by this page.
   const [users, setUsers] = useState([]);
   const [groups, setGroups] = useState([]);
   const [deployments, setDeployments] = useState([]);
+
+  // Filters and pagination for the users table.
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('All Users');
   const [filterGroup, setFilterGroup] = useState('All Groups');
   const [page, setPage] = useState(1);
+
+  // Form state for user and group modals.
   const [form, setForm] = useState(emptyForm);
   const [groupForm, setGroupForm] = useState(emptyGroupForm);
   const [editingUser, setEditingUser] = useState(null);
@@ -53,12 +58,14 @@ export default function Users() {
 
   const token = localStorage.getItem('vizzio_token');
 
+  // Load users, groups, and deployments when the page opens.
   useEffect(() => {
     loadData();
   }, []);
 
   const groupNames = useMemo(() => groups.map((group) => group.name), [groups]);
 
+  // Make it easy to show deployment names from group deployment IDs.
   const deploymentById = useMemo(() => {
     return deployments.reduce((lookup, deployment) => {
       lookup[deployment.id] = deployment;
@@ -66,6 +73,7 @@ export default function Users() {
     }, {});
   }, [deployments]);
 
+  // Apply search, role filter, and group filter before pagination.
   const filteredUsers = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
 
@@ -84,14 +92,17 @@ export default function Users() {
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
   const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
 
+  // Reset to page one when filters change.
   useEffect(() => {
     setPage(1);
   }, [search, filterRole, filterGroup]);
 
+  // Keep the current page inside the available page count.
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
 
+  // Fetch all data this page needs in one load.
   async function loadData() {
     setIsLoading(true);
     setError('');
@@ -112,6 +123,7 @@ export default function Users() {
     }
   }
 
+  // Open a blank user form.
   function openCreateForm() {
     setEditingUser(null);
     setForm(emptyForm);
@@ -120,6 +132,7 @@ export default function Users() {
     setIsFormOpen(true);
   }
 
+  // Open the user form with existing values.
   function openEditForm(user) {
     setOpenUserMenuId(null);
     setEditingUser(user);
@@ -136,6 +149,7 @@ export default function Users() {
     setIsFormOpen(true);
   }
 
+  // Close the user form unless a save is running.
   function closeForm() {
     if (isSaving) return;
     setIsFormOpen(false);
@@ -143,6 +157,7 @@ export default function Users() {
     setForm(emptyForm);
   }
 
+  // Open a blank group form.
   function openCreateGroupForm() {
     setEditingGroup(null);
     setGroupForm(emptyGroupForm);
@@ -151,6 +166,7 @@ export default function Users() {
     setIsGroupFormOpen(true);
   }
 
+  // Open the group form and preselect current members.
   function openEditGroupForm(group) {
     setEditingGroup(group);
     setGroupForm({
@@ -165,6 +181,7 @@ export default function Users() {
     setIsGroupFormOpen(true);
   }
 
+  // Close the group form unless a save is running.
   function closeGroupForm() {
     if (isSaving) return;
     setIsGroupFormOpen(false);
@@ -180,6 +197,7 @@ export default function Users() {
     setGroupForm((current) => ({ ...current, [field]: value }));
   }
 
+  // Add or remove a group on the user form.
   function toggleUserGroup(groupName) {
     setForm((current) => ({
       ...current,
@@ -189,6 +207,7 @@ export default function Users() {
     }));
   }
 
+  // Add or remove deployment access on the group form.
   function toggleGroupDeployment(deploymentId) {
     setGroupForm((current) => ({
       ...current,
@@ -198,6 +217,7 @@ export default function Users() {
     }));
   }
 
+  // Add or remove a member on the group form.
   function toggleGroupMember(userId) {
     setGroupForm((current) => ({
       ...current,
@@ -207,6 +227,7 @@ export default function Users() {
     }));
   }
 
+  // Create a user or update the selected user.
   async function saveUser(event) {
     event.preventDefault();
     setIsSaving(true);
@@ -227,6 +248,7 @@ export default function Users() {
 
     try {
       if (editingUser) {
+        // Update the row locally so the table reflects the saved user.
         const data = await updateUser(token, editingUser.id, payload);
         setUsers((current) =>
           current.map((user) => (user.id === editingUser.id ? data.user : user))
@@ -235,6 +257,8 @@ export default function Users() {
       } else {
         const data = await createUser(token, payload);
         setUsers((current) => [...current, data.user]);
+
+        // Temporary passwords are shown once after the account is created.
         if (data.temporaryPassword) {
           const credential = {
             userId: data.user.id,
@@ -258,6 +282,7 @@ export default function Users() {
     }
   }
 
+  // Create a group or update the selected group.
   async function saveGroup(event) {
     event.preventDefault();
     setIsSaving(true);
@@ -284,6 +309,7 @@ export default function Users() {
         setMessage(`${data.group.name} group was created.`);
       }
 
+      // Member checkboxes update user records after the group is saved.
       await syncGroupMembers(savedGroup, previousGroupName);
       await loadData();
       setIsGroupFormOpen(false);
@@ -296,6 +322,7 @@ export default function Users() {
     }
   }
 
+  // Disable an account without deleting its history.
   async function handleDisable(user) {
     setOpenUserMenuId(null);
     if (user.status === 'Inactive') {
@@ -319,6 +346,7 @@ export default function Users() {
     }
   }
 
+  // Generate a new temporary password for the user.
   async function handleResetPassword(user) {
     setOpenUserMenuId(null);
     if (!window.confirm(`Reset password for ${user.name}?`)) {
@@ -345,6 +373,7 @@ export default function Users() {
     }
   }
 
+  // Delete the user account from the system.
   async function handleDeleteUser(user) {
     setOpenUserMenuId(null);
     if (!window.confirm(`Delete ${user.name}? This cannot be undone.`)) {
@@ -363,6 +392,7 @@ export default function Users() {
     }
   }
 
+  // Copy the temporary credentials from the modal.
   async function copyCredentials() {
     if (!credentials) return;
 
@@ -382,6 +412,7 @@ export default function Users() {
     }
   }
 
+  // Keep user group membership in sync with the group member checkboxes.
   async function syncGroupMembers(group, previousGroupName) {
     const selectedIds = new Set(groupForm.memberIds);
     const groupNameChanged = previousGroupName && previousGroupName !== group.name;
@@ -782,6 +813,7 @@ export default function Users() {
   );
 }
 
+// Count unique deployments the user's groups can access.
 function getAccessibleDeploymentCount(userGroups = [], groups = []) {
   const deploymentIds = groups
     .filter((group) => userGroups.includes(group.name))
@@ -789,15 +821,18 @@ function getAccessibleDeploymentCount(userGroups = [], groups = []) {
   return new Set(deploymentIds).size;
 }
 
+// Count members shown on each group card.
 function countUsersInGroup(users, groupName) {
   return users.filter((user) => (user.groups || []).includes(groupName)).length;
 }
 
+// Show a friendly value when the user has never logged in.
 function formatLastLogin(value) {
   if (!value) return 'Never logged in';
   return new Date(value).toLocaleString();
 }
 
+// Copy text with a fallback for older browsers.
 async function copyText(text) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);

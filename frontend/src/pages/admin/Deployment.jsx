@@ -15,6 +15,7 @@ const emptyForm = { name: '', description: '', logoUrl: '' };
 const pageSizeOptions = [6, 9, 12];
 
 export default function Deployment() {
+  // Main page data and form state.
   const [deployments, setDeployments] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [showForm, setShowForm] = useState(false);
@@ -33,6 +34,7 @@ export default function Deployment() {
   const [pageSize, setPageSize] = useState(6);
   const [openMenuId, setOpenMenuId] = useState(null);
 
+  // Load all deployments shown in the table/cards.
   async function loadDeployments() {
     const token = localStorage.getItem('vizzio_token');
     if (!token) return;
@@ -53,10 +55,12 @@ export default function Deployment() {
     loadDeployments();
   }, []);
 
+  // Go back to the first page whenever filters change.
   useEffect(() => {
     setPage(1);
   }, [search, statusFilter, sortMode, pageSize]);
 
+  // Calculate summary numbers from the loaded deployments.
   const kpis = useMemo(() => {
     const totalVersions = deployments.reduce((sum, deployment) => sum + deployment.versionCount, 0);
     const activeDeployments = deployments.filter((deployment) => deployment.displayStatus === 'Active').length;
@@ -72,6 +76,7 @@ export default function Deployment() {
     };
   }, [deployments]);
 
+  // Apply search, status filter, and sorting before pagination.
   const filteredDeployments = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     const filtered = deployments.filter((deployment) => {
@@ -95,6 +100,7 @@ export default function Deployment() {
   const pageCount = Math.max(1, Math.ceil(filteredDeployments.length / pageSize));
   const pagedDeployments = filteredDeployments.slice((page - 1) * pageSize, page * pageSize);
 
+  // Create a new deployment or save changes to an existing one.
   async function handleSave(event) {
     event.preventDefault();
     const validationError = validateForm(form);
@@ -132,6 +138,7 @@ export default function Deployment() {
     }
   }
 
+  // Fetch full details only when the admin opens the detail modal.
   async function handleView(deployment) {
     const token = localStorage.getItem('vizzio_token');
     if (!token) return;
@@ -152,6 +159,7 @@ export default function Deployment() {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
   }
 
+  // Reset the form for creating a new deployment.
   function openCreateForm() {
     setEditingDeployment(null);
     setForm(emptyForm);
@@ -159,6 +167,7 @@ export default function Deployment() {
     setError('');
   }
 
+  // Fill the form with the selected deployment for editing.
   function openEditForm(deployment) {
     setEditingDeployment(deployment);
     setForm({
@@ -171,12 +180,14 @@ export default function Deployment() {
     setError('');
   }
 
+  // Close the form and remove any edit state.
   function closeForm() {
     setEditingDeployment(null);
     setForm(emptyForm);
     setShowForm(false);
   }
 
+  // Copying the ID helps admins share or debug a deployment record.
   async function copyDeploymentId(deployment) {
     setOpenMenuId(null);
     try {
@@ -352,6 +363,7 @@ export default function Deployment() {
   );
 }
 
+// Add display-only fields used by this page.
 function enrichDeployment(deployment) {
   const versions = deployment.versions || [];
   const releasedCount = versions.filter((version) => version.status === 'released').length;
@@ -378,6 +390,7 @@ function enrichDeployment(deployment) {
   };
 }
 
+// Format backend dates for the UI.
 function formatDate(value) {
   if (!value) return 'Unknown';
   const date = new Date(value);
@@ -385,6 +398,7 @@ function formatDate(value) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
 }
 
+// Keep basic validation close to the form.
 function validateForm(form) {
   if (!form.name.trim()) return 'Deployment name is required.';
   if (form.logoUrl.trim()) {

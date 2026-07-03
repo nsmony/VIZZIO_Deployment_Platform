@@ -6,6 +6,7 @@ import {
 } from '../repositories/groupRepository.js';
 import { findDeployments } from '../repositories/deploymentRepository.js';
 
+// Business rules for access groups and deployment permissions.
 export function getGroups() {
   return findGroups().then((groups) => groups.map(toPublicGroup));
 }

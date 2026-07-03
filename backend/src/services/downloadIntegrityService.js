@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 
+// Calculate SHA-256 checksums for package integrity checks.
 export async function calculateSha256(filePath) {
   const hash = crypto.createHash('sha256');
   await new Promise((resolve, reject) => {

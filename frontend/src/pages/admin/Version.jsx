@@ -21,6 +21,7 @@ const emptyVersion = {
   checksum: '',
 };
 
+// Convert package bytes into a readable label.
 function formatPackageSize(value) {
   if (!value) return 'Not set';
   const bytes = Number(value);
@@ -32,8 +33,11 @@ function formatPackageSize(value) {
 }
 
 export default function Version() {
+  // Store deployments and the currently selected deployment.
   const [deployments, setDeployments] = useState([]);
   const [selectedId, setSelectedId] = useState('');
+
+  // Store the register-version form state.
   const [form, setForm] = useState(emptyVersion);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -49,6 +53,7 @@ export default function Version() {
     [deployments, selectedId]
   );
 
+  // Reload deployments after changes so generated metadata stays up to date.
   async function loadDeployments(preferredId) {
     const token = localStorage.getItem('vizzio_token');
     if (!token) return;
@@ -71,6 +76,7 @@ export default function Version() {
     loadDeployments();
   }, []);
 
+  // Register a version after upload or package validation is complete.
   async function handleRegister(event) {
     event.preventDefault();
     const token = localStorage.getItem('vizzio_token');
@@ -81,6 +87,7 @@ export default function Version() {
     try {
       let nextForm = { ...form };
       if (selectedFile) {
+        // Upload first so the backend can return file metadata.
         const uploaded = await uploadPackage(token, selectedFile, `${deployment.name} ${form.versionNumber}`.trim());
         const uploadedPackage = uploaded.package;
         nextForm = {
@@ -106,6 +113,7 @@ export default function Version() {
     }
   }
 
+  // Clear package metadata when the path changes.
   function updatePackagePath(value) {
     setSelectedFile(null);
     setPackageValidated(false);
@@ -126,6 +134,7 @@ export default function Version() {
     setValidatingPackage(true);
     setError('');
     try {
+      // Ask the backend to check the path and calculate package details.
       const result = await validateDeploymentPackage(token, form.packagePath, form.sourceType);
       const packageInfo = result.package;
       setForm((current) => ({
@@ -149,6 +158,7 @@ export default function Version() {
     const token = localStorage.getItem('vizzio_token');
     if (!token || !window.confirm(`Delete version ${version.versionNumber}? The package file will remain on the server.`)) return;
 
+    // Delete only the catalog record; the package file stays on the server.
     setBusyVersion(version.id);
     setError('');
     try {
@@ -165,6 +175,7 @@ export default function Version() {
     const token = localStorage.getItem('vizzio_token');
     if (!token || !deployment) return;
 
+    // Block repeated clicks while this version is updating.
     setBusyVersion(version.id);
     setError('');
     try {
@@ -222,6 +233,7 @@ export default function Version() {
             <select
               value={form.sourceType}
               onChange={(event) => {
+                // Reset package fields when the source type changes.
                 setSelectedFile(null);
                 setPackageValidated(false);
                 setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '' });
@@ -256,6 +268,7 @@ export default function Version() {
               type="file"
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
+                // Fill basic file details before upload.
                 setSelectedFile(file);
                 setPackageValidated(false);
                 if (file) {

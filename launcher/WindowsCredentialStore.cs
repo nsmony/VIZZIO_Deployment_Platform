@@ -5,6 +5,7 @@ using System.Text;
 
 namespace Launcher
 {
+    // Stores the launcher session token in Windows Credential Manager.
     internal static class WindowsCredentialStore
     {
         private const string TargetName = "VIZZIO Launcher JWT";
@@ -13,6 +14,7 @@ namespace Launcher
 
         public static string? ReadToken()
         {
+            // Return null when no saved session exists.
             if (!CredRead(TargetName, CredentialTypeGeneric, 0, out var credentialPtr))
             {
                 return null;
@@ -38,6 +40,7 @@ namespace Launcher
 
         public static void SaveToken(string token)
         {
+            // Windows owns the encrypted storage after CredWrite succeeds.
             var bytes = Encoding.UTF8.GetBytes(token);
             var credential = new Credential
             {
@@ -65,6 +68,7 @@ namespace Launcher
 
         public static void ClearToken()
         {
+            // Ignore missing credentials; signing out should always continue.
             CredDelete(TargetName, CredentialTypeGeneric, 0);
         }
 

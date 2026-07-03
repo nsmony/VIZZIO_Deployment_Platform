@@ -4,6 +4,7 @@ import {
   getNotifications,
 } from '../services/adminService.js';
 
+// HTTP handlers for admin dashboard and audit-log screens.
 export async function dashboard(req, res) {
   if (!isAdmin(req.user)) {
     return res.status(403).json({ error: 'Admin access required.' });

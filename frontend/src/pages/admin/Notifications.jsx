@@ -3,10 +3,12 @@ import { fetchNotifications } from '../../api';
 import '../../styles/Notifications.css';
 
 export default function Notifications() {
+  // Store notifications loaded from the backend.
   const [notifications, setNotifications] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Load recent platform events once when the page opens.
   useEffect(() => {
     const token = localStorage.getItem('vizzio_token');
     fetchNotifications(token)
@@ -47,6 +49,7 @@ export default function Notifications() {
   );
 }
 
+// Show notification time in the user's local timezone.
 function formatDate(value) {
   return new Date(value).toLocaleString();
 }

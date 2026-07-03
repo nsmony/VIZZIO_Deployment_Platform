@@ -12,6 +12,7 @@ import {
 import { signDownloadToken } from '../downloadToken.js';
 import { findUploadedFile, listUploadedFiles, saveUploadedFile } from '../uploadStore.js';
 
+// HTTP handlers for deployments, versions, uploads, and download tokens.
 export async function listDeployments(req, res) {
   res.json({ deployments: await getDeploymentsForRequest(req.user) });
 }

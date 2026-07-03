@@ -1,5 +1,6 @@
 import { authenticateUser } from '../services/authService.js';
 
+// Simple in-memory lockout to slow repeated failed logins.
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILED_LOGINS = 10;
 const failedLogins = new Map();

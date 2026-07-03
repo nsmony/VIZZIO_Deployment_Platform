@@ -1,5 +1,6 @@
 import { verifyToken } from '../auth.js';
 
+// Protect API routes by checking the Bearer token.
 export function authenticateToken(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;

@@ -7,6 +7,7 @@ import {
   updateDownloadManagerSession,
 } from '../controllers/downloadManagerController.js';
 
+// Launcher API routes for listing, tracking, and streaming downloads.
 const router = express.Router();
 
 router.get('/items', authenticateToken, listDownloadManagerItems);

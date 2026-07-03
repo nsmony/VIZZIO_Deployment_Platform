@@ -7,6 +7,7 @@ import { fetchAdminDashboard } from '../../api';
 import '../../styles/Dashboard.css';
 
 export default function Dashboard() {
+  // Store the latest dashboard response from the backend.
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
 
@@ -15,8 +16,8 @@ export default function Dashboard() {
     if (!token) return undefined;
 
     let isMounted = true;
-    // Poll dashboard metrics because downloads and releases can change outside
-    // this page while an admin keeps the portal open.
+
+    // Refresh dashboard numbers while the admin keeps this page open.
     const loadDashboard = () => {
       fetchAdminDashboard(token)
         .then((nextData) => {
@@ -30,6 +31,7 @@ export default function Dashboard() {
     loadDashboard();
     const refreshTimer = window.setInterval(loadDashboard, 30000);
 
+    // Stop updates after the page is closed to avoid setting state after unmount.
     return () => {
       isMounted = false;
       window.clearInterval(refreshTimer);

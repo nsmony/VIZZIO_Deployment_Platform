@@ -11,6 +11,7 @@ import {
   validatePackageHandler,
 } from '../controllers/deploymentController.js';
 
+// Deployment catalog, version registration, validation, and uploads.
 const router = express.Router();
 
 router.get('/', listDeployments);

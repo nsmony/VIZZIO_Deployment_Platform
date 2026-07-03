@@ -1,8 +1,13 @@
 #define AppName "VIZZIO Launcher"
+; CI can set VIZZIO_LAUNCHER_VERSION for reproducible installer names.
+; Local builds fall back to 0.1.0 so the script still runs for developers.
 #define AppVersion GetEnv("VIZZIO_LAUNCHER_VERSION")
 #if AppVersion == ""
   #define AppVersion "0.1.0"
 #endif
+
+; Paths are resolved from the installer folder so the script can be run from
+; Inno Setup or from command-line build automation without changing cwd.
 #define RepoRoot AddBackslash(SourcePath) + ".."
 #define PublishDir RepoRoot + "\launcher\bin\publish\win-x64"
 #define OutputDir RepoRoot + "\installer\artifacts"
@@ -25,7 +30,12 @@ DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\Launcher.exe
 
 [Files]
+; Copy the self-contained .NET publish output. recursesubdirs keeps runtime
+; folders intact if the publish step creates native dependency directories.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; 7za.exe is optional: older launcher builds may not ship the package extraction
+; helper yet, so skipifsourcedoesntexist keeps packaging backward-compatible.
 Source: "{#RepoRoot}\launcher\tools\7za.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]

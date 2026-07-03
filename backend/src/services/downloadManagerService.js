@@ -8,6 +8,7 @@ import { userCanAccessVersion } from './deploymentService.js';
 const VERSION_FILE_PREFIX = 'version:';
 const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
 
+// Download-manager logic used by the launcher.
 // Parses the single-range form used by the launcher. Multi-range responses are
 // intentionally unsupported because each download stream owns one chunk.
 export function parseRangeHeader(rangeHeader, fileSize) {

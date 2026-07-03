@@ -15,6 +15,7 @@ import { inspectPackageSource } from './packageArchiveService.js';
 const RELEASE_TYPES = new Set(['stable', 'beta']);
 const VERSION_STATUSES = new Set(['draft', 'released', 'archived', 'deleted']);
 
+// Return deployments the current user is allowed to see.
 export async function getDeploymentsForRequest(user) {
   const isAdminUser = isAdmin(user);
   const deployments = isAdminUser
