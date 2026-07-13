@@ -13,7 +13,7 @@ import {
 import { inspectPackageSource } from './packageArchiveService.js';
 
 const RELEASE_TYPES = new Set(['stable', 'beta']);
-const VERSION_STATUSES = new Set(['draft', 'released', 'archived', 'deleted']);
+const VERSION_STATUSES = new Set(['draft', 'released', 'archived', 'deleted', 'paused', 'canceled']);
 
 // Return deployments the current user is allowed to see.
 export async function getDeploymentsForRequest(user) {
@@ -149,6 +149,22 @@ export async function changeVersion(deploymentId, versionId, data, userId) {
 
   if (Object.keys(updates).length === 0) throw new Error('No version changes were provided.');
   return toPublicVersion(await updateDeploymentVersion(versionId, updates));
+}
+
+export async function updateDeploymentRunState(deploymentId, action) {
+  const deployment = await findDeploymentById(deploymentId);
+  if (!deployment) return null;
+
+  const status = String(action || '').toLowerCase() === 'cancel' ? 'canceled' : 'paused';
+  const activeVersion = (deployment.versions || []).find((version) => version.status === 'released');
+  if (!activeVersion) {
+    const error = new Error('Deployment does not have a running version.');
+    error.status = 409;
+    throw error;
+  }
+
+  await updateDeploymentVersion(activeVersion.id, { status });
+  return toPublicDeployment(await findDeploymentById(deploymentId), { admin: true });
 }
 
 export async function deleteVersion(versionId, userId) {

@@ -7,6 +7,8 @@ import { userCanAccessVersion } from './deploymentService.js';
 
 const VERSION_FILE_PREFIX = 'version:';
 const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
+const VALID_SESSION_STATUSES = new Set(['pending', 'downloading', 'paused', 'canceled', 'failed', 'completed']);
+const STOPPED_SESSION_STATUSES = new Set(['paused', 'canceled', 'failed']);
 
 // Download-manager logic used by the launcher.
 // Parses the single-range form used by the launcher. Multi-range responses are
@@ -173,18 +175,20 @@ export async function updateManagedDownloadSession({
   ipAddress,
   userAgent,
 }) {
+  const nextStatus = normalizeSessionStatus(status);
+
   if (String(sessionId || '').startsWith('virtual:')) {
     return {
       id: sessionId,
       userId: user.userId,
       versionId: null,
-      status: status || 'downloading',
+      status: nextStatus || 'downloading',
       progressPercentage: totalSize && Number(totalSize) > 0
         ? Math.min(100, Math.round((Number(downloadedSize || 0) / Number(totalSize)) * 10000) / 100)
         : 0,
       downloadedSize: String(downloadedSize || 0),
       startedAt: new Date().toISOString(),
-      completedAt: status === 'completed' ? new Date().toISOString() : null,
+      completedAt: nextStatus === 'completed' ? new Date().toISOString() : null,
     };
   }
 
@@ -195,21 +199,32 @@ export async function updateManagedDownloadSession({
     throw error;
   }
 
+  if (STOPPED_SESSION_STATUSES.has(session.status) && (!nextStatus || nextStatus === 'downloading')) {
+    return serializeSession(session);
+  }
+
+  if (session.status === 'canceled' && nextStatus !== 'canceled') {
+    return serializeSession(session);
+  }
+
   const progressPercentage = totalSize && Number(totalSize) > 0
     ? Math.min(100, Math.round((Number(downloadedSize || 0) / Number(totalSize)) * 10000) / 100)
     : Number(session.progressPercentage);
+  const currentDownloadedSize = Number(session.downloadedSize || 0);
+  const nextDownloadedSize = Math.max(Number(downloadedSize || 0), currentDownloadedSize);
+  const shouldComplete = nextStatus === 'completed';
 
   const updated = await prisma.downloadSession.update({
     where: { id: sessionId },
     data: {
-      status: status || session.status,
-      downloadedSize: BigInt(downloadedSize || session.downloadedSize || 0),
+      status: nextStatus || session.status,
+      downloadedSize: BigInt(nextDownloadedSize),
       progressPercentage,
-      completedAt: status === 'completed' ? new Date() : session.completedAt,
+      completedAt: shouldComplete ? new Date() : session.completedAt,
     },
   });
 
-  if (status === 'completed') {
+  if (shouldComplete && session.status !== 'completed') {
     await prisma.downloadLog.create({
       data: {
         userId: user.userId,
@@ -221,6 +236,18 @@ export async function updateManagedDownloadSession({
   }
 
   return serializeSession(updated);
+}
+
+function normalizeSessionStatus(status) {
+  if (!status) return null;
+  const normalized = String(status).trim().toLowerCase();
+  if (normalized === 'cancelled') return 'canceled';
+  if (!VALID_SESSION_STATUSES.has(normalized)) {
+    const error = new Error(`Invalid download session status: ${status}`);
+    error.status = 400;
+    throw error;
+  }
+  return normalized;
 }
 
 export async function getTokenizedFileRequest({ fileId, token }) {

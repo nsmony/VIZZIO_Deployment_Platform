@@ -41,7 +41,6 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
   if (stat.isDirectory() || sourceType === 'stagingFolder') {
     if (!stat.isDirectory()) throw new Error('Server staging folder path must point to a directory.');
     const batchScriptName = await findLaunchBatchScript(resolvedPath);
-    if (!batchScriptName) throw new Error('Server staging folder must contain a launch batch script.');
 
     if (!createArchive) {
       return {

@@ -34,7 +34,10 @@ namespace Launcher
         private LauncherUserSettings _settings = LoadLauncherSettings();
         private LauncherBrandingSettings _branding = LoadBrandingSettings();
         private CancellationTokenSource? _downloadCancellation;
+        private CancellationTokenSource? _activeTransferCancellation;
         private bool _isDownloadActive;
+        private bool _pauseRequested;
+        private bool _resumeAfterPauseStop;
         private DownloadItem? _activeDownloadItem;
         private DownloadItem? _failedDownloadItem;
         private string _failedDownloadTargetPath = "";
@@ -42,6 +45,9 @@ namespace Launcher
         private bool _deletePartialOnCancel;
         private bool _autoResumeAttempted;
         private DownloadItem? _selectedItem;
+        private string _activeDownloadSessionId = "";
+        private long _activeDownloadTotalSize;
+        private long _lastDownloadedSize;
         private Grid _contentHost = null!;
         private TextBlock _pageTitle = null!;
         private TextBlock _pageSubtitle = null!;
@@ -200,7 +206,7 @@ namespace Launcher
             Content = shell;
 
             _startButton.Click += async (_, _) => await StartDownloadAsync();
-            _pauseButton.Click += (_, _) => TogglePause();
+            _pauseButton.Click += async (_, _) => await TogglePauseAsync();
             cancelButton.Click += async (_, _) => await CancelDownloadAsync();
             refreshButton.Click += async (_, _) => await RefreshAsync();
             SelectSection("Library");
@@ -259,9 +265,12 @@ namespace Launcher
             }
 
             var ownsDownload = false;
+            var keepPausedDownload = false;
             try
             {
                 _isDownloadActive = true;
+                _pauseRequested = startPaused;
+                _resumeAfterPauseStop = false;
                 _activeDownloadItem = item;
                 _failedDownloadItem = null;
                 _failedDownloadTargetPath = "";
@@ -284,14 +293,29 @@ namespace Launcher
                 }
                 _deletePartialOnCancel = false;
                 _activeDownloadTargetPath = targetPath;
+                _activeDownloadSessionId = "";
+                _activeDownloadTotalSize = item.Size ?? 0;
+                _lastDownloadedSize = GetSavedDownloadedBytes(targetPath);
                 _downloadCancellation = new CancellationTokenSource();
                 _status.Text = startPaused ? "Restored paused download." : "Creating download session...";
+                if (startPaused)
+                {
+                    keepPausedDownload = true;
+                    LogSavedDownloadBytes(_activeDownloadTargetPath);
+                    _status.Text = "Download paused. Resume to continue from saved bytes.";
+                    return;
+                }
+
                 // Session creation returns a short-lived file token. The token
                 // may be refreshed during long Unreal-sized downloads.
                 var session = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
                 fileName = string.IsNullOrWhiteSpace(session.File.Name) ? fileName : session.File.Name;
                 targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
+                EnsureDiskSpaceForInstall(targetPath, session.File.Size * 2);
                 _activeDownloadTargetPath = targetPath;
+                _activeDownloadSessionId = session.Session.Id;
+                _activeDownloadTotalSize = session.File.Size;
+                _lastDownloadedSize = GetSavedDownloadedBytes(targetPath);
                 PersistDownloadState();
                 var downloadToken = session.Token;
                 var tokenIssuedAt = DateTimeOffset.UtcNow;
@@ -300,17 +324,23 @@ namespace Launcher
 
                 var progress = new Progress<DownloadProgress>(value =>
                 {
-                        _progress.Value = value.Percent;
-                        _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
-                        if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, value.TotalBytes - value.DownloadedBytes, out var shortfall))
-                        {
-                            _pauseGate.Reset();
-                            _pauseButton.Content = "Resume";
-                            _status.Text = $"Download paused because disk space is low. Shortfall: {FormatDiskSpace(shortfall)}.";
-                        }
-                        PersistDownloadState();
-                        if (value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes)
-                        {
+                    if (_pauseRequested || !_pauseGate.IsSet)
+                    {
+                        return;
+                    }
+
+                    _progress.Value = value.Percent;
+                    _lastDownloadedSize = value.DownloadedBytes;
+                    _activeDownloadTotalSize = value.TotalBytes;
+                    _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
+                    if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, value.TotalBytes - value.DownloadedBytes, out var shortfall))
+                    {
+                        PauseActiveDownload($"Download paused because disk space is low. Shortfall: {FormatDiskSpace(shortfall)}.", "Low disk space");
+                        return;
+                    }
+                    PersistDownloadState();
+                    if (value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes)
+                    {
                         _pauseGate.Set();
                         _pauseButton.IsEnabled = false;
                         _pauseButton.Content = "Pause";
@@ -337,19 +367,22 @@ namespace Launcher
                     try
                     {
                         attempt++;
+                        _activeTransferCancellation?.Dispose();
+                        _activeTransferCancellation = CancellationTokenSource.CreateLinkedTokenSource(_downloadCancellation.Token);
+                        var transferToken = _activeTransferCancellation.Token;
                         await _downloader.DownloadAsync(async () =>
                         {
                             // Refresh the download token before range requests
                             // start failing with authorization errors.
                             if (DateTimeOffset.UtcNow - tokenIssuedAt >= TimeSpan.FromMinutes(55) || IsTokenExpiring(downloadToken, TimeSpan.FromSeconds(60)))
                             {
-                                var refreshed = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
+                                var refreshed = await _api.CreateSessionAsync(item, transferToken);
                                 downloadToken = refreshed.Token;
                                 tokenIssuedAt = DateTimeOffset.UtcNow;
                             }
 
                             return _api.BuildFileUri(item.FileId, downloadToken);
-                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, _downloadCancellation.Token, CreateDownloadOptions());
+                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, transferToken, CreateDownloadOptions());
                         break;
                     }
                     catch (OperationCanceledException)
@@ -375,15 +408,10 @@ namespace Launcher
                         // Keep partial files and pause the workflow after all
                         // automatic retries fail. Pressing Resume continues from
                         // the saved .part files.
-                        _pauseGate.Reset();
-                        _pauseButton.Content = "Resume";
-                        _status.Text = $"Download paused after repeated connection problems: {FriendlyDownloadError(ex)} Check the network, then resume.";
-                        PersistDownloadState();
-                        while (!_pauseGate.IsSet)
-                        {
-                            await Task.Delay(250, _downloadCancellation.Token);
-                        }
-                        attempt = 0;
+                        PauseActiveDownload(
+                            $"Download paused after repeated connection problems: {FriendlyDownloadError(ex)} Check the network, then resume.",
+                            "Repeated connection problems");
+                        throw new OperationCanceledException(_downloadCancellation?.Token ?? CancellationToken.None);
                     }
                 }
                 RemoveDownloadState(item);
@@ -392,13 +420,27 @@ namespace Launcher
                 var installedPath = await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
                 await TryUpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
                 _progress.Value = 100;
-                _status.Text = $"Installed to {installedPath}";
-                OpenFolder(installFolder);
+                _status.Text = HasLaunchBatchScript(installFolder)
+                    ? $"Installed to {installedPath}"
+                    : $"Installed to {installedPath}. The package did not contain a launch batch script.";
+                LauncherLog.Info($"Download completed: {targetPath}");
+                TryOpenFolder(installFolder, out _);
                 RenderCards();
             }
             catch (OperationCanceledException)
             {
-                if (_deletePartialOnCancel && deletePartialsOnCancel)
+                if (_pauseRequested && !_deletePartialOnCancel)
+                {
+                    keepPausedDownload = true;
+                    _pauseGate.Reset();
+                    _pauseButton.IsEnabled = true;
+                    _pauseButton.Content = "Resume";
+                    _startButton.IsEnabled = false;
+                    PersistDownloadState();
+                    LogSavedDownloadBytes(_activeDownloadTargetPath);
+                    _status.Text = "Download paused. Resume to continue from saved bytes.";
+                }
+                else if (_deletePartialOnCancel && deletePartialsOnCancel)
                 {
                     DeleteDownloadArtifacts(_activeDownloadTargetPath);
                     RemoveDownloadState(item);
@@ -435,18 +477,57 @@ namespace Launcher
             {
                 if (ownsDownload)
                 {
-                    _startButton.IsEnabled = true;
-                    _pauseButton.IsEnabled = false;
-                    _pauseButton.Content = "Pause";
+                    _activeTransferCancellation?.Dispose();
+                    _activeTransferCancellation = null;
+                    _downloadCancellation?.Dispose();
                     _downloadCancellation = null;
-                    _deletePartialOnCancel = false;
-                    _activeDownloadTargetPath = "";
-                    _activeDownloadItem = null;
-                    _isDownloadActive = false;
-                    PersistDownloadState();
-                    RenderCards();
-                    RefreshDownloadPageIfVisible();
-                    await StartNextQueuedDownloadAsync();
+
+                    if (keepPausedDownload)
+                    {
+                        var resumeAfterPauseStop = _resumeAfterPauseStop;
+                        _resumeAfterPauseStop = false;
+                        _deletePartialOnCancel = false;
+                        _pauseGate.Reset();
+                        _isDownloadActive = true;
+                        _activeDownloadItem = item;
+                        _activeDownloadTargetPath = targetPath;
+                        PersistDownloadState();
+                        RenderCards();
+                        RefreshDownloadPageIfVisible();
+
+                        if (resumeAfterPauseStop)
+                        {
+                            LauncherLog.Info($"Resume started after streams stopped: {GetDownloadLabel(item)}");
+                            _pauseRequested = false;
+                            _pauseGate.Set();
+                            _isDownloadActive = false;
+                            _activeDownloadItem = null;
+                            _activeDownloadTargetPath = "";
+                            _activeDownloadSessionId = "";
+                            _activeDownloadTotalSize = 0;
+                            _lastDownloadedSize = 0;
+                            await StartDownloadAsync(item, deletePartialsOnCancel: false);
+                        }
+                    }
+                    else
+                    {
+                        _startButton.IsEnabled = true;
+                        _pauseButton.IsEnabled = false;
+                        _pauseButton.Content = "Pause";
+                        _pauseRequested = false;
+                        _resumeAfterPauseStop = false;
+                        _deletePartialOnCancel = false;
+                        _activeDownloadTargetPath = "";
+                        _activeDownloadSessionId = "";
+                        _activeDownloadTotalSize = 0;
+                        _lastDownloadedSize = 0;
+                        _activeDownloadItem = null;
+                        _isDownloadActive = false;
+                        PersistDownloadState();
+                        RenderCards();
+                        RefreshDownloadPageIfVisible();
+                        await StartNextQueuedDownloadAsync();
+                    }
                 }
             }
         }
@@ -493,34 +574,157 @@ namespace Launcher
             }
         }
 
-        private void TogglePause()
+        private async Task TogglePauseAsync()
         {
-            if (_pauseGate.IsSet)
+            if (_activeDownloadItem is null)
             {
-                // The downloader checks this gate between network reads/writes,
-                // so pause does not abort the active HTTP stream immediately.
-                _pauseGate.Reset();
-                _pauseButton.Content = "Resume";
-                _status.Text = "Download paused.";
-                PersistDownloadState();
+                return;
             }
-            else
+
+            if (_pauseGate.IsSet && !_pauseRequested)
             {
-                _pauseGate.Set();
-                _pauseButton.Content = "Pause";
-                _status.Text = "Download resumed.";
-                PersistDownloadState();
+                LauncherLog.Info($"Pause clicked: {GetDownloadLabel(_activeDownloadItem)}");
+                PauseActiveDownload("Download paused.", "Pause clicked");
+                return;
             }
+
+            var item = _activeDownloadItem;
+            if (_activeTransferCancellation is not null)
+            {
+                _resumeAfterPauseStop = true;
+                _status.Text = "Stopping active streams before resume...";
+                LauncherLog.Info($"Resume requested while streams are still stopping: {GetDownloadLabel(item)}");
+                return;
+            }
+
+            LauncherLog.Info($"Resume started: {GetDownloadLabel(item)}");
+            _pauseRequested = false;
+            _pauseGate.Set();
+            _pauseButton.Content = "Pause";
+            _pauseButton.IsEnabled = true;
+            _status.Text = "Resuming download...";
+            PersistDownloadState();
+
+            if (_activeTransferCancellation is null)
+            {
+                _isDownloadActive = false;
+                _activeDownloadItem = null;
+                _activeDownloadTargetPath = "";
+                await StartDownloadAsync(item, deletePartialsOnCancel: false);
+            }
+        }
+
+        private void PauseActiveDownload(string statusText, string reason)
+        {
+            if (_activeDownloadItem is null)
+            {
+                _status.Text = "No active download to pause.";
+                return;
+            }
+
+            _pauseRequested = true;
+            _deletePartialOnCancel = false;
+            _pauseGate.Reset();
+            _pauseButton.IsEnabled = true;
+            _pauseButton.Content = "Resume";
+            _startButton.IsEnabled = false;
+            _status.Text = statusText;
+            PersistDownloadState();
+            LogSavedDownloadBytes(_activeDownloadTargetPath);
+            ReportActiveSessionStatusInBackground("paused");
+            LauncherLog.Info($"Cancelling active download streams: {reason}");
+            _downloader.CancelActiveRequests();
+            _activeTransferCancellation?.Cancel();
+            _downloadCancellation?.Cancel();
+        }
+
+        private void LogSavedDownloadBytes(string targetPath)
+        {
+            var saved = GetSavedDownloadedBytes(targetPath);
+            LauncherLog.Info($"Current downloaded bytes saved: {saved} bytes for {targetPath}");
+        }
+
+        private static long GetSavedDownloadedBytes(string targetPath)
+        {
+            var directory = Path.GetDirectoryName(targetPath);
+            var fileName = Path.GetFileName(targetPath);
+            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory))
+            {
+                return 0;
+            }
+
+            return Directory.EnumerateFiles(directory, $"{fileName}.part*")
+                .Sum(path => new FileInfo(path).Length);
         }
 
         private async Task CancelDownloadAsync()
         {
+            if (_activeDownloadItem is null)
+            {
+                _status.Text = "No active download to cancel.";
+                await Task.CompletedTask;
+                return;
+            }
+
             // Cancel always opens the pause gate first so a paused worker can
             // observe cancellation instead of waiting forever.
+            LauncherLog.Info($"Cancel clicked: {GetDownloadLabel(_activeDownloadItem)}");
             _deletePartialOnCancel = true;
+            _pauseRequested = false;
+            _resumeAfterPauseStop = false;
             _pauseGate.Set();
+            _pauseButton.IsEnabled = false;
+            _pauseButton.Content = "Pause";
+            _startButton.IsEnabled = false;
+            _status.Text = "Canceling download...";
+            PersistDownloadState();
+            ReportActiveSessionStatusInBackground("canceled");
+            _downloader.CancelActiveRequests();
+            _activeTransferCancellation?.Cancel();
             _downloadCancellation?.Cancel();
+            if (_activeTransferCancellation is null && _activeDownloadItem is not null)
+            {
+                DeleteDownloadArtifacts(_activeDownloadTargetPath);
+                RemoveDownloadState(_activeDownloadItem);
+                _pauseRequested = false;
+                _activeDownloadItem = null;
+                _activeDownloadTargetPath = "";
+                _activeDownloadSessionId = "";
+                _activeDownloadTotalSize = 0;
+                _lastDownloadedSize = 0;
+                _isDownloadActive = false;
+                _pauseButton.IsEnabled = false;
+                _pauseButton.Content = "Pause";
+                _startButton.IsEnabled = true;
+                _status.Text = "Download canceled. Partial package files were removed.";
+                RenderCards();
+                RefreshDownloadPageIfVisible();
+            }
             await Task.CompletedTask;
+        }
+
+        private void ReportActiveSessionStatusInBackground(string status)
+        {
+            var sessionId = _activeDownloadSessionId;
+            if (string.IsNullOrWhiteSpace(sessionId))
+            {
+                return;
+            }
+
+            var downloadedSize = Math.Max(_lastDownloadedSize, GetSavedDownloadedBytes(_activeDownloadTargetPath));
+            var totalSize = _activeDownloadTotalSize;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await TryUpdateSessionAsync(sessionId, status, downloadedSize, totalSize, CancellationToken.None);
+                    LauncherLog.Info($"Backend download session marked {status}: {sessionId}");
+                }
+                catch (Exception ex)
+                {
+                    LauncherLog.Info($"Failed to mark backend download session {status}: {FriendlyError(ex)}");
+                }
+            });
         }
 
         private void ClearFailedDownload()
@@ -1440,15 +1644,13 @@ namespace Launcher
         {
             var folder = GetInstallFolder(item);
             if (!Directory.Exists(folder)) return false;
-
-            var extension = Path.GetExtension(item.FileName);
-            if (string.Equals(extension, ".zip", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(extension, ".7z", StringComparison.OrdinalIgnoreCase))
-            {
-                return Directory.EnumerateFiles(folder, "*.bat", SearchOption.TopDirectoryOnly).Any();
-            }
-
             return Directory.EnumerateFileSystemEntries(folder).Any();
+        }
+
+        private static bool HasLaunchBatchScript(string folder)
+        {
+            return Directory.Exists(folder) &&
+                Directory.EnumerateFiles(folder, "*.bat", SearchOption.TopDirectoryOnly).Any();
         }
 
         private bool HasPartialDownload(DownloadItem item)
@@ -1471,7 +1673,10 @@ namespace Launcher
                 return;
             }
 
-            OpenFolder(folder);
+            if (!TryOpenFolder(folder, out var error))
+            {
+                _status.Text = error;
+            }
         }
 
         private void UninstallVersion(DownloadItem item)
@@ -1525,9 +1730,25 @@ namespace Launcher
             return installedFilePath;
         }
 
-        private static void OpenFolder(string folder)
+        private static bool TryOpenFolder(string folder, out string error)
         {
-            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+            error = "";
+            try
+            {
+                if (!Directory.Exists(folder))
+                {
+                    error = "The folder could not be found.";
+                    return false;
+                }
+
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = true });
+                return true;
+            }
+            catch
+            {
+                error = "Could not open the folder in File Explorer.";
+                return false;
+            }
         }
 
         private static void ExtractPackage(string archivePath, string installFolder)
@@ -1553,10 +1774,6 @@ namespace Launcher
                 }
 
                 NormalizeExtractedRoot(tempFolder);
-                if (!Directory.EnumerateFiles(tempFolder, "*.bat", SearchOption.TopDirectoryOnly).Any())
-                {
-                    throw new InvalidDataException("The package did not contain the expected launch batch script.");
-                }
 
                 if (Directory.Exists(installFolder)) Directory.Delete(installFolder, recursive: true);
                 Directory.Move(tempFolder, installFolder);

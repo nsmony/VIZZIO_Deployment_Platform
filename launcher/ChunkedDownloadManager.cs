@@ -48,6 +48,12 @@ namespace Launcher
             Timeout = Timeout.InfiniteTimeSpan,
         };
 
+        public void CancelActiveRequests()
+        {
+            _httpClient.CancelPendingRequests();
+            LauncherLog.Info("All active HTTP requests were asked to cancel.");
+        }
+
         public async Task<string> DownloadAsync(
             Uri source,
             string targetPath,
@@ -100,8 +106,10 @@ namespace Launcher
                 var progressState = new ProgressReportState();
 
                 await Task.WhenAll(chunks.Select(chunk => DownloadChunkAsync(sourceFactory, chunk, progress, pauseGate, bandwidthLimiter, stopwatch, progressState, totalBytes, cancellationToken))).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 MergeChunks(chunks, targetPath);
                 ReportProgress(progress, totalBytes, stopwatch, totalBytes);
+                LauncherLog.Info($"Download completed: {targetPath}");
 
                 if (!string.IsNullOrWhiteSpace(expectedSha256))
                 {
@@ -201,8 +209,10 @@ namespace Launcher
                         var start = chunk.Start + existing;
                         if (start > chunk.End) return;
 
+                        cancellationToken.ThrowIfCancellationRequested();
                         using var request = new HttpRequestMessage(HttpMethod.Get, await sourceFactory().ConfigureAwait(false));
                         request.Headers.Range = new RangeHeaderValue(start, chunk.End);
+                        LauncherLog.Info($"Stream started: bytes {start}-{chunk.End} -> {chunk.PartPath}");
                         using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
 
                         if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
@@ -227,6 +237,7 @@ namespace Launcher
                             await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
                             var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
                             if (read == 0) break;
+                            cancellationToken.ThrowIfCancellationRequested();
                             await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
 
                             // Throttle before writing so the on-disk byte count
@@ -235,6 +246,7 @@ namespace Launcher
                             {
                                 await bandwidthLimiter.WaitAsync(read, cancellationToken).ConfigureAwait(false);
                             }
+                            cancellationToken.ThrowIfCancellationRequested();
                             await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                             if (ShouldReportProgress(progressState, force: false))
                             {
@@ -254,6 +266,9 @@ namespace Launcher
                     }
                     catch (OperationCanceledException)
                     {
+                        var saved = File.Exists(chunk.PartPath) ? new FileInfo(chunk.PartPath).Length : 0;
+                        var expectedPartSize = chunk.End - chunk.Start + 1;
+                        LauncherLog.Info($"Stream cancelled: bytes {chunk.Start}-{chunk.End}; saved {saved} of {expectedPartSize} bytes in {chunk.PartPath}");
                         throw;
                     }
                     catch (Exception ex) when (attempt < MaxChunkAttempts)
@@ -318,55 +333,70 @@ namespace Launcher
             var progressState = new ProgressReportState();
             long downloaded = 0;
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, await sourceFactory().ConfigureAwait(false));
-            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using (var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read, 1024 * 128, true))
+            try
             {
-                var buffer = new byte[1024 * 128];
-                while (true)
-                {
-                    await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
-                    var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                    if (read == 0) break;
-                    await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                using var request = new HttpRequestMessage(HttpMethod.Get, await sourceFactory().ConfigureAwait(false));
+                LauncherLog.Info($"Single stream started: {targetPath}");
+                using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
 
-                    // The same limiter is reused here so UI settings apply even
-                    // when the server does not support chunked downloads.
-                    if (bandwidthLimiter is not null)
+                await using var input = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                await using (var output = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read, 1024 * 128, true))
+                {
+                    var buffer = new byte[1024 * 128];
+                    while (true)
                     {
-                        await bandwidthLimiter.WaitAsync(read, cancellationToken).ConfigureAwait(false);
-                    }
-                    await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-                    downloaded += read;
-                    if (ShouldReportProgress(progressState, force: false))
-                    {
-                        ReportProgress(progress, totalBytes, stopwatch, downloaded);
+                        await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
+                        var read = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                        if (read == 0) break;
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await WaitForResumeAsync(pauseGate, cancellationToken).ConfigureAwait(false);
+
+                        // The same limiter is reused here so UI settings apply even
+                        // when the server does not support chunked downloads.
+                        if (bandwidthLimiter is not null)
+                        {
+                            await bandwidthLimiter.WaitAsync(read, cancellationToken).ConfigureAwait(false);
+                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                        downloaded += read;
+                        if (ShouldReportProgress(progressState, force: false))
+                        {
+                            ReportProgress(progress, totalBytes, stopwatch, downloaded);
+                        }
                     }
                 }
-            }
-            ReportProgress(progress, totalBytes, stopwatch, downloaded);
+                ReportProgress(progress, totalBytes, stopwatch, downloaded);
 
-            if (totalBytes > 0 && downloaded < totalBytes)
-            {
-                throw new IOException("Download stream ended early.");
-            }
-
-            if (File.Exists(targetPath)) File.Delete(targetPath);
-            File.Move(tempPath, targetPath);
-
-            if (!string.IsNullOrWhiteSpace(expectedSha256))
-            {
-                var actual = await ComputeSha256Async(targetPath, cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                if (totalBytes > 0 && downloaded < totalBytes)
                 {
-                    throw new InvalidDataException("Downloaded file checksum did not match. Please re-download the package.");
+                    throw new IOException("Download stream ended early.");
                 }
-            }
 
-            return targetPath;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (File.Exists(targetPath)) File.Delete(targetPath);
+                File.Move(tempPath, targetPath);
+                LauncherLog.Info($"Download completed: {targetPath}");
+
+                if (!string.IsNullOrWhiteSpace(expectedSha256))
+                {
+                    var actual = await ComputeSha256Async(targetPath, cancellationToken).ConfigureAwait(false);
+                    if (!string.Equals(actual, expectedSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidDataException("Downloaded file checksum did not match. Please re-download the package.");
+                    }
+                }
+
+                return targetPath;
+            }
+            catch (OperationCanceledException)
+            {
+                var saved = File.Exists(tempPath) ? new FileInfo(tempPath).Length : downloaded;
+                LauncherLog.Info($"Single stream cancelled: saved {saved} bytes in {tempPath}");
+                throw;
+            }
         }
 
         private static void NormalizePartFile(DownloadChunk chunk)

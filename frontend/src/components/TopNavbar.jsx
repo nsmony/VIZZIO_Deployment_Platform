@@ -1,3 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  deleteNotification,
+  fetchNotifications,
+  fetchUnreadNotificationCount,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from '../api';
 import '../styles/TopNavbar.css';
 
 function HeaderIcon({ type }) {
@@ -15,7 +23,118 @@ function HeaderIcon({ type }) {
   );
 }
 
+function formatNotificationTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const diffMs = Date.now() - date.getTime();
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return 'Just now';
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+}
+
 export default function TopNavbar({ title, onMenuToggle, username = 'Admin', profileImage = '', initials = 'A', onProfileClick, profileOpen, children }) {
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
+  const [notificationError, setNotificationError] = useState('');
+  const notificationRef = useRef(null);
+
+  useEffect(() => {
+    loadUnreadCount();
+  }, []);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (!notificationRef.current?.contains(event.target)) {
+        setNotificationsOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  async function loadUnreadCount() {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+    try {
+      const data = await fetchUnreadNotificationCount(token);
+      setUnreadCount(data.unreadCount || 0);
+    } catch {
+      setUnreadCount(0);
+    }
+  }
+
+  async function loadNotifications() {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+    setLoadingNotifications(true);
+    setNotificationError('');
+    try {
+      const data = await fetchNotifications(token);
+      setNotifications(data.notifications || []);
+      const unread = await fetchUnreadNotificationCount(token);
+      setUnreadCount(unread.unreadCount || 0);
+    } catch (error) {
+      setNotificationError(error.message || 'Could not load notifications.');
+    } finally {
+      setLoadingNotifications(false);
+    }
+  }
+
+  async function toggleNotifications() {
+    const nextOpen = !notificationsOpen;
+    setNotificationsOpen(nextOpen);
+    if (nextOpen) {
+      await loadNotifications();
+    }
+  }
+
+  async function handleNotificationClick(notification) {
+    if (notification.isRead) return;
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+    try {
+      const data = await markNotificationRead(token, notification.id);
+      setNotifications((current) =>
+        current.map((item) => (item.id === notification.id ? data.notification : item))
+      );
+      setUnreadCount(data.unreadCount || 0);
+    } catch (error) {
+      setNotificationError(error.message || 'Could not update notification.');
+    }
+  }
+
+  async function handleReadAll() {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+    try {
+      const data = await markAllNotificationsRead(token);
+      setNotifications(data.notifications || []);
+      setUnreadCount(data.unreadCount || 0);
+    } catch (error) {
+      setNotificationError(error.message || 'Could not mark notifications as read.');
+    }
+  }
+
+  async function handleDelete(event, notificationId) {
+    event.stopPropagation();
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+    try {
+      const data = await deleteNotification(token, notificationId);
+      setNotifications((current) => current.filter((item) => item.id !== notificationId));
+      setUnreadCount(data.unreadCount || 0);
+    } catch (error) {
+      setNotificationError(error.message || 'Could not delete notification.');
+    }
+  }
+
   return (
     <header className="top-navbar">
       <div className="top-navbar-left">
@@ -36,10 +155,63 @@ export default function TopNavbar({ title, onMenuToggle, username = 'Admin', pro
           <input type="search" placeholder="Search deployments..." />
           <kbd>Ctrl K</kbd>
         </label>
-        <button className="top-icon-button notification-dot" aria-label="Notifications">
-          <HeaderIcon type="bell" />
-          <span>3</span>
-        </button>
+        <div className="notification-menu" ref={notificationRef}>
+          <button
+            className={`top-icon-button ${unreadCount > 0 ? 'notification-dot' : ''}`}
+            aria-label="Notifications"
+            aria-expanded={notificationsOpen}
+            onClick={toggleNotifications}
+          >
+            <HeaderIcon type="bell" />
+            {unreadCount > 0 && <span>{unreadCount}</span>}
+          </button>
+          {notificationsOpen && (
+            <div className="notification-dropdown">
+              <header>
+                <div>
+                  <strong>Notifications</strong>
+                  <p>{unreadCount} unread</p>
+                </div>
+                <button type="button" onClick={handleReadAll} disabled={unreadCount === 0}>
+                  Mark all read
+                </button>
+              </header>
+              {loadingNotifications ? (
+                <div className="notification-state">Loading notifications...</div>
+              ) : notificationError ? (
+                <div className="notification-state error">{notificationError}</div>
+              ) : notifications.length === 0 ? (
+                <div className="notification-state">No notifications yet.</div>
+              ) : (
+                <div className="notification-list">
+                  {notifications.map((notification) => (
+                    <button
+                      className={`notification-row ${notification.isRead ? 'read' : 'unread'}`}
+                      type="button"
+                      key={notification.id}
+                      onClick={() => handleNotificationClick(notification)}
+                    >
+                      <span className="notification-read-dot" />
+                      <span>
+                        <strong>{notification.title}</strong>
+                        <p>{notification.message}</p>
+                        <time dateTime={notification.createdAt}>{formatNotificationTime(notification.createdAt)}</time>
+                      </span>
+                      <span
+                        className="notification-delete"
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => handleDelete(event, notification.id)}
+                      >
+                        ×
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <button className="top-icon-button" aria-label="Settings">
           <HeaderIcon type="settings" />
         </button>

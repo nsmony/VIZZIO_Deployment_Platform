@@ -6,6 +6,7 @@ import {
   getDeploymentDetails,
   getDeploymentsForRequest,
   registerVersion,
+  updateDeploymentRunState,
   userCanAccessVersion,
   validatePackage,
 } from '../services/deploymentService.js';
@@ -43,6 +44,30 @@ export async function updateDeploymentHandler(req, res) {
     res.json({ deployment });
   } catch (error) {
     res.status(isDuplicateError(error) ? 409 : 400).json({ error: error.message });
+  }
+}
+
+export async function pauseDeploymentHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  try {
+    const deployment = await updateDeploymentRunState(req.params.deploymentId, 'pause');
+    if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
+    res.json({ deployment });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
+  }
+}
+
+export async function cancelDeploymentHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  try {
+    const deployment = await updateDeploymentRunState(req.params.deploymentId, 'cancel');
+    if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
+    res.json({ deployment });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
   }
 }
 

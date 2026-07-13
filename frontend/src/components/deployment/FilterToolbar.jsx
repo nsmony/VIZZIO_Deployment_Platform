@@ -25,6 +25,8 @@ export default function FilterToolbar({
       <select value={status} onChange={(event) => onStatusChange(event.target.value)} aria-label="Filter by status">
         <option value="all">All Status</option>
         <option value="Active">Active</option>
+        <option value="Paused">Paused</option>
+        <option value="Cancelled">Cancelled</option>
         <option value="Draft">Draft</option>
         <option value="Testing">Testing</option>
         <option value="Inactive">Inactive</option>

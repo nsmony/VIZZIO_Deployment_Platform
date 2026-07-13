@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  cancelDeployment,
   createDeployment,
   fetchDeploymentDetails,
   fetchDeployments,
+  pauseDeployment,
   updateDeployment,
 } from '../../api';
 import DeploymentCard from '../../components/deployment/DeploymentCard';
@@ -198,6 +200,24 @@ export default function Deployment() {
     }
   }
 
+  async function handleRunAction(deployment, action) {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+
+    setOpenMenuId(null);
+    try {
+      const result = action === 'pause'
+        ? await pauseDeployment(token, deployment.id)
+        : await cancelDeployment(token, deployment.id);
+      const updated = enrichDeployment(result.deployment);
+      setDeployments((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setDetailDeployment((current) => (current?.id === updated.id ? updated : current));
+      setToast({ type: 'success', message: action === 'pause' ? 'Deployment paused.' : 'Deployment cancelled.' });
+    } catch (actionError) {
+      setToast({ type: 'error', message: actionError.message });
+    }
+  }
+
   return (
     <main className="deployment-page">
       <section className="deployment-hero">
@@ -284,6 +304,8 @@ export default function Deployment() {
                 onToggleMenu={(id) => setOpenMenuId((current) => (current === id ? null : id))}
                 menuOpen={openMenuId === deployment.id}
                 onCopyId={copyDeploymentId}
+                onPause={(item) => handleRunAction(item, 'pause')}
+                onCancel={(item) => handleRunAction(item, 'cancel')}
               />
             ))}
           </section>
@@ -368,16 +390,22 @@ function enrichDeployment(deployment) {
   const versions = deployment.versions || [];
   const releasedCount = versions.filter((version) => version.status === 'released').length;
   const failedCount = versions.filter((version) => version.status === 'failed').length;
+  const pausedCount = versions.filter((version) => version.status === 'paused').length;
+  const canceledCount = versions.filter((version) => version.status === 'canceled').length;
   const hasBeta = versions.some((version) => version.releaseType === 'beta' && version.status !== 'released');
   const displayStatus = failedCount > 0
     ? 'Failed'
-    : releasedCount > 0
-      ? 'Active'
-      : hasBeta
-        ? 'Testing'
-        : versions.length > 0
-          ? 'Draft'
-          : 'Inactive';
+    : canceledCount > 0
+      ? 'Cancelled'
+      : pausedCount > 0
+        ? 'Paused'
+        : releasedCount > 0
+          ? 'Active'
+          : hasBeta
+            ? 'Testing'
+            : versions.length > 0
+              ? 'Draft'
+              : 'Inactive';
 
   return {
     ...deployment,

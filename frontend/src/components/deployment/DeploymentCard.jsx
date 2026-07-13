@@ -29,7 +29,9 @@ function CardActionIcon({ type }) {
   );
 }
 
-export default function DeploymentCard({ deployment, onView, onEdit, onToggleMenu, menuOpen, onCopyId }) {
+export default function DeploymentCard({ deployment, onView, onEdit, onToggleMenu, menuOpen, onCopyId, onPause, onCancel }) {
+  const isRunning = deployment.displayStatus === 'Active';
+
   return (
     <article className="deployment-card">
       <div className="deployment-card-top">
@@ -75,6 +77,8 @@ export default function DeploymentCard({ deployment, onView, onEdit, onToggleMen
             <div className="deployment-more-menu">
               <button type="button" onClick={() => onView(deployment)}>View details</button>
               <button type="button" onClick={() => onCopyId(deployment)}>Copy ID</button>
+              {isRunning && <button type="button" onClick={() => onPause(deployment)}>Pause</button>}
+              {isRunning && <button type="button" onClick={() => onCancel(deployment)}>Cancel</button>}
             </div>
           )}
         </div>

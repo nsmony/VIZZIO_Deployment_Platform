@@ -19,6 +19,7 @@ const emptyVersion = {
   fileType: '',
   packageSize: '',
   checksum: '',
+  batchScriptName: '',
 };
 
 // Convert package bytes into a readable label.
@@ -121,10 +122,11 @@ export default function Version() {
       ...form,
       packagePath: value,
       fileName: '',
-      fileType: '',
-      packageSize: '',
-      checksum: '',
-    });
+        fileType: '',
+        packageSize: '',
+        checksum: '',
+        batchScriptName: '',
+      });
   }
 
   async function handleValidatePackage() {
@@ -144,6 +146,7 @@ export default function Version() {
         fileType: packageInfo.fileType || '',
         packageSize: packageInfo.packageSize || '',
         checksum: packageInfo.checksum || '',
+        batchScriptName: packageInfo.batchScriptName || '',
       }));
       setPackageValidated(true);
     } catch (validationError) {
@@ -236,7 +239,7 @@ export default function Version() {
                 // Reset package fields when the source type changes.
                 setSelectedFile(null);
                 setPackageValidated(false);
-                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '' });
+                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '', batchScriptName: '' });
               }}
             >
               <option value="stagingFolder">Server staging folder</option>
@@ -259,7 +262,7 @@ export default function Version() {
               <button className="secondary-btn" type="button" disabled={validatingPackage || !form.packagePath || Boolean(selectedFile)} onClick={handleValidatePackage}>
                 {validatingPackage ? 'Validating...' : form.sourceType === 'stagingFolder' ? 'Validate folder' : 'Validate archive'}
               </button>
-              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' ? 'Folder ready for packaging' : 'Archive validated'}</span>}
+              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' && !form.batchScriptName ? 'Folder ready for packaging without a batch script' : form.sourceType === 'stagingFolder' ? 'Folder ready for packaging' : 'Archive validated'}</span>}
             </div>
           )}
           {form.sourceType === 'upload' && <label className="version-file-field">

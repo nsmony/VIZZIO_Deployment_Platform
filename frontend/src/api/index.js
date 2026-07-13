@@ -50,6 +50,18 @@ export async function updateDeployment(token, deploymentId, deployment) {
   });
 }
 
+export async function pauseDeployment(token, deploymentId) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}/pause`, token, {
+    method: 'POST',
+  });
+}
+
+export async function cancelDeployment(token, deploymentId) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}/cancel`, token, {
+    method: 'POST',
+  });
+}
+
 export async function registerDeploymentVersion(token, deploymentId, version) {
   return request(`/deployments/${deploymentId}/versions`, token, {
     method: 'POST',
@@ -212,7 +224,29 @@ export async function fetchAdminDashboard(token) {
 }
 
 export async function fetchNotifications(token) {
-  return request('/admin/notifications', token);
+  return request('/notifications', token);
+}
+
+export async function fetchUnreadNotificationCount(token) {
+  return request('/notifications/unread-count', token);
+}
+
+export async function markNotificationRead(token, notificationId) {
+  return request(`/notifications/${encodeURIComponent(notificationId)}/read`, token, {
+    method: 'PATCH',
+  });
+}
+
+export async function markAllNotificationsRead(token) {
+  return request('/notifications/read-all', token, {
+    method: 'PATCH',
+  });
+}
+
+export async function deleteNotification(token, notificationId) {
+  return request(`/notifications/${encodeURIComponent(notificationId)}`, token, {
+    method: 'DELETE',
+  });
 }
 
 export async function fetchDownloadLogs(token, deploymentId) {

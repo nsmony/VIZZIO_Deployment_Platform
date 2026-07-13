@@ -27,10 +27,12 @@ export default function Sidebar({ isOpen = true }) {
   const sections = [
     {
       label: '',
+      type: 'primary',
       items: [{ label: 'Overview', href: '/dashboard', icon: 'overview' }],
     },
     {
       label: 'Management',
+      type: 'management',
       items: [
         { label: 'Deployments', href: '/deployment', icon: 'deployment' },
         { label: 'Versions', href: '/version', icon: 'version' },
@@ -39,7 +41,16 @@ export default function Sidebar({ isOpen = true }) {
     },
     {
       label: 'Logs',
+      type: 'logs',
       items: [{ label: 'Download Logs', href: '/logs/download', icon: 'logs' }],
+    },
+    {
+      label: '',
+      type: 'utility',
+      items: [
+        { label: 'Settings', href: '#settings', icon: 'settings' },
+        { label: 'Help & Docs', href: '#help', icon: 'help' },
+      ],
     },
   ];
 
@@ -51,15 +62,22 @@ export default function Sidebar({ isOpen = true }) {
       </div>
       <nav className="sidebar-nav">
         {sections.map((section) => (
-          <div className="nav-section" key={section.label || 'overview'}>
+          <div className={`nav-section ${section.type === 'utility' ? 'utility-section' : ''}`} key={section.type}>
             {section.label && <p>{section.label}</p>}
             <ul>
               {section.items.map((item) => (
                 <li key={item.href}>
-                  <Link to={item.href} className={location.pathname === item.href ? 'active' : ''}>
-                    <SidebarIcon type={item.icon} />
-                    <span>{item.label}</span>
-                  </Link>
+                  {item.href.startsWith('#') ? (
+                    <a href={item.href}>
+                      <SidebarIcon type={item.icon} />
+                      <span>{item.label}</span>
+                    </a>
+                  ) : (
+                    <Link to={item.href} className={location.pathname === item.href ? 'active' : ''}>
+                      <SidebarIcon type={item.icon} />
+                      <span>{item.label}</span>
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
@@ -67,8 +85,6 @@ export default function Sidebar({ isOpen = true }) {
         ))}
       </nav>
       <div className="sidebar-footer">
-        <a href="#settings"><SidebarIcon type="settings" /> Settings</a>
-        <a href="#help"><SidebarIcon type="help" /> Help & Docs</a>
         <div className="sidebar-account">
           <div className="sidebar-avatar">
             {profileImage ? <img src={profileImage} alt="" /> : username.slice(0, 1).toUpperCase()}

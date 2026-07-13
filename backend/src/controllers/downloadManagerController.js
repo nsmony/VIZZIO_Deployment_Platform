@@ -79,14 +79,37 @@ export async function streamManagedDownloadFile(req, res) {
       res.status(206);
       res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`);
       res.setHeader('Content-Length', range.end - range.start + 1);
-      return fs.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+      return pipeDownloadStream(req, res, filePath, { start: range.start, end: range.end });
     }
 
     res.setHeader('Content-Length', stat.size);
-    return fs.createReadStream(filePath).pipe(res);
+    return pipeDownloadStream(req, res, filePath);
   } catch (error) {
     return res.status(error.status || 401).json({ error: error.message || 'Invalid or expired download token' });
   }
+}
+
+function pipeDownloadStream(req, res, filePath, options = {}) {
+  const stream = fs.createReadStream(filePath, options);
+  let closed = false;
+
+  const closeStream = () => {
+    if (closed) return;
+    closed = true;
+    stream.destroy();
+  };
+
+  req.on('aborted', closeStream);
+  res.on('close', closeStream);
+  stream.on('error', (error) => {
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Download stream failed' });
+      return;
+    }
+    res.destroy(error);
+  });
+
+  return stream.pipe(res);
 }
 
 function buildAccelRedirectPath(filePath) {

@@ -4,7 +4,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 24px 14px 16px;
+  padding: 32px 18px 0;
   border-right: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.96);
   transition: width 0.25s ease, flex-basis 0.25s ease, padding 0.25s ease;
@@ -28,7 +28,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 8px 28px;
+  padding: 0 10px 32px;
 }
 
 .sidebar-logo {
@@ -52,18 +52,23 @@
 }
 
 .sidebar-nav {
-  flex: 1;
+  flex: 0 0 auto;
 }
 
 .nav-section {
-  margin-bottom: 26px;
+  margin-bottom: 24px;
+}
+
+.nav-section.utility-section {
+  margin-top: -16px;
 }
 
 .nav-section p {
-  margin: 0 8px 10px;
+  margin: 0 16px 12px;
   color: #66758c;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -75,13 +80,12 @@
   margin-top: 8px;
 }
 
-.nav-section a,
-.sidebar-footer a {
-  min-height: 48px;
+.nav-section a {
+  height: 48px;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0 12px;
+  padding: 0 16px;
   border-radius: 12px;
   color: #22314f;
   font-size: 14px;
@@ -89,22 +93,21 @@
   transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.nav-section a svg,
-.sidebar-footer a svg {
-  width: 21px;
-  height: 21px;
+.nav-section a svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   color: #5b6b83;
 }
 
-.nav-section a:hover,
-.sidebar-footer a:hover {
+.nav-section a:hover {
   background: #f3f7fd;
 }
 
 .nav-section a.active {
-  background: #edf4ff;
+  background: #EEF4FF;
   color: var(--primary);
-  box-shadow: inset 3px 0 0 var(--primary);
+  box-shadow: inset 4px 0 0 var(--primary);
 }
 
 .nav-section a.active svg {
@@ -113,17 +116,18 @@
 
 .sidebar-footer {
   display: grid;
-  gap: 8px;
+  margin-top: auto;
+  padding-bottom: 24px;
 }
 
 .sidebar-account {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 14px;
-  padding: 12px;
+  margin-top: 0;
+  padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 16px;
   background: white;
 }
 
