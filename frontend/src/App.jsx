@@ -6,6 +6,8 @@ import Deployment from './pages/admin/Deployment';
 import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
 import Notifications from './pages/admin/Notifications';
+import Settings from './pages/admin/Settings';
+import Help from './pages/admin/Help';
 import AdminLayout from './layouts/AdminLayout';
 import './styles/App.css';
 
@@ -39,6 +41,8 @@ export default function App() {
           <Route path="/users" element={<Users />} />
           <Route path="/logs/download" element={<Logs />} />
           <Route path="/notifications" element={<Notifications />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/help" element={<Help />} />
         </Route>
 
         <Route path="*" element={<Navigate to={homePath} />} />

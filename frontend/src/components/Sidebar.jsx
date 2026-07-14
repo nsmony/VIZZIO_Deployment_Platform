@@ -48,8 +48,8 @@ export default function Sidebar({ isOpen = true }) {
       label: '',
       type: 'utility',
       items: [
-        { label: 'Settings', href: '#settings', icon: 'settings' },
-        { label: 'Help & Docs', href: '#help', icon: 'help' },
+        { label: 'Settings', href: '/settings', icon: 'settings' },
+        { label: 'Help & Docs', href: '/help', icon: 'help' },
       ],
     },
   ];
@@ -67,17 +67,10 @@ export default function Sidebar({ isOpen = true }) {
             <ul>
               {section.items.map((item) => (
                 <li key={item.href}>
-                  {item.href.startsWith('#') ? (
-                    <a href={item.href}>
-                      <SidebarIcon type={item.icon} />
-                      <span>{item.label}</span>
-                    </a>
-                  ) : (
-                    <Link to={item.href} className={location.pathname === item.href ? 'active' : ''}>
-                      <SidebarIcon type={item.icon} />
-                      <span>{item.label}</span>
-                    </Link>
-                  )}
+                  <Link to={item.href} className={location.pathname === item.href ? 'active' : ''}>
+                    <SidebarIcon type={item.icon} />
+                    <span>{item.label}</span>
+                  </Link>
                 </li>
               ))}
             </ul>

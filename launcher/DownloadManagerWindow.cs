@@ -1064,7 +1064,17 @@ namespace Launcher
             DetachFromParent(_installPath);
             var panel = new StackPanel { Width = GetPortalContentWidth(), HorizontalAlignment = HorizontalAlignment.Stretch };
             var installPanel = new StackPanel();
-            installPanel.Children.Add(_installPath);
+            var installRootRow = new Grid();
+            installRootRow.ColumnDefinitions.Add(new ColumnDefinition());
+            installRootRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(_installPath, 0);
+            installRootRow.Children.Add(_installPath);
+            var browseInstallRoot = CreateSecondaryButton("Browse...", 95);
+            browseInstallRoot.Margin = new Thickness(10, 6, 0, 16);
+            browseInstallRoot.Click += (_, _) => BrowseInstallRoot();
+            Grid.SetColumn(browseInstallRoot, 1);
+            installRootRow.Children.Add(browseInstallRoot);
+            installPanel.Children.Add(installRootRow);
             var saveInstallRoot = CreatePrimaryButton("Save install root", 150);
             saveInstallRoot.Margin = new Thickness(0, 10, 0, 0);
             saveInstallRoot.Click += (_, _) =>
@@ -1159,6 +1169,7 @@ namespace Launcher
 
             var hasFailedDownload = _failedDownloadItem is not null && !_isDownloadActive;
             var displayItem = _activeDownloadItem ?? _failedDownloadItem;
+            var sizeItem = displayItem ?? _selectedItem;
             _startButton.Content = hasFailedDownload ? "Retry" : "Download";
             _startButton.IsEnabled = !_isDownloadActive && (hasFailedDownload || _selectedItem is not null);
             _pauseButton.IsEnabled = _isDownloadActive;
@@ -1183,6 +1194,8 @@ namespace Launcher
             panel.Children.Add(new TextBlock { Text = displayItem is null ? "Choose Download on a package to start immediately." : $"{displayItem.FileName}    {FormatBytes(displayItem.Size ?? 0)}", Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = "Install root", Margin = new Thickness(0, 22, 0, 6), Foreground = Muted });
             panel.Children.Add(_installPath);
+            panel.Children.Add(new TextBlock { Text = $"Space required: {FormatSpaceLabel(sizeItem?.Size ?? 0)}", Margin = new Thickness(0, 14, 0, 0), Foreground = Text });
+            panel.Children.Add(new TextBlock { Text = $"Space available: {GetAvailableSpaceLabel(_installPath.Text)}", Margin = new Thickness(0, 4, 0, 0), Foreground = Text });
             panel.Children.Add(new TextBlock { Text = "Progress", Margin = new Thickness(0, 22, 0, 0), Foreground = Muted });
             panel.Children.Add(_progress);
             panel.Children.Add(_metrics);
@@ -1923,6 +1936,39 @@ namespace Launcher
             }
         }
 
+        private static string GetAvailableSpaceLabel(string installRoot)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(installRoot)) return "Unknown";
+                var root = Path.GetPathRoot(Path.GetFullPath(installRoot));
+                if (string.IsNullOrWhiteSpace(root)) return "Unknown";
+                return FormatSpaceLabel(new DriveInfo(root).AvailableFreeSpace);
+            }
+            catch
+            {
+                return "Unknown";
+            }
+        }
+
+        private void BrowseInstallRoot()
+        {
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "Select root install folder",
+            };
+            var currentPath = _installPath.Text.Trim();
+            if (Directory.Exists(currentPath))
+            {
+                dialog.InitialDirectory = currentPath;
+            }
+
+            if (dialog.ShowDialog(this) == true)
+            {
+                _installPath.Text = dialog.FolderName;
+            }
+        }
+
         private static void DeleteDownloadArtifacts(string targetPath)
         {
             if (string.IsNullOrWhiteSpace(targetPath)) return;
@@ -2473,6 +2519,19 @@ namespace Launcher
             if (value <= 0) return "-";
             string[] units = { "B", "KB", "MB", "GB", "TB" };
             var size = (double)value;
+            var unit = 0;
+            while (size >= 1024 && unit < units.Length - 1)
+            {
+                size /= 1024;
+                unit++;
+            }
+            return $"{size:0.##} {units[unit]}";
+        }
+
+        private static string FormatSpaceLabel(long value)
+        {
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            var size = (double)Math.Max(0, value);
             var unit = 0;
             while (size >= 1024 && unit < units.Length - 1)
             {

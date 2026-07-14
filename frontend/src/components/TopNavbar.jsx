@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   deleteNotification,
   fetchNotifications,
@@ -212,9 +213,9 @@ export default function TopNavbar({ title, onMenuToggle, username = 'Admin', pro
             </div>
           )}
         </div>
-        <button className="top-icon-button" aria-label="Settings">
+        <Link className="top-icon-button" to="/settings" aria-label="Settings">
           <HeaderIcon type="settings" />
-        </button>
+        </Link>
         <div className="top-profile">
           <button className="top-profile-button" onClick={onProfileClick} aria-label="Open profile menu" aria-expanded={profileOpen}>
             {profileImage ? <img src={profileImage} alt="" /> : initials}

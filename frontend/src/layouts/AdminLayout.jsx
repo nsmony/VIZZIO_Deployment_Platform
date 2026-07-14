@@ -14,6 +14,8 @@ function PageTitle() {
     '/deployment': 'Deployments',
     '/logs/download': 'Download Logs',
     '/notifications': 'Notifications',
+    '/settings': 'Settings',
+    '/help': 'Help & Docs',
   };
 
   return <h2>{pageTitles[location.pathname] || 'Dashboard'}</h2>;
