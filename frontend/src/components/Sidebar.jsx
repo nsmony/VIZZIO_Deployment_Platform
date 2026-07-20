@@ -21,8 +21,6 @@ function SidebarIcon({ type }) {
 
 export default function Sidebar({ isOpen = true }) {
   const location = useLocation();
-  const username = localStorage.getItem('vizzio_username') || 'Admin';
-  const profileImage = localStorage.getItem('vizzio_profile_image') || '';
 
   const sections = [
     {
@@ -77,17 +75,6 @@ export default function Sidebar({ isOpen = true }) {
           </div>
         ))}
       </nav>
-      <div className="sidebar-footer">
-        <div className="sidebar-account">
-          <div className="sidebar-avatar">
-            {profileImage ? <img src={profileImage} alt="" /> : username.slice(0, 1).toUpperCase()}
-          </div>
-          <div>
-            <strong>{username}</strong>
-            <span>Administrator</span>
-          </div>
-        </div>
-      </div>
     </aside>
   );
 }

@@ -48,6 +48,16 @@
   vertical-align: middle;
 }
 
+.version-table .version-group-row td {
+  padding: 10px 12px;
+  background: #f8fafc;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .version-path {
   display: block;
   max-width: 280px;

@@ -82,6 +82,83 @@ test('server staging folders are packaged into downloadable ZIP archives', async
   }
 });
 
+test('server staging folders must contain a launch batch script', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'digital-twin', 'v1.0.1');
+    await fs.mkdir(path.join(stagingFolder, 'web'), { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'web', 'index.html'), '<h1>ok</h1>');
+
+    await assert.rejects(
+      inspectPackageSource({
+        packagePath: stagingFolder,
+        sourceType: 'stagingFolder',
+        deploymentName: 'Digital Twin',
+        versionNumber: 'v1.0.1',
+        deploymentId: 'deployment-1',
+        createArchive: true,
+      }),
+      /launch batch script/i
+    );
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('server archive paths must point to ZIP or 7z packages', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const packagePath = path.join(tempRoot, 'notes.txt');
+    await fs.writeFile(packagePath, 'not a deployment archive');
+
+    await assert.rejects(
+      inspectPackageSource({
+        packagePath,
+        sourceType: 'serverArchive',
+        createArchive: false,
+      }),
+      /zip or 7z/i
+    );
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('server archive source rejects staging folder paths', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'digital-twin', 'v1.0.2');
+    await fs.mkdir(stagingFolder, { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+
+    await assert.rejects(
+      inspectPackageSource({
+        packagePath: stagingFolder,
+        sourceType: 'serverArchive',
+        createArchive: false,
+      }),
+      /must point to a file/i
+    );
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 
 
 

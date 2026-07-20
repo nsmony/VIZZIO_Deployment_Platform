@@ -84,19 +84,9 @@
   padding: 32px;
 }
 
-.settings-page-header {
-  margin-bottom: 22px;
-}
-
-.settings-page-header h2 {
-  margin: 0 0 8px;
-  color: var(--text);
-  font-size: 28px;
-  font-weight: 800;
-}
-
-.settings-page-header p {
+.settings-page-description {
   margin: 0;
+  margin-bottom: 22px;
   color: var(--text-muted);
   font-size: 16px;
   line-height: 1.6;

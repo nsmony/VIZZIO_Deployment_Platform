@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import {
   cancelDeployment,
   createDeployment,
@@ -220,12 +220,6 @@ export default function Deployment() {
 
   return (
     <main className="deployment-page">
-      <section className="deployment-hero">
-        <div>
-          <h1>Deployments</h1>
-          <p>Manage your applications and releases in one place.</p>
-        </div>
-      </section>
 
       <FilterToolbar
         search={search}
@@ -240,16 +234,16 @@ export default function Deployment() {
       />
 
       <section className="deployment-kpi-grid">
-        <DeploymentStatCard title="Total Deployments" value={kpis.total} helper="All time" tone="blue" icon="▣" />
-        <DeploymentStatCard title="Active Deployments" value={kpis.active} helper={`${kpis.activePercent}% of total`} tone="green" icon="✓" />
-        <DeploymentStatCard title="Total Versions" value={kpis.versions} helper="Across all deployments" tone="purple" icon="↗" />
-        <DeploymentStatCard title="Failed Deployments" value={kpis.failed} helper={kpis.failed ? 'Needs attention' : 'No failures'} tone="red" icon="!" />
+        <DeploymentStatCard title="Total Deployments" value={kpis.total} helper="All time" tone="blue" icon="deployments" />
+        <DeploymentStatCard title="Active Deployments" value={kpis.active} helper={`${kpis.activePercent}% of total`} tone="green" icon="active" />
+        <DeploymentStatCard title="Total Versions" value={kpis.versions} helper="Across all deployments" tone="purple" icon="versions" />
+        <DeploymentStatCard title="Failed Deployments" value={kpis.failed} helper={kpis.failed ? 'Needs attention' : 'No failures'} tone="red" icon="failed" />
       </section>
 
       {toast && (
         <div className={`deployment-toast ${toast.type}`} role="status">
           <span>{toast.message}</span>
-          <button type="button" onClick={() => setToast(null)} aria-label="Dismiss message">×</button>
+          <button type="button" onClick={() => setToast(null)} aria-label="Dismiss message">x</button>
         </div>
       )}
 
@@ -313,7 +307,7 @@ export default function Deployment() {
           <footer className="deployment-pagination">
             <p>Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, filteredDeployments.length)} of {filteredDeployments.length} deployments</p>
             <div className="deployment-pages">
-              <button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>‹</button>
+              <button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)} aria-label="Previous page">&lt;</button>
               {Array.from({ length: pageCount }).slice(0, 5).map((_, index) => {
                 const pageNumber = index + 1;
                 return (
@@ -327,7 +321,7 @@ export default function Deployment() {
                   </button>
                 );
               })}
-              <button type="button" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)}>›</button>
+              <button type="button" disabled={page === pageCount} onClick={() => setPage((current) => current + 1)} aria-label="Next page">&gt;</button>
             </div>
             <label>
               Rows per page:

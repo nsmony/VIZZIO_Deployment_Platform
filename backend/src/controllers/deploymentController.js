@@ -11,7 +11,7 @@ import {
   validatePackage,
 } from '../services/deploymentService.js';
 import { signDownloadToken } from '../downloadToken.js';
-import { findUploadedFile, listUploadedFiles, saveUploadedFile } from '../uploadStore.js';
+import { findUploadedFile, listUploadedFiles, saveUploadedStream } from '../uploadStore.js';
 
 // HTTP handlers for deployments, versions, uploads, and download tokens.
 export async function listDeployments(req, res) {
@@ -75,7 +75,7 @@ export async function registerVersionHandler(req, res) {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
 
   try {
-    const version = await registerVersion(req.params.deploymentId, req.body);
+    const version = await registerVersion(req.params.deploymentId, req.body, req.user?.userId);
     if (!version) return res.status(404).json({ error: 'Deployment not found.' });
     res.status(201).json({ version });
   } catch (error) {
@@ -130,21 +130,21 @@ export async function uploadPackage(req, res) {
     return res.status(403).json({ error: 'Admin access is required' });
   }
 
-  if (!req.body || req.body.length === 0) {
-    return res.status(400).json({ error: 'Upload file is required' });
-  }
-
   const originalName = decodeURIComponent(req.headers['x-file-name'] || '');
   const title = decodeURIComponent(req.headers['x-package-title'] || '');
 
-  const file = saveUploadedFile({
-    originalName,
-    title,
-    buffer: req.body,
-    uploadedBy: req.user.userId,
-  });
+  try {
+    const file = await saveUploadedStream({
+      originalName,
+      title,
+      stream: req,
+      uploadedBy: req.user.userId,
+    });
 
-  res.status(201).json({ package: file });
+    res.status(201).json({ package: file });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
+  }
 }
 
 export async function createDownloadToken(req, res) {

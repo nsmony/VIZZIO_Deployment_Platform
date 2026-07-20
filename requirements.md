@@ -270,6 +270,8 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 2. THE Launcher SHALL use a white background as the default theme on the login screen, main deployment list screen, Settings screen, and download progress screen.
 3. WHERE a custom logo asset path is set in the application configuration, THE Launcher SHALL display the image at that path in place of the default logo; IF the file at the custom path is unreadable or is not a valid image format, THE Launcher SHALL display the default logo without showing an error to the User.
 4. THE Launcher SHALL accept logo images in PNG, JPEG, or ICO format and SHALL NOT accept files larger than 5 MB; IF a file exceeding 5 MB or in an unsupported format is specified, THE Launcher SHALL fall back to the default logo.
+5. THE Launcher distribution SHALL support client-specific branding without rebuilding application code by packaging a client logo and launcher branding configuration alongside the same launcher executable.
+6. THE default Launcher branding configuration SHALL use `branding/logo.png` relative to the executable as the standard client logo location for ZIP/manual distribution.
 
 ---
 

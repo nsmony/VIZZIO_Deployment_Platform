@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { findUploadedFile } from '../uploadStore.js';
+import { ensureSupportedArchive } from '../archiveValidation.js';
 
 // Helpers for validating package paths and creating ZIP archives.
 export const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
@@ -20,6 +21,7 @@ export function getPackageRoot() {
 export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive }) {
   const rawPackagePath = String(packagePath || '').trim();
   if (!rawPackagePath) throw new Error('Package source path is required.');
+  const normalizedSourceType = String(sourceType || '').trim();
 
   const upload = findUploadedFile(rawPackagePath);
   if (upload) {
@@ -38,9 +40,14 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
   const stat = await fs.promises.stat(resolvedPath).catch(() => null);
   if (!stat) throw new Error('Package source was not found.');
 
-  if (stat.isDirectory() || sourceType === 'stagingFolder') {
+  if (normalizedSourceType === 'serverArchive' && stat.isDirectory()) {
+    throw new Error('Server archive path must point to a file.');
+  }
+
+  if (stat.isDirectory() || normalizedSourceType === 'stagingFolder') {
     if (!stat.isDirectory()) throw new Error('Server staging folder path must point to a directory.');
     const batchScriptName = await findLaunchBatchScript(resolvedPath);
+    if (!batchScriptName) throw new Error('Server staging folder must contain a launch batch script.');
 
     if (!createArchive) {
       return {
@@ -74,6 +81,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
   }
 
   if (!stat.isFile()) throw new Error('Package source path must point to a file or staging folder.');
+  ensureSupportedArchive(resolvedPath);
 
   return {
     packagePath: resolvedPath,

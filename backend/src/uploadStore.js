@@ -2,12 +2,16 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
+import { ensureSupportedArchive } from './archiveValidation.js';
 
 // Small file manifest used for packages uploaded through the admin panel.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const downloadDir = path.resolve(__dirname, '../storage/downloads');
 const manifestPath = path.join(downloadDir, 'manifest.json');
+const DEFAULT_MAX_UPLOAD_BYTES = 50 * 1024 * 1024 * 1024;
 
 function ensureDownloadDir() {
   fs.mkdirSync(downloadDir, { recursive: true });
@@ -45,6 +49,7 @@ export function saveUploadedFile({ originalName, title, buffer, uploadedBy }) {
   ensureDownloadDir();
 
   const filename = originalName || 'upload.bin';
+  ensureSupportedArchive(filename);
   const fileId = createFileId(filename);
   const filePath = path.join(downloadDir, fileId);
   fs.writeFileSync(filePath, buffer);
@@ -57,6 +62,61 @@ export function saveUploadedFile({ originalName, title, buffer, uploadedBy }) {
     originalName: filename,
     size: buffer.length,
     checksum,
+    uploadedBy,
+    uploadedAt: new Date().toISOString(),
+  };
+
+  const files = readManifest();
+  files.unshift(file);
+  writeManifest(files);
+
+  return file;
+}
+
+export async function saveUploadedStream({ originalName, title, stream, uploadedBy, maxBytes = getUploadMaxBytes() }) {
+  ensureDownloadDir();
+
+  const filename = originalName || 'upload.bin';
+  ensureSupportedArchive(filename);
+  const fileId = createFileId(filename);
+  const filePath = path.join(downloadDir, fileId);
+  const checksum = crypto.createHash('sha256');
+  let size = 0;
+
+  const meter = new Transform({
+    transform(chunk, encoding, callback) {
+      size += chunk.length;
+      if (size > maxBytes) {
+        const error = new Error(`Upload exceeds the configured limit of ${maxBytes} bytes.`);
+        error.status = 413;
+        callback(error);
+        return;
+      }
+
+      checksum.update(chunk);
+      callback(null, chunk);
+    },
+  });
+
+  try {
+    await pipeline(stream, meter, fs.createWriteStream(filePath));
+  } catch (error) {
+    await fs.promises.rm(filePath, { force: true }).catch(() => {});
+    throw error;
+  }
+
+  if (size === 0) {
+    await fs.promises.rm(filePath, { force: true }).catch(() => {});
+    throw new Error('Upload file is required');
+  }
+
+  const file = {
+    id: fileId,
+    fileId,
+    title: title || filename,
+    originalName: filename,
+    size,
+    checksum: checksum.digest('hex'),
     uploadedBy,
     uploadedAt: new Date().toISOString(),
   };
@@ -85,4 +145,9 @@ export function getUploadedFilePath(fileId) {
 
   const filePath = path.join(downloadDir, file.fileId);
   return fs.existsSync(filePath) ? filePath : null;
+}
+
+function getUploadMaxBytes() {
+  const value = Number(process.env.PACKAGE_UPLOAD_MAX_BYTES);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_MAX_UPLOAD_BYTES;
 }

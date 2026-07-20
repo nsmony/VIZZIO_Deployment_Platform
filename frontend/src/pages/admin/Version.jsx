@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   deleteDeploymentVersion,
   fetchDeployments,
@@ -13,6 +13,7 @@ import '../../styles/Version.css';
 const emptyVersion = {
   versionNumber: '',
   releaseType: 'stable',
+  status: 'draft',
   sourceType: 'stagingFolder',
   packagePath: '',
   fileName: '',
@@ -195,8 +196,6 @@ export default function Version() {
     <main className="version-page">
       <header className="version-heading">
         <div>
-          <p className="page-overline">Release catalog</p>
-          <h1>Version management</h1>
           <p>Register release folders, choose a channel, and control publication status.</p>
         </div>
         <button className="primary-btn" type="button" disabled={!deployment} onClick={() => setShowForm((open) => !open)}>
@@ -262,13 +261,14 @@ export default function Version() {
               <button className="secondary-btn" type="button" disabled={validatingPackage || !form.packagePath || Boolean(selectedFile)} onClick={handleValidatePackage}>
                 {validatingPackage ? 'Validating...' : form.sourceType === 'stagingFolder' ? 'Validate folder' : 'Validate archive'}
               </button>
-              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' && !form.batchScriptName ? 'Folder ready for packaging without a batch script' : form.sourceType === 'stagingFolder' ? 'Folder ready for packaging' : 'Archive validated'}</span>}
+              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' ? 'Folder ready for packaging' : 'Archive validated'}</span>}
             </div>
           )}
           {form.sourceType === 'upload' && <label className="version-file-field">
             Upload package archive
             <input
               type="file"
+              accept=".zip,.7z,application/zip,application/x-7z-compressed"
               onChange={(event) => {
                 const file = event.target.files?.[0] || null;
                 // Fill basic file details before upload.
@@ -287,6 +287,14 @@ export default function Version() {
               }}
             />
           </label>}
+          <label>
+            Initial status
+            <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+              <option value="draft">Draft</option>
+              <option value="released">Released</option>
+              <option value="archived">Archived</option>
+            </select>
+          </label>
           <label>
             File name
             <input value={form.fileName} readOnly placeholder={form.sourceType === 'stagingFolder' ? 'Generated when the version is registered' : 'Validate or upload a package first'} />
@@ -331,37 +339,44 @@ export default function Version() {
             <table className="version-table">
               <thead><tr><th>Version</th><th>Package</th><th>Channel</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
               <tbody>
-                {deployment.versions.map((version) => {
-                  const busy = busyVersion === version.id;
-                  return (
-                    <tr key={version.id}>
-                      <td><strong>{version.versionNumber}</strong></td>
-                      <td>
-                        <div className="version-package-details">
-                          <strong>{version.fileName || 'Generated package'}</strong>
-                          <span className="version-path" title={version.packagePath || ''}>{version.packagePath || 'Path not set'}</span>
-                          <span>{version.packageSource || 'package'} - {version.fileType || 'Type not set'} - {formatPackageSize(version.packageSize)}</span>
-                          {version.checksum && <span className="version-checksum" title={version.checksum}>Checksum: {version.checksum}</span>}
-                        </div>
-                      </td>
-                      <td>
-                        <button className={`channel-toggle channel-${version.releaseType}`} type="button" disabled={busy} onClick={() => updateVersion(version, { releaseType: version.releaseType === 'stable' ? 'beta' : 'stable' })}>
-                          {version.releaseType}
-                        </button>
-                      </td>
-                      <td><span className={`version-status status-${version.status}`}>{version.status}</span></td>
-                      <td>{new Date(version.createdAt).toLocaleDateString()}</td>
-                      <td>
-                        <div className="version-actions">
-                          {version.status !== 'released' && <button className="release-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'released' })}>Release</button>}
-                          {version.status !== 'archived' && <button className="archive-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'archived' })}>Archive</button>}
-                          {version.status === 'archived' && <button className="draft-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'draft' })}>Restore draft</button>}
-                          <button className="delete-btn" type="button" disabled={busy} onClick={() => handleDeleteVersion(version)}>Delete</button>
-                        </div>
-                      </td>
+                {groupVersions(deployment.versions).map((group) => (
+                  <Fragment key={group.key}>
+                    <tr className="version-group-row">
+                      <td colSpan="6">{group.label}</td>
                     </tr>
-                  );
-                })}
+                    {group.versions.map((version) => {
+                      const busy = busyVersion === version.id;
+                      return (
+                        <tr key={version.id}>
+                          <td><strong>{version.versionNumber}</strong></td>
+                          <td>
+                            <div className="version-package-details">
+                              <strong>{version.fileName || 'Generated package'}</strong>
+                              <span className="version-path" title={version.packagePath || ''}>{version.packagePath || 'Path not set'}</span>
+                              <span>{version.packageSource || 'package'} - {version.fileType || 'Type not set'} - {formatPackageSize(version.packageSize)}</span>
+                              {version.checksum && <span className="version-checksum" title={version.checksum}>Checksum: {version.checksum}</span>}
+                            </div>
+                          </td>
+                          <td>
+                            <button className={`channel-toggle channel-${version.releaseType}`} type="button" disabled={busy} onClick={() => updateVersion(version, { releaseType: version.releaseType === 'stable' ? 'beta' : 'stable' })}>
+                              {version.releaseType}
+                            </button>
+                          </td>
+                          <td><span className={`version-status status-${version.status}`}>{version.status}</span></td>
+                          <td>{new Date(version.createdAt).toLocaleDateString()}</td>
+                          <td>
+                            <div className="version-actions">
+                              {version.status !== 'released' && <button className="release-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'released' })}>Release</button>}
+                              {version.status !== 'archived' && <button className="archive-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'archived' })}>Archive</button>}
+                              {version.status === 'archived' && <button className="draft-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'draft' })}>Restore draft</button>}
+                              <button className="delete-btn" type="button" disabled={busy} onClick={() => handleDeleteVersion(version)}>Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
@@ -369,4 +384,26 @@ export default function Version() {
       </section>
     </main>
   );
+}
+
+function groupVersions(versions) {
+  const channelOrder = ['stable', 'beta'];
+  const statusOrder = ['released', 'archived', 'draft', 'paused', 'canceled', 'failed'];
+
+  return channelOrder.flatMap((channel) =>
+    statusOrder
+      .map((status) => {
+        const items = versions.filter((version) => version.releaseType === channel && version.status === status);
+        return {
+          key: `${channel}-${status}`,
+          label: `${titleCase(channel)} / ${titleCase(status)} (${items.length})`,
+          versions: items,
+        };
+      })
+      .filter((group) => group.versions.length > 0)
+  );
+}
+
+function titleCase(value) {
+  return String(value || '').slice(0, 1).toUpperCase() + String(value || '').slice(1);
 }

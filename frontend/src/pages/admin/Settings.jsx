@@ -48,10 +48,7 @@ export default function Settings() {
 
   return (
     <main className="settings-page">
-      <header className="settings-page-header">
-        <h2>Settings</h2>
-        <p>Manage system configuration and administrator preferences.</p>
-      </header>
+      <p className="settings-page-description">Manage system configuration and administrator preferences.</p>
 
       <nav className="settings-tabs" aria-label="Settings sections">
         {tabs.map((tab) => (

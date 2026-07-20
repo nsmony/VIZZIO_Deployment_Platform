@@ -70,17 +70,19 @@ export async function editDeployment(deploymentId, data) {
   return toPublicDeployment(await updateDeployment(deploymentId, updates), { admin: true });
 }
 
-export async function registerVersion(deploymentId, data) {
+export async function registerVersion(deploymentId, data, userId) {
   const deployment = await findDeploymentById(deploymentId);
   if (!deployment) return null;
 
   const versionNumber = data.versionNumber?.trim();
   const packagePath = data.packagePath?.trim();
   const releaseType = String(data.releaseType || 'stable').toLowerCase();
+  const status = String(data.status || 'draft').toLowerCase();
 
   if (!versionNumber) throw new Error('Version number is required.');
   if (!packagePath) throw new Error('Package source path is required.');
   if (!RELEASE_TYPES.has(releaseType)) throw new Error('Release type must be stable or beta.');
+  if (!VERSION_STATUSES.has(status)) throw new Error('Invalid version status.');
 
   const packageInfo = await inspectPackageSource({
     packagePath,
@@ -95,12 +97,14 @@ export async function registerVersion(deploymentId, data) {
     return toPublicVersion(await addDeploymentVersion(deploymentId, {
       versionNumber,
       releaseType,
-      status: 'draft',
+      status,
       packagePath: packageInfo.packagePath,
       fileName: packageInfo.fileName,
       fileType: packageInfo.fileType,
       packageSize: packageInfo.packageSize,
       checksum: packageInfo.checksum,
+      releasedAt: status === 'released' ? new Date() : null,
+      releasedBy: status === 'released' && isUuid(userId) ? userId : null,
     }), { admin: true });
   } catch (error) {
     if (error.code === 'P2002') {

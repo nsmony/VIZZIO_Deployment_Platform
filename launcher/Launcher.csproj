@@ -12,5 +12,6 @@
   </PropertyGroup>
   <ItemGroup>
     <None Update="launcher-branding.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="branding\**\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

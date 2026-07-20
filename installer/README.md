@@ -12,6 +12,16 @@ The script publishes the launcher as a self-contained `win-x64` app and then com
 
 Install Inno Setup first and ensure `iscc.exe` is on `PATH`, or pass `-InnoCompiler`.
 
+## Client Branding
+
+Use the same launcher code for every client and stamp branding during packaging:
+
+```powershell
+.\scripts\build_launcher_installer.ps1 -Version 0.1.0 -ClientLogoPath C:\Clients\Acme\logo.png
+```
+
+The script copies the logo into the publish output under `branding/` and updates `launcher-branding.json` before the installer is compiled. Logos must be PNG, JPG, JPEG, or ICO and 5 MB or smaller.
+
 ## 7z Support
 
 The launcher can extract `.7z` packages when `7za.exe` is installed beside `Launcher.exe`. To bundle it into the installer:

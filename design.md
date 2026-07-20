@@ -736,6 +736,14 @@ CREATE INDEX ON admin_login_attempts (ip_address, attempted_at);
 
 ---
 
+### Property 47a: Client branding is package-time configurable
+
+*For any* client-branded Launcher distribution, the installer or ZIP packaging process SHALL be able to place a client logo and `launcher-branding.json` beside the same Launcher executable without changing or rebuilding application code.
+
+**Validates: Requirements 14.5, 14.6**
+
+---
+
 ### Property 48: Launcher configuration is preserved across installer upgrades
 
 *For any* existing Launcher installation with a configured Install Root path and a persisted JWT, running a newer version of the installer SHALL preserve both the Install Root path and the persisted JWT without requiring the user to reconfigure the application.

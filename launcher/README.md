@@ -27,6 +27,33 @@ dotnet publish launcher\Launcher.csproj `
 
 The publish output includes the .NET runtime, so the launcher can run on a clean Windows machine without installing .NET separately.
 
+## Client Branding
+
+The launcher uses one binary for all clients. Branding is applied by files beside the executable:
+
+```text
+Launcher.exe
+launcher-branding.json
+branding/
+  logo.png
+```
+
+The default configuration points at `branding/logo.png`:
+
+```json
+{
+  "logoPath": "branding/logo.png"
+}
+```
+
+For simple ZIP distribution, replace `branding/logo.png` in the published launcher folder before zipping it. For installer distribution, pass a logo at build time:
+
+```powershell
+.\scripts\build_launcher_installer.ps1 -Version 0.1.0 -ClientLogoPath C:\Clients\Acme\logo.png
+```
+
+Client logos may be PNG, JPG, JPEG, or ICO and must be 5 MB or smaller. If the configured logo is missing or invalid at runtime, the launcher falls back to the default `V` mark without showing an error.
+
 ## Installer
 
 Install Inno Setup, then run:

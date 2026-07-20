@@ -106,9 +106,11 @@
   padding: 0 14px;
 }
 
-.deployment-search-control span {
+.deployment-search-control svg {
+  width: 22px;
+  height: 22px;
   color: #64748b;
-  font-size: 22px;
+  flex: 0 0 auto;
 }
 
 .deployment-search-control input {
@@ -136,10 +138,16 @@
 .deployment-view-toggle button {
   width: 40px;
   height: 38px;
+  display: grid;
+  place-items: center;
   border-radius: 9px;
   color: #50627c;
-  font-size: 18px;
   font-weight: 800;
+}
+
+.deployment-view-toggle svg {
+  width: 19px;
+  height: 19px;
 }
 
 .deployment-view-toggle button.active {
@@ -180,6 +188,11 @@
   color: var(--primary);
   font-size: 26px;
   font-weight: 900;
+}
+
+.deployment-stat-icon svg {
+  width: 28px;
+  height: 28px;
 }
 
 .deployment-stat-icon.green {
@@ -568,6 +581,18 @@
   align-items: flex-end;
   justify-content: flex-end;
   gap: 12px;
+}
+
+.version-register-card {
+  row-gap: 20px;
+  margin-bottom: 30px;
+}
+
+.version-register-card > .version-form-actions:last-child {
+  grid-column: 1 / -1;
+  justify-content: center;
+  padding-top: 2px;
+  padding-bottom: 4px;
 }
 
 .deployment-empty-state,

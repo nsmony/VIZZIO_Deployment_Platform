@@ -146,6 +146,14 @@ Launcher download behavior:
 - Applies one shared bandwidth cap across all active streams.
 - Verifies SHA-256 before extracting.
 
+Launcher client branding:
+
+- The same launcher binary is used for every client.
+- Default branding path is `branding/logo.png` beside `Launcher.exe`.
+- For ZIP/manual delivery, replace `branding/logo.png` before packaging.
+- For installer delivery, pass `-ClientLogoPath` to the installer build script.
+- Bad, missing, unsupported, or oversized logos fall back to the default mark at runtime.
+
 Package expectations:
 
 - Released versions should have a checksum.
@@ -172,6 +180,12 @@ If `.7z` extraction should be bundled:
 
 ```powershell
 .\scripts\build_launcher_installer.ps1 -SevenZipPath "C:\Tools\7za.exe"
+```
+
+To build a client-branded installer:
+
+```powershell
+.\scripts\build_launcher_installer.ps1 -Version "0.1.0" -ClientLogoPath "C:\Clients\Acme\logo.png"
 ```
 
 Installer artifacts are written to `installer/artifacts/`.

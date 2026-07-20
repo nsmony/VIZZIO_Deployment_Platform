@@ -59,6 +59,7 @@ export default function AdminLayout() {
         <TopNavbar
           title={<PageTitle />}
           onMenuToggle={() => setSidebarOpen((open) => !open)}
+          sidebarOpen={sidebarOpen}
           username={username}
           profileImage={profileImage}
           initials={initials}
