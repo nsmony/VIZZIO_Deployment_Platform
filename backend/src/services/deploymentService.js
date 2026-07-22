@@ -75,6 +75,7 @@ export async function registerVersion(deploymentId, data, userId) {
   if (!deployment) return null;
 
   const versionNumber = data.versionNumber?.trim();
+  const description = data.description?.trim() || null;
   const packagePath = data.packagePath?.trim();
   const releaseType = String(data.releaseType || 'stable').toLowerCase();
   const status = String(data.status || 'draft').toLowerCase();
@@ -96,6 +97,7 @@ export async function registerVersion(deploymentId, data, userId) {
   try {
     return toPublicVersion(await addDeploymentVersion(deploymentId, {
       versionNumber,
+      description,
       releaseType,
       status,
       packagePath: packageInfo.packagePath,
@@ -132,6 +134,10 @@ export async function changeVersion(deploymentId, versionId, data, userId) {
   if (!version) return null;
 
   const updates = {};
+  if (data.description !== undefined) {
+    updates.description = data.description?.trim() || null;
+  }
+
   if (data.releaseType !== undefined) {
     const releaseType = String(data.releaseType).toLowerCase();
     if (!RELEASE_TYPES.has(releaseType)) throw new Error('Release type must be stable or beta.');
@@ -232,6 +238,7 @@ function toPublicVersion(version, options = {}) {
   const publicVersion = {
     id: version.id,
     versionNumber: version.versionNumber,
+    description: version.description || null,
     releaseType: version.releaseType,
     status: version.status,
     packageSource: classifyPackageSource(version.packagePath),

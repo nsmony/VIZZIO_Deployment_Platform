@@ -3,7 +3,9 @@ import path from 'path';
 import prisma from '../prisma.js';
 import { listUploadedFiles, findUploadedFile, getUploadedFilePath } from '../uploadStore.js';
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../downloadManagerToken.js';
+import { getPackageInstallSize } from './packageArchiveService.js';
 import { userCanAccessVersion } from './deploymentService.js';
+import { findUserByUsername } from '../repositories/userRepository.js';
 
 const VERSION_FILE_PREFIX = 'version:';
 const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
@@ -41,7 +43,7 @@ export async function getDownloadablesForUser(user) {
   const role = String(user?.role || '').toLowerCase();
   // Uploaded packages are always visible to admins; normal users only see
   // released deployment versions that their group membership allows.
-  const uploadItems = uploads.map((upload) => ({
+  const uploadItems = await Promise.all(uploads.map(async (upload) => ({
     deploymentId: null,
     deploymentName: upload.title || upload.originalName,
     versionId: `upload:${upload.fileId}`,
@@ -51,9 +53,10 @@ export async function getDownloadablesForUser(user) {
     fileId: upload.fileId,
     fileName: upload.originalName,
     size: upload.size,
+    installSize: await getInstallSizeForUpload(upload.fileId),
     checksum: upload.checksum || null,
     available: true,
-  }));
+  })));
 
   const where = role === 'admin'
     ? {}
@@ -80,30 +83,32 @@ export async function getDownloadablesForUser(user) {
     return uploadItems;
   }
 
-  const versionItems = deployments.flatMap((deployment) =>
-    deployment.versions
-      .filter((version) => !version.deletedAt && version.status === 'released')
-      .map((version) => {
-        const packageFile = resolvePackageForVersion(uploads, version);
-        return {
-          deploymentId: deployment.id,
-          deploymentName: deployment.name,
-          description: deployment.description,
-          versionId: version.id,
-          versionNumber: version.versionNumber,
-          releaseType: version.releaseType,
-          status: version.status,
-          fileId: packageFile?.fileId || createVersionFileId(version.id),
-          fileName: packageFile?.originalName || version.fileName || path.basename(version.packagePath || ''),
-          fileType: version.fileType || 'application/octet-stream',
-          size: packageFile?.size || (version.packageSize ? Number(version.packageSize) : null),
-          checksum: packageFile?.checksum || version.checksum,
-          releasedAt: version.releasedAt?.toISOString() || version.createdAt.toISOString(),
-          available: Boolean(packageFile),
-          source: packageFile?.source || 'missing',
-        };
-      })
-  );
+  const versionItems = (await Promise.all(deployments.map(async (deployment) => {
+    const versions = deployment.versions.filter((version) => !version.deletedAt && version.status === 'released');
+    return Promise.all(versions.map(async (version) => {
+      const packageFile = await resolvePackageForVersion(uploads, version);
+      return {
+        deploymentId: deployment.id,
+        deploymentName: deployment.name,
+        description: version.description || deployment.description || null,
+        deploymentDescription: deployment.description || null,
+        versionDescription: version.description || null,
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        releaseType: version.releaseType,
+        status: version.status,
+        fileId: packageFile?.fileId || createVersionFileId(version.id),
+        fileName: packageFile?.originalName || version.fileName || path.basename(version.packagePath || ''),
+        fileType: version.fileType || 'application/octet-stream',
+        size: packageFile?.size || (version.packageSize ? Number(version.packageSize) : null),
+        installSize: packageFile?.installSize || null,
+        checksum: packageFile?.checksum || version.checksum,
+        releasedAt: version.releasedAt?.toISOString() || version.createdAt.toISOString(),
+        available: Boolean(packageFile),
+        source: packageFile?.source || 'missing',
+      };
+    }));
+  }))).flat();
 
   const matchedFileIds = new Set(versionItems.map((item) => item.fileId).filter(Boolean));
   const unmatchedUploadItems = role === 'admin'
@@ -113,7 +118,7 @@ export async function getDownloadablesForUser(user) {
   return [...versionItems, ...unmatchedUploadItems];
 }
 
-export async function createManagedDownloadSession({ user, fileId, versionId }) {
+export async function createManagedDownloadSession({ user, fileId, versionId, ipAddress, userAgent }) {
   if (!versionId) {
     const error = new Error('Version ID is required for managed downloads');
     error.status = 400;
@@ -121,7 +126,8 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
   }
 
   const uploadOnlySession = String(versionId).startsWith('upload:');
-  const canWriteSession = isUuid(user?.userId) && isUuid(versionId);
+  const persistentUserId = String(user?.userId || '').trim() || await resolvePersistentUserId(user);
+  const canWriteSession = !uploadOnlySession && Boolean(persistentUserId) && Boolean(versionId);
   // Upload-only downloads do not have deployment-version records, so they use a
   // virtual session unless both IDs are real database UUIDs.
   const allowed = uploadOnlySession
@@ -135,17 +141,31 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
 
   const file = await resolveManagedFile({ fileId, versionId });
 
-  const session = canWriteSession
-    ? await prisma.downloadSession.create({
+  let session = createVirtualSession({ user, versionId });
+  if (canWriteSession) {
+    try {
+      session = await prisma.downloadSession.create({
         data: {
-          userId: user.userId,
+          userId: persistentUserId,
           versionId,
           status: 'pending',
           progressPercentage: 0,
           downloadedSize: 0,
         },
-      })
-    : createVirtualSession({ user, versionId });
+      });
+
+      await recordDownloadActivity({
+        userId: persistentUserId,
+        versionId,
+        ipAddress,
+        userAgent,
+      });
+    } catch (error) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[download-session-persistence]', error);
+      }
+    }
+  }
 
   const token = signDownloadManagerToken({
     fileId,
@@ -162,8 +182,28 @@ export async function createManagedDownloadSession({ user, fileId, versionId }) 
       fileId,
       name: file.originalName,
       size: file.size,
+      installSize: file.installSize || null,
     },
   };
+}
+
+async function recordDownloadActivity({ userId, versionId, ipAddress, userAgent }) {
+  if (!isUuid(versionId)) return;
+  try {
+    await prisma.downloadLog.create({
+      data: {
+        userId,
+        versionId,
+        ipAddress: ipAddress || null,
+        userAgent: userAgent || null,
+      },
+    });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[download-log-write]', error);
+    }
+    // Log creation should not prevent downloads from starting.
+  }
 }
 
 export async function updateManagedDownloadSession({
@@ -224,17 +264,6 @@ export async function updateManagedDownloadSession({
     },
   });
 
-  if (shouldComplete && session.status !== 'completed') {
-    await prisma.downloadLog.create({
-      data: {
-        userId: user.userId,
-        versionId: session.versionId,
-        ipAddress,
-        userAgent,
-      },
-    });
-  }
-
   return serializeSession(updated);
 }
 
@@ -286,7 +315,7 @@ function createVersionFileId(versionId) {
   return `${VERSION_FILE_PREFIX}${versionId}`;
 }
 
-function resolvePackageForVersion(uploads, version) {
+async function resolvePackageForVersion(uploads, version) {
   const upload = findUploadForVersion(uploads, version);
   if (upload) {
     const filePath = getUploadedFilePath(upload.fileId);
@@ -296,6 +325,7 @@ function resolvePackageForVersion(uploads, version) {
       fileId: upload.fileId,
       originalName: upload.originalName,
       size: upload.size,
+      installSize: await getPackageInstallSize(filePath),
       checksum: upload.checksum || version.checksum || null,
       filePath,
     };
@@ -309,6 +339,7 @@ function resolvePackageForVersion(uploads, version) {
     fileId: createVersionFileId(version.id),
     originalName: version.fileName || path.basename(serverFile.filePath),
     size: serverFile.stat.size,
+    installSize: await getPackageInstallSize(serverFile.filePath),
     checksum: version.checksum || null,
     filePath: serverFile.filePath,
   };
@@ -337,7 +368,7 @@ async function resolveManagedFile({ fileId, versionId }) {
     throw error;
   }
 
-  const file = resolvePackageForVersion(listUploadedFiles(), version);
+  const file = await resolvePackageForVersion(listUploadedFiles(), version);
   if (!file || !file.filePath) {
     const error = new Error('File not found at the registered server path');
     error.status = 404;
@@ -359,7 +390,7 @@ async function resolveManagedFile({ fileId, versionId }) {
   return file;
 }
 
-function resolveUploadedManagedFile(fileId) {
+async function resolveUploadedManagedFile(fileId) {
   const file = findUploadedFile(fileId);
   const filePath = getUploadedFilePath(fileId);
   if (!file || !filePath) {
@@ -373,9 +404,16 @@ function resolveUploadedManagedFile(fileId) {
     fileId: file.fileId,
     originalName: file.originalName,
     size: file.size,
+    installSize: await getPackageInstallSize(filePath),
     checksum: file.checksum || null,
     filePath,
   };
+}
+
+async function getInstallSizeForUpload(fileId) {
+  const filePath = getUploadedFilePath(fileId);
+  if (!filePath) return null;
+  return getPackageInstallSize(filePath);
 }
 
 function resolveServerPackageFile(version) {
@@ -434,8 +472,23 @@ function createVirtualSession({ user, versionId }) {
   };
 }
 
+async function resolvePersistentUserId(user) {
+  const tokenUserId = String(user?.userId || '').trim();
+  if (isUuid(tokenUserId)) {
+    return tokenUserId;
+  }
+
+  if (!user?.username) {
+    return null;
+  }
+
+  const persistedUser = await findUserByUsername(String(user.username));
+  const persistedUserId = String(persistedUser?.id || '').trim();
+  return isUuid(persistedUserId) ? persistedUserId : null;
+}
+
 function isUuid(value) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
     String(value || '')
   );
 }

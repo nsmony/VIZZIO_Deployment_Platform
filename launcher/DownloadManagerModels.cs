@@ -42,6 +42,12 @@ namespace Launcher
         [JsonPropertyName("description")]
         public string? Description { get; set; }
 
+        [JsonPropertyName("deploymentDescription")]
+        public string? DeploymentDescription { get; set; }
+
+        [JsonPropertyName("versionDescription")]
+        public string? VersionDescription { get; set; }
+
         [JsonPropertyName("versionId")]
         public string VersionId { get; set; } = "";
 
@@ -53,6 +59,9 @@ namespace Launcher
 
         [JsonPropertyName("size")]
         public long? Size { get; set; }
+
+        [JsonPropertyName("installSize")]
+        public long? InstallSize { get; set; }
 
         // SHA-256 from the registered package. The download manager verifies it
         // after writing the final file to disk.
@@ -98,5 +107,8 @@ namespace Launcher
 
         [JsonPropertyName("size")]
         public long Size { get; set; }
+
+        [JsonPropertyName("installSize")]
+        public long? InstallSize { get; set; }
     }
 }

@@ -278,7 +278,7 @@ namespace Launcher
                 PersistDownloadState();
                 RenderCards();
                 RefreshDownloadPageIfVisible();
-                EnsureDiskSpaceForInstall(targetPath, (item.Size ?? 0) * 2);
+                EnsureDiskSpaceForInstall(targetPath, GetRequiredSpaceBytes(item.Size ?? 0, item.InstallSize));
                 _startButton.IsEnabled = false;
                 _pauseButton.IsEnabled = true;
                 if (startPaused)
@@ -311,7 +311,7 @@ namespace Launcher
                 var session = await _api.CreateSessionAsync(item, _downloadCancellation.Token);
                 fileName = string.IsNullOrWhiteSpace(session.File.Name) ? fileName : session.File.Name;
                 targetPath = Path.Combine(GetPackageCacheFolder(), SanitizePathPart(item.DeploymentName), SanitizePathPart(item.VersionNumber), fileName);
-                EnsureDiskSpaceForInstall(targetPath, session.File.Size * 2);
+                EnsureDiskSpaceForInstall(targetPath, GetRequiredSpaceBytes(session.File.Size, session.File.InstallSize));
                 _activeDownloadTargetPath = targetPath;
                 _activeDownloadSessionId = session.Session.Id;
                 _activeDownloadTotalSize = session.File.Size;
@@ -333,7 +333,8 @@ namespace Launcher
                     _lastDownloadedSize = value.DownloadedBytes;
                     _activeDownloadTotalSize = value.TotalBytes;
                     _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
-                    if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, value.TotalBytes - value.DownloadedBytes, out var shortfall))
+                    var remainingRequiredBytes = GetRequiredSpaceBytes(value.TotalBytes - value.DownloadedBytes, session.File.InstallSize);
+                    if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, remainingRequiredBytes, out var shortfall))
                     {
                         PauseActiveDownload($"Download paused because disk space is low. Shortfall: {FormatDiskSpace(shortfall)}.", "Low disk space");
                         return;
@@ -418,13 +419,22 @@ namespace Launcher
                 _status.Text = "Extracting package...";
                 _pauseButton.IsEnabled = false;
                 var installedPath = await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
-                await TryUpdateSessionAsync(session.Session.Id, "completed", session.File.Size, session.File.Size, CancellationToken.None);
+                var completed = await TryCompleteSessionAsync(session.Session.Id, session.File.Size, session.File.Size);
                 _progress.Value = 100;
                 _status.Text = HasLaunchBatchScript(installFolder)
                     ? $"Installed to {installedPath}"
                     : $"Installed to {installedPath}. The package did not contain a launch batch script.";
+                if (!completed)
+                {
+                    _status.Text += " (Backend audit update failed; download completed locally.)";
+                }
                 LauncherLog.Info($"Download completed: {targetPath}");
                 TryOpenFolder(installFolder, out _);
+                _selectedItem = item;
+                if (_downloadQueue.Count == 0)
+                {
+                    SelectSection("Installed");
+                }
                 RenderCards();
             }
             catch (OperationCanceledException)
@@ -511,6 +521,10 @@ namespace Launcher
                     }
                     else
                     {
+                        if (_downloadQueue.Count == 0 && _failedDownloadItem is null)
+                        {
+                            _selectedItem = null;
+                        }
                         _startButton.IsEnabled = true;
                         _pauseButton.IsEnabled = false;
                         _pauseButton.Content = "Pause";
@@ -532,20 +546,38 @@ namespace Launcher
             }
         }
 
-        private async Task TryUpdateSessionAsync(string sessionId, string status, long downloadedSize, long totalSize, CancellationToken cancellationToken)
+        private async Task<bool> TryUpdateSessionAsync(string sessionId, string status, long downloadedSize, long totalSize, CancellationToken cancellationToken)
         {
             try
             {
                 await _api.UpdateSessionAsync(sessionId, status, downloadedSize, totalSize, cancellationToken);
+                return true;
             }
             catch (LauncherApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
             {
-                // Progress telemetry should not fail a completed package download.
+                return false;
             }
             catch
             {
-                // The next progress tick or refresh can repair stale session state.
+                return false;
             }
+        }
+
+        private async Task<bool> TryCompleteSessionAsync(string sessionId, long downloadedSize, long totalSize)
+        {
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                var success = await TryUpdateSessionAsync(sessionId, "completed", downloadedSize, totalSize, CancellationToken.None);
+                if (success)
+                {
+                    return true;
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(2));
+            }
+
+            LauncherLog.Info($"Failed to mark backend download session completed after retries: {sessionId}");
+            return false;
         }
 
         private async Task UpdateSessionProgressInBackgroundAsync(string sessionId, long downloadedSize, long totalSize, Action markComplete)
@@ -1169,7 +1201,8 @@ namespace Launcher
 
             var hasFailedDownload = _failedDownloadItem is not null && !_isDownloadActive;
             var displayItem = _activeDownloadItem ?? _failedDownloadItem;
-            var sizeItem = displayItem ?? _selectedItem;
+            var queuedItem = _downloadQueue.Count > 0 ? _downloadQueue.Peek() : null;
+            var sizeItem = displayItem ?? queuedItem ?? _selectedItem;
             _startButton.Content = hasFailedDownload ? "Retry" : "Download";
             _startButton.IsEnabled = !_isDownloadActive && (hasFailedDownload || _selectedItem is not null);
             _pauseButton.IsEnabled = _isDownloadActive;
@@ -1190,11 +1223,11 @@ namespace Launcher
             };
 
             var panel = new StackPanel();
-            panel.Children.Add(new TextBlock { Text = displayItem is null ? "No active download" : $"{displayItem.DeploymentName} {displayItem.VersionNumber}", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(new TextBlock { Text = displayItem is null ? "Choose Download on a package to start immediately." : $"{displayItem.FileName}    {FormatBytes(displayItem.Size ?? 0)}", Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = displayItem is null ? "No download in progress" : $"{displayItem.DeploymentName} {displayItem.VersionNumber}", FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = displayItem is null ? (_downloadQueue.Count > 0 ? "The next queued package will start automatically." : "There is no active download right now. Start one from the library or open Installed packages.") : $"{displayItem.FileName}    {FormatBytes(displayItem.Size ?? 0)}", Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = "Install root", Margin = new Thickness(0, 22, 0, 6), Foreground = Muted });
             panel.Children.Add(_installPath);
-            panel.Children.Add(new TextBlock { Text = $"Space required: {FormatSpaceLabel(sizeItem?.Size ?? 0)}", Margin = new Thickness(0, 14, 0, 0), Foreground = Text });
+            panel.Children.Add(new TextBlock { Text = $"Space required: {FormatSpaceLabel(GetRequiredSpaceBytes(sizeItem?.Size ?? 0, sizeItem?.InstallSize))}", Margin = new Thickness(0, 14, 0, 0), Foreground = Text });
             panel.Children.Add(new TextBlock { Text = $"Space available: {GetAvailableSpaceLabel(_installPath.Text)}", Margin = new Thickness(0, 4, 0, 0), Foreground = Text });
             panel.Children.Add(new TextBlock { Text = "Progress", Margin = new Thickness(0, 22, 0, 0), Foreground = Muted });
             panel.Children.Add(_progress);
@@ -1234,7 +1267,9 @@ namespace Launcher
                 var matchesSearch = string.IsNullOrWhiteSpace(query)
                     || item.DeploymentName.Contains(query, StringComparison.OrdinalIgnoreCase)
                     || item.VersionNumber.Contains(query, StringComparison.OrdinalIgnoreCase)
-                    || (item.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
+                    || (item.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (item.VersionDescription?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false)
+                    || (item.DeploymentDescription?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false);
                 return matchesFilter && matchesSearch;
             }).ToList();
 
@@ -1384,9 +1419,10 @@ namespace Launcher
             card.Children.Add(top);
 
             card.Children.Add(new TextBlock { Text = item.DeploymentName, FontSize = 22, FontWeight = FontWeights.SemiBold, Foreground = Text, TextWrapping = TextWrapping.Wrap });
+            var cardDescription = item.VersionDescription ?? item.Description ?? item.DeploymentDescription;
             card.Children.Add(new TextBlock
             {
-                Text = string.IsNullOrWhiteSpace(item.Description) ? "Ready to install alongside other versions." : item.Description,
+                Text = string.IsNullOrWhiteSpace(cardDescription) ? "Ready to install alongside other versions." : cardDescription,
                 Foreground = Muted,
                 TextWrapping = TextWrapping.Wrap,
                 LineHeight = 22,
@@ -1394,7 +1430,17 @@ namespace Launcher
                 MaxHeight = 68,
             });
 
-            var meta = new TextBlock { Text = $"{item.VersionNumber}    {FormatBytes(item.Size ?? 0)}", Foreground = Muted, FontSize = 14, Margin = new Thickness(0, 0, 0, 18) };
+            var installSizeLabel = item.InstallSize is > 0
+                ? $"Install {FormatBytes(item.InstallSize.Value)}"
+                : "Install size unknown";
+            var meta = new TextBlock
+            {
+                Text = $"{item.VersionNumber}    Download {FormatBytes(item.Size ?? 0)}    {installSizeLabel}",
+                Foreground = Muted,
+                FontSize = 14,
+                Margin = new Thickness(0, 0, 0, 18),
+                TextWrapping = TextWrapping.Wrap,
+            };
             card.Children.Add(meta);
 
             var actions = new StackPanel { Orientation = Orientation.Horizontal };
@@ -1430,7 +1476,7 @@ namespace Launcher
                 }
                 else
                 {
-                    _status.Text = $"{item.DeploymentName} {item.VersionNumber} selected.";
+                    ShowItemDetails(item);
                 }
                 RenderCards();
             };
@@ -1448,6 +1494,35 @@ namespace Launcher
                 CornerRadius = new CornerRadius(8),
                 Child = card,
             };
+        }
+
+        private void ShowItemDetails(DownloadItem item)
+        {
+            var versionDescription = string.IsNullOrWhiteSpace(item.VersionDescription)
+                ? (string.IsNullOrWhiteSpace(item.Description) ? "Not provided" : item.Description)
+                : item.VersionDescription;
+            var deploymentDescription = string.IsNullOrWhiteSpace(item.DeploymentDescription)
+                ? "Not provided"
+                : item.DeploymentDescription;
+            var downloadSize = item.Size is > 0 ? FormatBytes(item.Size.Value) : "Unknown";
+            var installSize = item.InstallSize is > 0 ? FormatBytes(item.InstallSize.Value) : "Unknown";
+            var checksum = string.IsNullOrWhiteSpace(item.Checksum) ? "Not available" : item.Checksum;
+            var availability = item.Available ? "Available" : "Missing from server";
+
+            var details =
+                $"Deployment: {item.DeploymentName}\n" +
+                $"Version: {item.VersionNumber}\n" +
+                $"Channel: {NormalizeChannel(item.ReleaseType)}\n" +
+                $"Status: {availability}\n" +
+                $"File: {item.FileName}\n" +
+                $"Download size: {downloadSize}\n" +
+                $"Install size: {installSize}\n\n" +
+                $"Version description:\n{versionDescription}\n\n" +
+                $"Deployment description:\n{deploymentDescription}\n\n" +
+                $"Checksum:\n{checksum}";
+
+            MessageBox.Show(details, "Package Details", MessageBoxButton.OK, MessageBoxImage.Information);
+            _status.Text = $"{item.DeploymentName} {item.VersionNumber} selected.";
         }
 
         private Border CreateQueuedDownloadsPanel()
@@ -1657,7 +1732,8 @@ namespace Launcher
         {
             var folder = GetInstallFolder(item);
             if (!Directory.Exists(folder)) return false;
-            return Directory.EnumerateFileSystemEntries(folder).Any();
+            return HasLaunchBatchScript(folder)
+                || Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories).Any();
         }
 
         private static bool HasLaunchBatchScript(string folder)
@@ -1915,6 +1991,23 @@ namespace Launcher
             {
                 throw new IOException($"Not enough free disk space. Required: {FormatDiskSpace(requiredBytes)}, Available: {FormatDiskSpace(drive.AvailableFreeSpace)}.");
             }
+        }
+
+        private static long GetRequiredSpaceBytes(long packageBytes, long? installBytes)
+        {
+            var normalizedPackageBytes = Math.Max(packageBytes, 0);
+            var normalizedInstallBytes = Math.Max(installBytes ?? 0, 0);
+            if (normalizedPackageBytes <= 0 && normalizedInstallBytes <= 0)
+            {
+                return 0;
+            }
+
+            if (normalizedInstallBytes > 0)
+            {
+                return normalizedPackageBytes + normalizedInstallBytes;
+            }
+
+            return normalizedPackageBytes * 2;
         }
 
         private static bool IsDiskSpaceBelowRemaining(string targetPath, long remainingBytes, out long shortfall)
@@ -2443,6 +2536,9 @@ namespace Launcher
                     HttpStatusCode.Unauthorized => "The username or password is incorrect.",
                     HttpStatusCode.Forbidden => "Your account has been disabled or does not have access. Please contact your administrator.",
                     HttpStatusCode.TooManyRequests => "Too many attempts. Please wait before trying again.",
+                    HttpStatusCode.ServiceUnavailable => string.IsNullOrWhiteSpace(apiException.Message)
+                        ? "The server is temporarily unavailable. Please try again later."
+                        : apiException.Message,
                     >= HttpStatusCode.InternalServerError => "The server is temporarily unavailable. Please try again later.",
                     _ => string.IsNullOrWhiteSpace(apiException.Message) ? "Something went wrong. Please try again." : apiException.Message,
                 };

@@ -76,3 +76,25 @@ export async function updateGroup(id, updates) {
     });
   });
 }
+
+export async function addGroupDeploymentAccess(id, deploymentId) {
+  await prisma.groupDeploymentAccess.create({
+    data: {
+      groupId: id,
+      deploymentId,
+    },
+  });
+
+  return findGroupById(id);
+}
+
+export async function removeGroupDeploymentAccess(id, deploymentId) {
+  await prisma.groupDeploymentAccess.deleteMany({
+    where: {
+      groupId: id,
+      deploymentId,
+    },
+  });
+
+  return findGroupById(id);
+}

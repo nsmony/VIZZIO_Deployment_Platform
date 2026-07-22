@@ -1,6 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
 const DOWNLOAD_BASE = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
 
+import { clearStoredSession } from '../hooks/useAuth.js';
+
 // Shared JSON API helper. It centralizes bearer auth and error extraction so
 // pages can show user-friendly failures without duplicating fetch boilerplate.
 async function request(endpoint, token, options = {}) {
@@ -16,7 +18,15 @@ async function request(endpoint, token, options = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || 'API request failed');
+    if (response.status === 401) {
+      clearStoredSession();
+      if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+        window.location.assign('/');
+      }
+    }
+
+    const message = data.maintenanceMessage || data.error || 'API request failed';
+    throw new Error(message);
   }
   return data;
 }
@@ -98,6 +108,24 @@ export async function deleteDeploymentVersion(token, versionId) {
 
 export async function fetchUploadedPackages(token) {
   return request('/deployments/uploads', token);
+}
+
+export async function fetchAdminSettings(token) {
+  return request('/settings', token);
+}
+
+export async function saveAdminSettings(token, settings) {
+  return request('/settings', token, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+}
+
+export async function resetAdminSettings(token) {
+  return request('/settings/reset', token, {
+    method: 'POST',
+  });
 }
 
 export async function uploadPackage(token, file, title) {
@@ -188,6 +216,18 @@ export async function updateGroup(token, groupId, updates) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
+  });
+}
+
+export async function grantGroupDeploymentAccess(token, groupId, deploymentId) {
+  return request(`/users/groups/${encodeURIComponent(groupId)}/deployments/${encodeURIComponent(deploymentId)}`, token, {
+    method: 'POST',
+  });
+}
+
+export async function revokeGroupDeploymentAccess(token, groupId, deploymentId) {
+  return request(`/users/groups/${encodeURIComponent(groupId)}/deployments/${encodeURIComponent(deploymentId)}`, token, {
+    method: 'DELETE',
   });
 }
 

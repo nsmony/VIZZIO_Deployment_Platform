@@ -118,6 +118,19 @@ export async function sha256File(filePath) {
   return hash.digest('hex');
 }
 
+export async function getPackageInstallSize(filePath) {
+  const extension = path.extname(String(filePath || '')).toLowerCase();
+  if (extension === '.zip') {
+    return readZipInstallSize(filePath);
+  }
+
+  if (extension === '.7z') {
+    return read7ZipInstallSize(filePath);
+  }
+
+  return null;
+}
+
 function resolveInsidePackageRoot(rawPath, packageRoot) {
   const resolvedPath = path.isAbsolute(rawPath)
     ? path.resolve(rawPath)
@@ -146,6 +159,123 @@ async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName
   }
   await fs.promises.rename(tempPath, outputPath);
   return outputPath;
+}
+
+async function readZipInstallSize(filePath) {
+  const handle = await fs.promises.open(filePath, 'r');
+
+  try {
+    const stat = await handle.stat();
+    const tailLength = Math.min(Number(stat.size), 0xffff + 22 + 1024);
+    const tailBuffer = Buffer.alloc(tailLength);
+    await handle.read(tailBuffer, 0, tailLength, Number(stat.size) - tailLength);
+
+    let eocdOffset = -1;
+    for (let index = tailBuffer.length - 22; index >= 0; index -= 1) {
+      if (tailBuffer.readUInt32LE(index) === 0x06054b50) {
+        eocdOffset = index;
+        break;
+      }
+    }
+
+    if (eocdOffset < 0) {
+      return null;
+    }
+
+    const centralDirectorySize = tailBuffer.readUInt32LE(eocdOffset + 12);
+    const centralDirectoryOffset = tailBuffer.readUInt32LE(eocdOffset + 16);
+    if (centralDirectorySize === 0xffffffff || centralDirectoryOffset === 0xffffffff) {
+      return null;
+    }
+
+    const centralDirectory = Buffer.alloc(centralDirectorySize);
+    await handle.read(centralDirectory, 0, centralDirectorySize, centralDirectoryOffset);
+
+    let totalSize = 0;
+    let offset = 0;
+    while (offset + 46 <= centralDirectory.length) {
+      if (centralDirectory.readUInt32LE(offset) !== 0x02014b50) {
+        return null;
+      }
+
+      const uncompressedSize = centralDirectory.readUInt32LE(offset + 24);
+      const fileNameLength = centralDirectory.readUInt16LE(offset + 28);
+      const extraLength = centralDirectory.readUInt16LE(offset + 30);
+      const commentLength = centralDirectory.readUInt16LE(offset + 32);
+      const fileName = centralDirectory
+        .subarray(offset + 46, offset + 46 + fileNameLength)
+        .toString('utf8');
+
+      if (!fileName.endsWith('/')) {
+        totalSize += uncompressedSize;
+      }
+
+      offset += 46 + fileNameLength + extraLength + commentLength;
+    }
+
+    return totalSize;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function read7ZipInstallSize(filePath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('7z', ['l', '-slt', filePath], { stdio: ['ignore', 'pipe', 'ignore'] });
+    let output = '';
+
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+
+    child.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        resolve(null);
+        return;
+      }
+
+      reject(error);
+    });
+
+    child.on('exit', (code) => {
+      if (code !== 0) {
+        resolve(null);
+        return;
+      }
+
+      let totalSize = 0;
+      let currentRecord = {};
+
+      const flushRecord = () => {
+        if (!currentRecord.Path || currentRecord.Type || currentRecord.Folder === '+') {
+          currentRecord = {};
+          return;
+        }
+
+        const size = Number(currentRecord.Size || 0);
+        if (Number.isFinite(size) && size > 0) {
+          totalSize += size;
+        }
+        currentRecord = {};
+      };
+
+      for (const rawLine of output.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) {
+          flushRecord();
+          continue;
+        }
+
+        const separator = line.indexOf(' = ');
+        if (separator <= 0) continue;
+        const key = line.slice(0, separator);
+        const value = line.slice(separator + 3);
+        currentRecord[key] = value;
+      }
+      flushRecord();
+      resolve(totalSize > 0 ? totalSize : null);
+    });
+  });
 }
 
 async function trySystemZip(folderPath, outputPath) {

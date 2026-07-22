@@ -1,7 +1,20 @@
 ﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login } from '../../api';
+import { clearStoredSession } from '../../hooks/useAuth';
 import '../../styles/Login.css';
+
+function validateLoginFields(username, password) {
+  if (!username.trim()) {
+    return 'Username is required.';
+  }
+
+  if (!password) {
+    return 'Password is required.';
+  }
+
+  return '';
+}
 
 export default function Login() {
   // Keep login fields controlled by React.
@@ -14,6 +27,12 @@ export default function Login() {
   const handleSubmit = async (event) => {
     event.preventDefault();
 
+    const validationError = validateLoginFields(username, password);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     // Send the credentials to the backend and show a loading state.
     setLoading(true);
     setError(null);
@@ -23,6 +42,7 @@ export default function Login() {
     if (result.token) {
       // Only admins should be able to enter the admin panel.
       if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
+        clearStoredSession();
         setError('Only admin accounts can access this panel.');
         return;
       }

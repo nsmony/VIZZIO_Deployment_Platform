@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { parseRangeHeader, validateDownloadTokenFileAccess } from '../src/services/downloadManagerService.js';
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../src/downloadManagerToken.js';
 import { verifySha256 } from '../src/services/downloadIntegrityService.js';
-import { inspectPackageSource } from '../src/services/packageArchiveService.js';
+import { getPackageInstallSize, inspectPackageSource } from '../src/services/packageArchiveService.js';
 
 test('normal ranged download requests parse a byte range', () => {
   assert.deepEqual(parseRangeHeader('bytes=0-99', 1000), { start: 0, end: 99 });
@@ -75,6 +75,37 @@ test('server staging folders are packaged into downloadable ZIP archives', async
 
     const archive = await fs.readFile(result.packagePath);
     assert.equal(archive.subarray(0, 2).toString('utf8'), 'PK');
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('generated ZIP archives report extracted install size', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'digital-twin', 'v1.0.3');
+    await fs.mkdir(path.join(stagingFolder, 'web'), { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    await fs.writeFile(path.join(stagingFolder, 'web', 'index.html'), '<h1>ok</h1>');
+
+    const archive = await inspectPackageSource({
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      deploymentName: 'Digital Twin',
+      versionNumber: 'v1.0.3',
+      deploymentId: 'deployment-1',
+      createArchive: true,
+    });
+
+    const installSize = await getPackageInstallSize(archive.packagePath);
+    const expectedSize = Buffer.byteLength('echo launch') + Buffer.byteLength('<h1>ok</h1>');
+
+    assert.equal(installSize, expectedSize);
   } finally {
     if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
     else process.env.PACKAGE_ROOT = previousRoot;

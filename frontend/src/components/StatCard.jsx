@@ -66,9 +66,9 @@ function StatIcon({ type }) {
   return icons[type] || icons.packages;
 }
 
-export default function StatCard({ title, value, change, trend, subtitle, icon = 'packages', accent }) {
+export default function StatCard({ title, value, change, trend, subtitle, icon = 'packages' }) {
   return (
-    <div className="stat-card" style={accent ? { '--stat-accent': accent } : undefined}>
+    <div className="stat-card">
       <div className="stat-top">
         <div className="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
@@ -82,7 +82,7 @@ export default function StatCard({ title, value, change, trend, subtitle, icon =
       </div>
       <div className="stat-value">{value}</div>
       <div className={`stat-trend ${trend}`}>
-        <span className="trend-arrow">{trend === 'up' ? '📈' : '📉'}</span>
+        <span className="trend-arrow">{trend === 'up' ? '↑' : trend === 'down' ? '↓' : '•'}</span>
         <span>{change}</span>
       </div>
     </div>

@@ -4,9 +4,11 @@ import {
   createUserHandler,
   deleteUserHandler,
   disableUserHandler,
+  grantGroupDeploymentAccessHandler,
   listGroups,
   listUsers,
   resetPasswordHandler,
+  revokeGroupDeploymentAccessHandler,
   updateGroupHandler,
   updateUserHandler,
 } from '../controllers/userController.js';
@@ -19,6 +21,8 @@ router.post('/', createUserHandler);
 router.get('/groups', listGroups);
 router.post('/groups', createGroupHandler);
 router.put('/groups/:id', updateGroupHandler);
+router.post('/groups/:id/deployments/:deploymentId', grantGroupDeploymentAccessHandler);
+router.delete('/groups/:id/deployments/:deploymentId', revokeGroupDeploymentAccessHandler);
 router.patch('/:id/disable', disableUserHandler);
 router.post('/:id/reset-password', resetPasswordHandler);
 router.put('/:id', updateUserHandler);

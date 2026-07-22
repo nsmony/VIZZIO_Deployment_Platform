@@ -1,16 +1,15 @@
 .stat-card {
   background: white;
   border: 1px solid var(--border);
-  border-left: 4px solid var(--stat-accent, var(--primary));
-  border-radius: 18px;
-  padding: 18px 18px 16px;
+  border-radius: 22px;
+  padding: 20px 20px 18px;
   transition: box-shadow 0.2s ease, transform 0.2s ease;
-  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.05);
 }
 
 .stat-card:hover {
   transform: translateY(-1px);
-  box-shadow: 0 20px 44px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.08);
 }
 
 .stat-top {
@@ -39,11 +38,12 @@
   height: 42px;
   flex: 0 0 42px;
   border-radius: 14px;
-  background: rgba(37, 99, 235, 0.08);
-  color: var(--stat-accent, var(--primary));
+  background: #f4f7fb;
+  color: #5b6b82;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 1px solid #e6edf5;
 }
 
 .stat-icon svg {
@@ -55,7 +55,8 @@
   font-size: 32px;
   font-weight: 700;
   color: var(--text);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  letter-spacing: -0.03em;
 }
 
 .stat-trend {
@@ -64,14 +65,15 @@
   gap: 6px;
   font-size: 12px;
   color: var(--text-muted);
+  min-height: 20px;
 }
 
 .stat-trend.up {
-  color: var(--success);
+  color: var(--text-muted);
 }
 
 .stat-trend.down {
-  color: var(--danger);
+  color: var(--text-muted);
 }
 
 .stat-trend.flat {
@@ -79,5 +81,15 @@
 }
 
 .trend-arrow {
-  font-size: 16px;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #f4f7fb;
+  border: 1px solid #e6edf5;
+  color: #708198;
+  font-size: 11px;
+  font-weight: 700;
 }

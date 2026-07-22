@@ -1,7 +1,9 @@
 import {
   addGroup,
+  addGroupDeploymentAccess,
   findGroupById,
   findGroups,
+  removeGroupDeploymentAccess,
   updateGroup,
 } from '../repositories/groupRepository.js';
 import { findDeployments } from '../repositories/deploymentRepository.js';
@@ -61,6 +63,44 @@ export async function updateGroupById(id, updates) {
   return toPublicGroup(updatedGroup);
 }
 
+export async function grantDeploymentAccessByGroupId(id, deploymentId) {
+  const group = await findGroupById(id);
+  if (!group) {
+    return null;
+  }
+
+  const normalizedDeploymentId = await normalizeSingleDeploymentId(deploymentId);
+  const existingAccess = (group.deploymentAccesses || []).some(
+    (access) => access.deploymentId === normalizedDeploymentId
+  );
+  if (existingAccess) {
+    const error = new Error('This group already has access to that deployment.');
+    error.status = 409;
+    throw error;
+  }
+
+  return toPublicGroup(await addGroupDeploymentAccess(id, normalizedDeploymentId));
+}
+
+export async function revokeDeploymentAccessByGroupId(id, deploymentId) {
+  const group = await findGroupById(id);
+  if (!group) {
+    return null;
+  }
+
+  const normalizedDeploymentId = String(deploymentId || '').trim();
+  const existingAccess = (group.deploymentAccesses || []).some(
+    (access) => access.deploymentId === normalizedDeploymentId
+  );
+  if (!existingAccess) {
+    const error = new Error('No active access record was found for that deployment.');
+    error.status = 404;
+    throw error;
+  }
+
+  return toPublicGroup(await removeGroupDeploymentAccess(id, normalizedDeploymentId));
+}
+
 async function normalizeDeploymentIds(deploymentIds) {
   if (!Array.isArray(deploymentIds)) {
     return [];
@@ -75,6 +115,16 @@ async function normalizeDeploymentIds(deploymentIds) {
         .filter((id) => id && validIds.has(id))
     ),
   ];
+}
+
+async function normalizeSingleDeploymentId(deploymentId) {
+  const [normalizedDeploymentId] = await normalizeDeploymentIds([deploymentId]);
+  if (!normalizedDeploymentId) {
+    const error = new Error('Deployment not found.');
+    error.status = 404;
+    throw error;
+  }
+  return normalizedDeploymentId;
 }
 
 function toPublicGroup(group) {

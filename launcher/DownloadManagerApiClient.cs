@@ -110,6 +110,10 @@ namespace Launcher
             try
             {
                 using var document = JsonDocument.Parse(body);
+                if (document.RootElement.TryGetProperty("maintenanceMessage", out var maintenanceMessage) && maintenanceMessage.ValueKind == JsonValueKind.String)
+                {
+                    return maintenanceMessage.GetString();
+                }
                 if (document.RootElement.TryGetProperty("error", out var error))
                 {
                     if (error.ValueKind == JsonValueKind.String) return error.GetString();

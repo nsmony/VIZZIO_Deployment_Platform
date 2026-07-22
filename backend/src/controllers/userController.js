@@ -8,7 +8,9 @@ import {
 } from '../services/userService.js';
 import {
   createGroup,
+  grantDeploymentAccessByGroupId,
   getGroups,
+  revokeDeploymentAccessByGroupId,
   updateGroupById,
 } from '../services/groupService.js';
 
@@ -84,6 +86,30 @@ export async function updateGroupHandler(req, res) {
     res.json({ group });
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+}
+
+export async function grantGroupDeploymentAccessHandler(req, res) {
+  try {
+    const group = await grantDeploymentAccessByGroupId(req.params.id, req.params.deploymentId);
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found.' });
+    }
+    res.json({ group });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
+  }
+}
+
+export async function revokeGroupDeploymentAccessHandler(req, res) {
+  try {
+    const group = await revokeDeploymentAccessByGroupId(req.params.id, req.params.deploymentId);
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found.' });
+    }
+    res.json({ group });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
   }
 }
 

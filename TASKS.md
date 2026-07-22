@@ -84,9 +84,9 @@
 - Validate port conflict handling and bandwidth constraints if implemented.
 
 ## 8. Documentation & Deliverables
-- Write admin user guide.
-- Write operations guide for publishing a new version.
-- Write handover document describing architecture and deployment.
+- [x] Write admin user guide.
+- [x] Write operations guide for publishing a new version.
+- [x] Write handover document describing architecture and deployment.
 - Prepare final demo and sign-off materials.
 
 ## 9. Optional Bonus Objectives (if core is on track)

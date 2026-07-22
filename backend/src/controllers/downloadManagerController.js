@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getAdminSettings } from '../services/settingsService.js';
 import {
   createManagedDownloadSession,
   getDownloadablesForUser,
@@ -16,10 +17,20 @@ export async function listDownloadManagerItems(req, res) {
 
 export async function createDownloadManagerSession(req, res) {
   try {
+    const settings = await getAdminSettings();
+    if (settings.maintenanceMode && String(req.user?.role || '').toLowerCase() !== 'admin') {
+      return res.status(503).json({
+        error: 'Download manager unavailable due to maintenance.',
+        maintenanceMessage: settings.maintenanceMessage || 'The system is currently under maintenance. Please try again later.',
+      });
+    }
+
     const result = await createManagedDownloadSession({
       user: req.user,
       fileId: req.body?.fileId,
       versionId: req.body?.versionId,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
     res.status(201).json(result);
   } catch (error) {
@@ -29,6 +40,14 @@ export async function createDownloadManagerSession(req, res) {
 
 export async function updateDownloadManagerSession(req, res) {
   try {
+    const settings = await getAdminSettings();
+    if (settings.maintenanceMode && String(req.user?.role || '').toLowerCase() !== 'admin') {
+      return res.status(503).json({
+        error: 'Download manager unavailable due to maintenance.',
+        maintenanceMessage: settings.maintenanceMessage || 'The system is currently under maintenance. Please try again later.',
+      });
+    }
+
     const session = await updateManagedDownloadSession({
       sessionId: req.params.sessionId,
       user: req.user,
@@ -53,7 +72,15 @@ export async function streamManagedDownloadFile(req, res) {
   }
 
   try {
-    const { file, filePath, stat } = await getTokenizedFileRequest({ fileId, token });
+    const settings = await getAdminSettings();
+    const { payload, file, filePath, stat } = await getTokenizedFileRequest({ fileId, token });
+    if (settings.maintenanceMode && String(payload.role || '').toLowerCase() !== 'admin') {
+      return res.status(503).json({
+        error: 'Download stream unavailable due to maintenance.',
+        maintenanceMessage: settings.maintenanceMessage || 'The system is currently under maintenance. Please try again later.',
+      });
+    }
+
     const range = parseRangeHeader(req.headers.range, stat.size);
 
     // Range support is required by the WPF launcher. Each .part file resumes by

@@ -20,6 +20,17 @@
   color: var(--text);
 }
 
+.version-register-card textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: white;
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
 .version-table-wrap {
   overflow-x: auto;
 }
@@ -76,6 +87,16 @@
 .version-package-details > span {
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.version-package-details .version-description-preview {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  color: #334155;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .version-package-details .version-checksum {
@@ -136,11 +157,18 @@
 .release-btn,
 .archive-btn,
 .draft-btn,
-.delete-btn {
+.delete-btn,
+.details-btn {
   padding: 7px 10px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 700;
+}
+
+.details-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
 }
 
 .release-btn {
@@ -179,9 +207,115 @@
   opacity: 0.55;
 }
 
+.version-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.version-modal {
+  width: min(760px, 100%);
+  max-height: min(88vh, 760px);
+  overflow: auto;
+  border-radius: 14px;
+  border: 1px solid #dbe5f0;
+  background: white;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.32);
+}
+
+.version-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.version-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.details-close-btn {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #0f172a;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.version-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 16px 18px 20px;
+}
+
+.version-modal-grid > div {
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.version-modal-grid dt {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.version-modal-grid dd {
+  margin: 0;
+  color: #0f172a;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.version-modal-full {
+  grid-column: 1 / -1;
+}
+
+.version-modal-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: white;
+  color: #0f172a;
+  font: inherit;
+  resize: vertical;
+}
+
+.version-mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.version-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 18px 18px;
+}
+
 @media (max-width: 700px) {
   .version-filter {
     width: 100%;
     min-width: 0;
+  }
+
+  .version-modal-grid {
+    grid-template-columns: 1fr;
   }
 }

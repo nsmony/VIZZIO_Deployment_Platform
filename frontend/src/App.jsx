@@ -9,17 +9,18 @@ import Notifications from './pages/admin/Notifications';
 import Settings from './pages/admin/Settings';
 import Help from './pages/admin/Help';
 import AdminLayout from './layouts/AdminLayout';
+import { getValidToken } from './hooks/useAuth';
 import './styles/App.css';
 
 // Route guard for the admin portal. Authentication state is intentionally read
 // from localStorage because the API client and launcher share this token name.
 function ProtectedRoute({ children }) {
-  const token = localStorage.getItem('vizzio_token');
+  const token = getValidToken();
   return token ? children : <Navigate to="/" />;
 }
 
 export default function App() {
-  const token = localStorage.getItem('vizzio_token');
+  const token = getValidToken();
   const homePath = token ? '/dashboard' : '/';
 
   return (

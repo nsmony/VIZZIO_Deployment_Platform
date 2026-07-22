@@ -1,24 +1,56 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import appPackage from '../../../package.json';
+import { fetchAdminSettings, resetAdminSettings, saveAdminSettings } from '../../api/index.js';
+import { clearStoredSession, getValidToken } from '../../hooks/useAuth.js';
 import '../../styles/UtilityPages.css';
 
 const tabs = ['General', 'Server', 'Security', 'Maintenance'];
+
+const defaultSettings = {
+  appName: 'VIZZIO Deployment Platform',
+  supportEmail: 'support@vizzio.local',
+  maintenanceMode: false,
+  maintenanceMessage: '',
+};
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('General');
   const [serverStatus, setServerStatus] = useState('Checking');
   const [message, setMessage] = useState('');
+  const [settings, setSettings] = useState(defaultSettings);
+  const [loading, setLoading] = useState(true);
 
   const username = localStorage.getItem('vizzio_username') || 'Admin';
   const role = localStorage.getItem('vizzio_role') || 'Administrator';
   const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
   const downloadBase = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
+  const token = localStorage.getItem('vizzio_token');
+
+  useEffect(() => {
+    async function loadSettings() {
+      const validToken = getValidToken();
+      if (!validToken) {
+        setLoading(false);
+        setMessage('Admin authentication is required to load settings.');
+        return;
+      }
+
+      try {
+        const response = await fetchAdminSettings(validToken);
+        setSettings(response.settings || defaultSettings);
+        setMessage('');
+      } catch (error) {
+        setMessage(error.message || 'Unable to load admin settings.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadSettings();
+  }, [token]);
 
   function handleSignOut() {
-    localStorage.removeItem('vizzio_token');
-    localStorage.removeItem('vizzio_role');
-    localStorage.removeItem('vizzio_username');
-    localStorage.removeItem('vizzio_profile_image');
+    clearStoredSession();
     window.location.href = '/';
   }
 
@@ -38,12 +70,38 @@ export default function Settings() {
     }
   }
 
-  function handleResetSettings() {
-    setMessage('Admin settings were reset to defaults.');
+  async function handleResetSettings() {
+    if (!token) {
+      setMessage('Admin authentication is required to reset settings.');
+      return;
+    }
+
+    try {
+      const response = await resetAdminSettings(token);
+      setSettings(response.settings || defaultSettings);
+      setMessage('Admin settings were reset to defaults.');
+    } catch (error) {
+      setMessage(error.message || 'Unable to reset admin settings.');
+    }
   }
 
-  function handleCheckUpdates() {
+  async function handleCheckUpdates() {
     setMessage('Update check is ready for a future release channel.');
+  }
+
+  async function handleSaveSettings() {
+    if (!token) {
+      setMessage('Admin authentication is required to save settings.');
+      return;
+    }
+
+    try {
+      const response = await saveAdminSettings(token, settings);
+      setSettings(response.settings || defaultSettings);
+      setMessage('Admin settings saved successfully.');
+    } catch (error) {
+      setMessage(error.message || 'Unable to save admin settings.');
+    }
   }
 
   return (
@@ -70,6 +128,27 @@ export default function Settings() {
         {activeTab === 'General' && (
           <SettingsPanel title="General" description="Configure basic admin portal preferences.">
             <SettingsRow title="Application Version" description="Current version of the admin portal" value={`v${appPackage.version}`} />
+            <SettingsRow title="Product Name" description="Label shown in the web admin shell">
+              <input
+                className="settings-text-input"
+                value={settings.appName}
+                disabled={loading}
+                onChange={(event) => setSettings({ ...settings, appName: event.target.value })}
+              />
+            </SettingsRow>
+            <SettingsRow title="Support Email" description="Contact email for administrators">
+              <input
+                className="settings-text-input"
+                value={settings.supportEmail}
+                disabled={loading}
+                onChange={(event) => setSettings({ ...settings, supportEmail: event.target.value })}
+              />
+            </SettingsRow>
+            <SettingsRow title="Save settings">
+              <button className="settings-primary-button" type="button" onClick={handleSaveSettings} disabled={loading}>
+                Save Settings
+              </button>
+            </SettingsRow>
           </SettingsPanel>
         )}
 
@@ -106,7 +185,26 @@ export default function Settings() {
         )}
 
         {activeTab === 'Maintenance' && (
-          <SettingsPanel title="Maintenance" description="Run simple admin maintenance actions.">
+          <SettingsPanel title="Maintenance" description="Control maintenance mode and system actions.">
+            <SettingsRow title="Enable Maintenance Mode" description="Prevent non-admin users from using the system.">
+              <label className="settings-switch">
+                <input
+                  type="checkbox"
+                  checked={settings.maintenanceMode}
+                  disabled={loading}
+                  onChange={(event) => setSettings({ ...settings, maintenanceMode: event.target.checked })}
+                />
+                <span className="settings-switch-slider" />
+              </label>
+            </SettingsRow>
+            <SettingsRow title="Maintenance Message" description="Shown to blocked users while maintenance is active.">
+              <textarea
+                className="settings-textarea"
+                value={settings.maintenanceMessage}
+                disabled={loading}
+                onChange={(event) => setSettings({ ...settings, maintenanceMessage: event.target.value })}
+              />
+            </SettingsRow>
             <SettingsRow title="Export Logs" description="Download system and activity logs">
               <button className="settings-secondary-button" type="button" onClick={() => { window.location.href = '/logs/download'; }}>
                 Export
@@ -117,9 +215,9 @@ export default function Settings() {
                 Reset
               </button>
             </SettingsRow>
-            <SettingsRow title="Check for Updates" description="Check whether a newer version is available">
-              <button className="settings-secondary-button" type="button" onClick={handleCheckUpdates}>
-                Check Now
+            <SettingsRow title="Save maintenance settings">
+              <button className="settings-primary-button" type="button" onClick={handleSaveSettings} disabled={loading}>
+                Save Maintenance Settings
               </button>
             </SettingsRow>
           </SettingsPanel>

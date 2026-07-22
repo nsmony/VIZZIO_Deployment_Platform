@@ -1,18 +1,20 @@
 import bcrypt from 'bcrypt';
 import { signToken } from '../auth.js';
-import { findUserByUsernameOrEmail, updateUserLastLogin } from '../repositories/userRepository.js';
+import { addUser, findUserByUsername, findUserByUsernameOrEmail, updateUser, updateUserLastLogin } from '../repositories/userRepository.js';
 
 // Demo users are useful for local development and can be disabled by env.
 const mockUsers = [
   {
-    id: 'admin-1',
     username: 'admin',
+    email: 'admin@demo.vizzio.local',
+    displayName: 'Administrator',
     passwordHash: bcrypt.hashSync('password', 12),
     role: 'admin',
   },
   {
-    id: 'user-1',
     username: 'user',
+    email: 'user@demo.vizzio.local',
+    displayName: 'Demo User',
     passwordHash: bcrypt.hashSync('password', 12),
     role: 'user',
   },
@@ -22,17 +24,28 @@ const mockUsers = [
 export async function authenticateUser(username, password) {
   const normalizedUsername = username.trim();
   const demoUsersEnabled = String(process.env.ENABLE_DEMO_USERS || 'true').toLowerCase() !== 'false';
-  const user = demoUsersEnabled
+  const demoUser = demoUsersEnabled
     ? mockUsers.find((item) => item.username.toLowerCase() === normalizedUsername.toLowerCase())
     : null;
-  if (user) {
-    const validPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!validPassword) {
+  if (demoUser) {
+    const validDemoPassword = await bcrypt.compare(password, demoUser.passwordHash);
+    if (!validDemoPassword) {
       return null;
     }
 
-    const token = signToken({ userId: user.id, username: user.username, role: user.role });
-    return { token, user: { id: user.id, username: user.username, role: user.role } };
+    const persistedDemoUser = await ensureDemoUserRecord(demoUser);
+    const demoRole = persistedDemoUser.role.toLowerCase();
+    await updateUserLastLogin(persistedDemoUser.id);
+    const demoToken = signToken({ userId: persistedDemoUser.id, username: persistedDemoUser.username, role: demoRole });
+    return {
+      token: demoToken,
+      user: {
+        id: persistedDemoUser.id,
+        username: persistedDemoUser.username,
+        email: persistedDemoUser.email,
+        role: demoRole,
+      },
+    };
   }
 
   const managedUser = await findUserByUsernameOrEmail(normalizedUsername);
@@ -62,4 +75,43 @@ export async function authenticateUser(username, password) {
       role,
     },
   };
+}
+
+async function ensureDemoUserRecord(demoUser) {
+  const existing = await findUserByUsername(demoUser.username);
+  if (!existing) {
+    return addUser({
+      username: demoUser.username,
+      email: demoUser.email,
+      displayName: demoUser.displayName,
+      role: normalizeRole(demoUser.role),
+      isActive: true,
+      passwordHash: demoUser.passwordHash,
+      groups: [],
+    });
+  }
+
+  const updates = {};
+  if (existing.email !== demoUser.email) {
+    updates.email = demoUser.email;
+  }
+  if ((existing.displayName || '') !== demoUser.displayName) {
+    updates.displayName = demoUser.displayName;
+  }
+  if ((existing.role || '').toLowerCase() !== demoUser.role.toLowerCase()) {
+    updates.role = normalizeRole(demoUser.role);
+  }
+  if (existing.isActive !== true) {
+    updates.isActive = true;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return existing;
+  }
+
+  return updateUser(existing.id, updates);
+}
+
+function normalizeRole(role) {
+  return String(role || '').toLowerCase() === 'admin' ? 'Admin' : 'User';
 }

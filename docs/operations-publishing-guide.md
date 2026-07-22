@@ -1,0 +1,141 @@
+# Operations Guide: Publishing a New Version
+
+## 1. Purpose
+
+This guide defines the standard operating procedure for publishing a new deployment version from package intake through launcher visibility verification.
+
+## 2. Preconditions
+
+- Admin account with deployment/version permissions
+- Backend API running and database healthy
+- Package source prepared:
+  - archive file, or
+  - server staging folder
+- Expected launch batch script is included in package content
+- Target deployment exists (or will be created in this process)
+
+## 3. Release Checklist
+
+1. Confirm package identity and version number.
+2. Confirm deployment target name.
+3. Confirm package source path or file.
+4. Confirm channel assignment (Stable or Beta).
+5. Confirm status assignment (Released or Archived).
+6. Confirm target group access plan.
+7. Confirm rollback option (previous released version still available).
+
+## 4. Publish Workflow
+
+### Step 1: Log in to Admin Panel
+
+Authenticate as admin and navigate to Deployments.
+
+### Step 2: Select or Create Deployment
+
+- Use existing deployment, or
+- Create a new deployment with a unique name.
+
+### Step 3: Add Version
+
+When adding a version, choose one package source:
+
+- Upload archive from local machine
+- Register existing server archive path
+- Register server staging folder path (system archives folder into package)
+
+Set:
+
+- Version number
+- Channel: Stable or Beta
+- Status: Released or Archived
+
+### Step 4: Validate Version Metadata
+
+Verify the newly added version includes:
+
+- Expected package artifact path/name
+- Size metadata
+- Checksum status
+- Correct channel and status
+
+### Step 5: Grant Access
+
+Grant deployment access to the intended groups.
+
+### Step 6: Functional Verification
+
+Use a real launcher test user account in target group and validate:
+
+- Deployment appears in library
+- Target version appears in correct channel
+- Archived versions are hidden
+- Download session can start
+- Download logs register activity
+
+### Step 7: Release Communication
+
+Record and share:
+
+- Deployment name
+- Version number
+- Channel and status
+- Accessed groups
+- Release time
+- Known caveats
+
+## 5. Rollback Procedure
+
+If release is bad:
+
+1. Set bad version status to Archived.
+2. Ensure prior known-good version is Released.
+3. Notify stakeholders.
+4. Document root cause and corrective action.
+
+## 6. Naming and Versioning Guidelines
+
+- Keep deployment names stable and descriptive.
+- Use consistent semantic-style version numbering where possible.
+- Avoid reusing version numbers for different package contents.
+
+## 7. Operational Safety Rules
+
+- Do not publish directly to broad groups without staged validation.
+- Validate access changes after group updates.
+- Avoid deleting records needed for traceability; prefer archive/disable states.
+- Run smoke checks immediately after each release.
+
+## 8. Troubleshooting During Publish
+
+### 8.1 Path not found or invalid source
+
+- Verify source exists on server.
+- Verify source is under configured package root.
+- Verify staging folder contains expected launch script.
+
+### 8.2 Users cannot see released version
+
+- Confirm version status is Released.
+- Confirm deployment access grants exist for user groups.
+- Confirm user group membership.
+- Trigger launcher manual refresh and retest.
+
+### 8.3 Download starts but no logs appear
+
+- Confirm active backend instance and port.
+- Confirm download session creation path succeeded.
+- Confirm download log insert path and database connectivity.
+
+## 9. Post-Release Audit
+
+Capture these fields in release notes:
+
+- Deployment
+- Version
+- Channel
+- Status
+- Source type
+- Groups granted
+- Verification account used
+- Verification timestamp
+- Result

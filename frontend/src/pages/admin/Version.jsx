@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import {
   deleteDeploymentVersion,
+  fetchDeploymentDetails,
   fetchDeployments,
   registerDeploymentVersion,
   updateDeploymentVersion,
@@ -21,6 +22,7 @@ const emptyVersion = {
   packageSize: '',
   checksum: '',
   batchScriptName: '',
+  description: '',
 };
 
 // Convert package bytes into a readable label.
@@ -49,6 +51,9 @@ export default function Version() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [packageValidated, setPackageValidated] = useState(false);
   const [validatingPackage, setValidatingPackage] = useState(false);
+  const [detailsVersion, setDetailsVersion] = useState(null);
+  const [detailsDescription, setDetailsDescription] = useState('');
+  const [savingDetails, setSavingDetails] = useState(false);
 
   const deployment = useMemo(
     () => deployments.find((item) => item.id === selectedId) || null,
@@ -64,8 +69,20 @@ export default function Version() {
     try {
       const result = await fetchDeployments(token);
       const items = result.deployments || [];
-      setDeployments(items);
-      setSelectedId((current) => preferredId || current || items[0]?.id || '');
+      const selectedDeploymentId = preferredId || selectedId || items[0]?.id || '';
+      let deploymentsWithDetails = items;
+
+      if (selectedDeploymentId) {
+        const detailsResult = await fetchDeploymentDetails(token, selectedDeploymentId);
+        if (detailsResult?.deployment) {
+          deploymentsWithDetails = items.map((item) =>
+            item.id === selectedDeploymentId ? detailsResult.deployment : item
+          );
+        }
+      }
+
+      setDeployments(deploymentsWithDetails);
+      setSelectedId(selectedDeploymentId);
       setError('');
     } catch (loadError) {
       setError(loadError.message);
@@ -106,6 +123,7 @@ export default function Version() {
       setForm(emptyVersion);
       setSelectedFile(null);
       setPackageValidated(false);
+      setDetailsVersion(null);
       setShowForm(false);
       await loadDeployments(deployment.id);
     } catch (registerError) {
@@ -123,11 +141,11 @@ export default function Version() {
       ...form,
       packagePath: value,
       fileName: '',
-        fileType: '',
-        packageSize: '',
-        checksum: '',
-        batchScriptName: '',
-      });
+      fileType: '',
+      packageSize: '',
+      checksum: '',
+      batchScriptName: '',
+    });
   }
 
   async function handleValidatePackage() {
@@ -192,6 +210,25 @@ export default function Version() {
     }
   }
 
+  async function handleSaveDetails() {
+    const token = localStorage.getItem('vizzio_token');
+    if (!token || !deployment || !detailsVersion) return;
+
+    setSavingDetails(true);
+    setError('');
+    try {
+      await updateDeploymentVersion(token, deployment.id, detailsVersion.id, {
+        description: detailsDescription,
+      });
+      await loadDeployments(deployment.id);
+      setDetailsVersion(null);
+    } catch (saveError) {
+      setError(saveError.message);
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
   return (
     <main className="version-page">
       <header className="version-heading">
@@ -206,7 +243,7 @@ export default function Version() {
       <div className="version-toolbar">
         <label className="version-filter">
           Deployment
-          <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)} disabled={loading || deployments.length === 0}>
+          <select value={selectedId} onChange={(event) => loadDeployments(event.target.value)} disabled={loading || deployments.length === 0}>
             {deployments.length === 0 && <option value="">No deployments available</option>}
             {deployments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
@@ -238,7 +275,7 @@ export default function Version() {
                 // Reset package fields when the source type changes.
                 setSelectedFile(null);
                 setPackageValidated(false);
-                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '', batchScriptName: '' });
+                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '', batchScriptName: '', description: form.description });
               }}
             >
               <option value="stagingFolder">Server staging folder</option>
@@ -294,6 +331,15 @@ export default function Version() {
               <option value="released">Released</option>
               <option value="archived">Archived</option>
             </select>
+          </label>
+          <label>
+            Description
+            <textarea
+              value={form.description}
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
+              placeholder="Describe what's included in this version"
+              rows="3"
+            />
           </label>
           <label>
             File name
@@ -354,6 +400,7 @@ export default function Version() {
                               <strong>{version.fileName || 'Generated package'}</strong>
                               <span className="version-path" title={version.packagePath || ''}>{version.packagePath || 'Path not set'}</span>
                               <span>{version.packageSource || 'package'} - {version.fileType || 'Type not set'} - {formatPackageSize(version.packageSize)}</span>
+                              {version.description && <span className="version-description-preview" title={version.description}>{version.description}</span>}
                               {version.checksum && <span className="version-checksum" title={version.checksum}>Checksum: {version.checksum}</span>}
                             </div>
                           </td>
@@ -366,6 +413,17 @@ export default function Version() {
                           <td>{new Date(version.createdAt).toLocaleDateString()}</td>
                           <td>
                             <div className="version-actions">
+                              <button
+                                className="details-btn"
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setDetailsVersion(version);
+                                  setDetailsDescription(version.description || '');
+                                }}
+                              >
+                                Details
+                              </button>
                               {version.status !== 'released' && <button className="release-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'released' })}>Release</button>}
                               {version.status !== 'archived' && <button className="archive-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'archived' })}>Archive</button>}
                               {version.status === 'archived' && <button className="draft-btn" type="button" disabled={busy} onClick={() => updateVersion(version, { status: 'draft' })}>Restore draft</button>}
@@ -382,6 +440,97 @@ export default function Version() {
           </div>
         )}
       </section>
+
+      {detailsVersion && (
+        <div className="version-modal-backdrop" onClick={() => setDetailsVersion(null)} role="presentation">
+          <section
+            className="version-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Version details"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="version-modal-header">
+              <h3>{detailsVersion.versionNumber}</h3>
+              <button type="button" className="details-close-btn" onClick={() => setDetailsVersion(null)}>
+                Close
+              </button>
+            </header>
+            <dl className="version-modal-grid">
+              <div>
+                <dt>Name</dt>
+                <dd>{detailsVersion.versionNumber}</dd>
+              </div>
+              <div>
+                <dt>File</dt>
+                <dd>{detailsVersion.fileName || 'Generated package'}</dd>
+              </div>
+              <div>
+                <dt>Size</dt>
+                <dd>{formatPackageSize(detailsVersion.packageSize)}</dd>
+              </div>
+              <div>
+                <dt>Type</dt>
+                <dd>{detailsVersion.fileType || 'Not set'}</dd>
+              </div>
+              <div>
+                <dt>Channel</dt>
+                <dd>{titleCase(detailsVersion.releaseType)}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd>{titleCase(detailsVersion.status)}</dd>
+              </div>
+              <div className="version-modal-full">
+                <dt>Description</dt>
+                <dd>
+                  <textarea
+                    className="version-modal-textarea"
+                    value={detailsDescription}
+                    onChange={(event) => setDetailsDescription(event.target.value)}
+                    rows="4"
+                    placeholder="No description provided"
+                  />
+                </dd>
+              </div>
+              <div className="version-modal-full">
+                <dt>Package path</dt>
+                <dd className="version-mono">{detailsVersion.packagePath || 'Path not set'}</dd>
+              </div>
+              <div className="version-modal-full">
+                <dt>Checksum</dt>
+                <dd className="version-mono">{detailsVersion.checksum || 'Not available'}</dd>
+              </div>
+              <div>
+                <dt>Created</dt>
+                <dd>{new Date(detailsVersion.createdAt).toLocaleString()}</dd>
+              </div>
+              <div>
+                <dt>Released</dt>
+                <dd>{detailsVersion.releasedAt ? new Date(detailsVersion.releasedAt).toLocaleString() : 'Not released'}</dd>
+              </div>
+            </dl>
+            <footer className="version-modal-actions">
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => setDetailsVersion(null)}
+                disabled={savingDetails}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={handleSaveDetails}
+                disabled={savingDetails}
+              >
+                {savingDetails ? 'Saving...' : 'Save description'}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

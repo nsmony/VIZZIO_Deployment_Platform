@@ -71,6 +71,7 @@ model DeploymentVersion {
   id                String              @id @default(uuid()) @db.Uuid
   deploymentId      String              @db.Uuid
   versionNumber     String
+  description       String?
   releaseType       String              @default("stable")
   status            String              @default("draft")
   packagePath       String?

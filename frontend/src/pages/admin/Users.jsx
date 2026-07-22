@@ -7,7 +7,9 @@ import {
   fetchDeployments,
   fetchGroups,
   fetchUsers,
+  grantGroupDeploymentAccess,
   resetUserPassword,
+  revokeGroupDeploymentAccess,
   updateGroup,
   updateUser,
 } from '../../api';
@@ -15,6 +17,7 @@ import '../../styles/Users.css';
 
 const emptyForm = {
   name: '',
+  username: '',
   email: '',
   role: 'User',
   status: 'Active',
@@ -52,6 +55,10 @@ export default function Users() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [credentials, setCredentials] = useState(null);
+  const [detailUser, setDetailUser] = useState(null);
+  const [passwordResetUser, setPasswordResetUser] = useState(null);
+  const [passwordResetValue, setPasswordResetValue] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [openUserMenuId, setOpenUserMenuId] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -81,6 +88,7 @@ export default function Users() {
       const matchesSearch =
         !normalizedSearch ||
         user.name.toLowerCase().includes(normalizedSearch) ||
+        String(user.username || '').toLowerCase().includes(normalizedSearch) ||
         user.email.toLowerCase().includes(normalizedSearch);
       const matchesRole = filterRole === 'All Users' || user.role === filterRole;
       const matchesGroup =
@@ -138,6 +146,7 @@ export default function Users() {
     setEditingUser(user);
     setForm({
       name: user.name,
+      username: user.username || '',
       email: user.email,
       role: user.role,
       status: user.status,
@@ -236,6 +245,7 @@ export default function Users() {
 
     const payload = {
       name: form.name.trim(),
+      username: form.username.trim(),
       email: form.email.trim(),
       role: form.role,
       status: form.status,
@@ -300,9 +310,30 @@ export default function Users() {
     try {
       let savedGroup;
       if (editingGroup) {
-        const data = await updateGroup(token, editingGroup.id, payload);
-        savedGroup = data.group;
-        setMessage(`${data.group.name} access was updated.`);
+        const nameChanged = editingGroup.name !== payload.name;
+        const previousDeploymentIds = new Set(editingGroup.deploymentIds || []);
+        const nextDeploymentIds = new Set(groupForm.deploymentIds);
+        const deploymentsToGrant = [...nextDeploymentIds].filter((deploymentId) => !previousDeploymentIds.has(deploymentId));
+        const deploymentsToRevoke = [...previousDeploymentIds].filter((deploymentId) => !nextDeploymentIds.has(deploymentId));
+
+        if (nameChanged) {
+          const data = await updateGroup(token, editingGroup.id, { name: payload.name });
+          savedGroup = data.group;
+        } else {
+          savedGroup = editingGroup;
+        }
+
+        for (const deploymentId of deploymentsToGrant) {
+          const data = await grantGroupDeploymentAccess(token, editingGroup.id, deploymentId);
+          savedGroup = data.group;
+        }
+
+        for (const deploymentId of deploymentsToRevoke) {
+          const data = await revokeGroupDeploymentAccess(token, editingGroup.id, deploymentId);
+          savedGroup = data.group;
+        }
+
+        setMessage(`${savedGroup.name} access was updated.`);
       } else {
         const data = await createGroup(token, payload);
         savedGroup = data.group;
@@ -346,30 +377,43 @@ export default function Users() {
     }
   }
 
-  // Generate a new temporary password for the user.
-  async function handleResetPassword(user) {
+  function openPasswordResetModal(user) {
     setOpenUserMenuId(null);
-    if (!window.confirm(`Reset password for ${user.name}?`)) {
+    setPasswordResetUser(user);
+    setPasswordResetValue('');
+    setError('');
+    setMessage('');
+  }
+
+  // Allow the admin to choose the replacement password instead of generating one.
+  async function handleResetPassword(event) {
+    event.preventDefault();
+    if (!passwordResetUser) {
       return;
     }
 
     setError('');
     setMessage('');
+    setResettingPassword(true);
 
     try {
-      const data = await resetUserPassword(token, user.id);
-      setUsers((current) => current.map((item) => (item.id === user.id ? data.user : item)));
+      const data = await resetUserPassword(token, passwordResetUser.id, passwordResetValue.trim());
+      setUsers((current) => current.map((item) => (item.id === passwordResetUser.id ? data.user : item)));
       const credential = {
         userId: data.user.id,
         username: data.user.username,
         name: data.user.name,
         email: data.user.email,
-        password: data.temporaryPassword,
+        password: passwordResetValue.trim(),
       };
       setCredentials(credential);
+      setPasswordResetUser(null);
+      setPasswordResetValue('');
       setMessage(`Password was reset for ${data.user.name}.`);
     } catch (resetError) {
       setError(resetError.message);
+    } finally {
+      setResettingPassword(false);
     }
   }
 
@@ -410,6 +454,11 @@ export default function Users() {
     } catch (copyError) {
       setError('Clipboard copy failed. Select the credentials and copy them manually.');
     }
+  }
+
+  function openUserDetails(user) {
+    setOpenUserMenuId(null);
+    setDetailUser(user);
   }
 
   // Keep user group membership in sync with the group member checkboxes.
@@ -508,6 +557,7 @@ export default function Users() {
                       <div className="avatar">{user.name.charAt(0)}</div>
                       <div>
                         <strong>{user.name}</strong>
+                        <div className="user-meta">@{user.username || 'unassigned'}</div>
                         <div className="user-email">{user.email}</div>
                         {(user.groups || []).length > 0 && (
                           <div className="group-tags">
@@ -539,8 +589,9 @@ export default function Users() {
                       </button>
                       {openUserMenuId === user.id && (
                         <div className="row-menu-panel">
+                          <button type="button" onClick={() => openUserDetails(user)}>View Access</button>
                           <button type="button" onClick={() => openEditForm(user)}>Edit</button>
-                          <button type="button" onClick={() => handleResetPassword(user)}>Reset Password</button>
+                          <button type="button" onClick={() => openPasswordResetModal(user)}>Reset Password</button>
                           <button
                             type="button"
                             disabled={user.status === 'Inactive'}
@@ -645,6 +696,20 @@ export default function Users() {
             </label>
 
             <label>
+              Username
+              <input
+                type="text"
+                value={form.username}
+                onChange={(event) => updateField('username', event.target.value)}
+                minLength="3"
+                maxLength="64"
+                pattern="[A-Za-z0-9_]+"
+                title="Use 3 to 64 letters, numbers, or underscores."
+                required
+              />
+            </label>
+
+            <label>
               Email
               <input
                 type="email"
@@ -712,6 +777,47 @@ export default function Users() {
         </div>
       )}
 
+      {passwordResetUser && (
+        <div className="modal-backdrop" role="presentation">
+          <form className="user-modal" onSubmit={handleResetPassword}>
+            <div className="modal-header">
+              <div>
+                <h3>Reset Password</h3>
+                <p>Set a new password for {passwordResetUser.name}. Minimum length is 8 characters.</p>
+              </div>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setPasswordResetUser(null)}
+                aria-label="Close password reset"
+              >
+                x
+              </button>
+            </div>
+
+            <label>
+              New Password
+              <input
+                type="text"
+                value={passwordResetValue}
+                onChange={(event) => setPasswordResetValue(event.target.value)}
+                minLength="8"
+                required
+              />
+            </label>
+
+            <div className="modal-actions">
+              <button type="button" className="secondary-btn" onClick={() => setPasswordResetUser(null)}>
+                Cancel
+              </button>
+              <button type="submit" className="primary-btn" disabled={resettingPassword}>
+                {resettingPassword ? 'Resetting...' : 'Reset Password'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {credentials && (
         <div className="modal-backdrop" role="presentation">
           <section className="user-modal credential-modal" role="dialog" aria-modal="true">
@@ -737,6 +843,64 @@ export default function Users() {
             <div className="modal-actions">
               <button type="button" className="secondary-btn" onClick={() => setCredentials(null)}>Done</button>
               <button type="button" className="primary-btn" onClick={copyCredentials}>Copy Credentials</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {detailUser && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="user-modal detail-modal" role="dialog" aria-modal="true">
+            <div className="modal-header">
+              <div>
+                <h3>{detailUser.name}</h3>
+                <p>Review direct group memberships and inherited deployment access.</p>
+              </div>
+              <button
+                type="button"
+                className="close-btn"
+                onClick={() => setDetailUser(null)}
+                aria-label="Close user details"
+              >
+                x
+              </button>
+            </div>
+
+            <div className="detail-grid">
+              <DetailBlock title="Username" value={`@${detailUser.username || 'unassigned'}`} />
+              <DetailBlock title="Email" value={detailUser.email} />
+              <DetailBlock title="Role" value={detailUser.role} />
+              <DetailBlock title="Status" value={detailUser.status} />
+            </div>
+
+            <section className="detail-section">
+              <h4>Group Memberships</h4>
+              {(detailUser.groups || []).length > 0 ? (
+                <div className="detail-pill-list">
+                  {detailUser.groups.map((group) => (
+                    <span key={group} className="group-pill">{group}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted-text">This user is not currently assigned to any groups.</p>
+              )}
+            </section>
+
+            <section className="detail-section">
+              <h4>Inherited Deployments</h4>
+              {getAccessibleDeployments(detailUser.groups, groups, deploymentById).length > 0 ? (
+                <div className="detail-pill-list">
+                  {getAccessibleDeployments(detailUser.groups, groups, deploymentById).map((deploymentName) => (
+                    <span key={deploymentName} className="access-pill">{deploymentName}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted-text">This user does not inherit access to any deployments.</p>
+              )}
+            </section>
+
+            <div className="modal-actions">
+              <button type="button" className="primary-btn" onClick={() => setDetailUser(null)}>Done</button>
             </div>
           </section>
         </div>
@@ -819,6 +983,25 @@ function getAccessibleDeploymentCount(userGroups = [], groups = []) {
     .filter((group) => userGroups.includes(group.name))
     .flatMap((group) => group.deploymentIds || []);
   return new Set(deploymentIds).size;
+}
+
+function getAccessibleDeployments(userGroups = [], groups = [], deploymentById = {}) {
+  return [...new Set(
+    groups
+      .filter((group) => userGroups.includes(group.name))
+      .flatMap((group) => group.deploymentIds || [])
+      .map((deploymentId) => deploymentById[deploymentId]?.name || deploymentId)
+      .filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right));
+}
+
+function DetailBlock({ title, value }) {
+  return (
+    <div className="detail-block">
+      <span>{title}</span>
+      <strong>{value}</strong>
+    </div>
+  );
 }
 
 // Count members shown on each group card.

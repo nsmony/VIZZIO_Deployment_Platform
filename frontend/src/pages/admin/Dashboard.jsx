@@ -48,10 +48,10 @@ export default function Dashboard() {
       </header>
 
       <div className="stats-grid">
-        <StatCard title="Groups" subtitle="Managed workspaces" value={data.stats.groups} change="5.1% last month" trend="up" icon="groups" accent="#2563eb" />
-        <StatCard title="Active Deployments" subtitle="Live rollout count" value={data.stats.activeDeployments} change="4.6% this week" trend="up" icon="deployment" accent="#0f766e" />
-        <StatCard title="Stable Releases" subtitle="Production ready packages" value={data.stats.stableReleases} change="No change this week" trend="flat" icon="release" accent="#7c3aed" />
-        <StatCard title="Beta Releases" subtitle="Packages in testing" value={data.stats.betaReleases} change="2.1% this week" trend="down" icon="release" accent="#f59e0b" />
+        <StatCard title="Groups" subtitle="Managed workspaces" value={data.stats.groups} change="5.1% last month" trend="up" icon="groups" />
+        <StatCard title="Active Deployments" subtitle="Live rollout count" value={data.stats.activeDeployments} change="4.6% this week" trend="up" icon="deployment" />
+        <StatCard title="Stable Releases" subtitle="Production ready packages" value={data.stats.stableReleases} change="No change this week" trend="flat" icon="release" />
+        <StatCard title="Beta Releases" subtitle="Packages in testing" value={data.stats.betaReleases} change="2.1% this week" trend="down" icon="release" />
       </div>
 
       <div className="content-grid">

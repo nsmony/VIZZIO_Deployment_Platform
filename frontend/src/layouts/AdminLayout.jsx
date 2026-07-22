@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import TopNavbar from '../components/TopNavbar';
+import { fetchAdminSettings } from '../api/index.js';
+import { clearStoredSession, getValidToken } from '../hooks/useAuth.js';
 
 // The layout owns chrome state that must survive route changes: sidebar
 // visibility, profile dropdown state, and the locally stored profile image.
@@ -25,6 +27,7 @@ export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileImage, setProfileImage] = useState(localStorage.getItem('vizzio_profile_image') || '');
+  const [maintenance, setMaintenance] = useState({ enabled: false, message: '' });
   const navigate = useNavigate();
   const username = localStorage.getItem('vizzio_username') || 'Admin';
   const role = localStorage.getItem('vizzio_role') || 'Admin';
@@ -32,11 +35,32 @@ export default function AdminLayout() {
 
   function handleLogout() {
     // Clear every local auth field so a later admin cannot inherit this session.
-    localStorage.removeItem('vizzio_token');
-    localStorage.removeItem('vizzio_role');
-    localStorage.removeItem('vizzio_username');
-    window.location.href = '/';
+    clearStoredSession();
+    navigate('/');
   }
+
+  useEffect(() => {
+    async function loadSettings() {
+      const token = localStorage.getItem('vizzio_token');
+      const validToken = getValidToken();
+      if (!validToken) {
+        navigate('/');
+        return;
+      }
+
+      try {
+        const response = await fetchAdminSettings(validToken);
+        setMaintenance({
+          enabled: response.settings?.maintenanceMode || false,
+          message: response.settings?.maintenanceMessage || '',
+        });
+      } catch {
+        setMaintenance({ enabled: false, message: '' });
+      }
+    }
+
+    loadSettings();
+  }, [navigate]);
 
   function handleProfileImageChange(event) {
     const file = event.target.files?.[0];
@@ -66,6 +90,12 @@ export default function AdminLayout() {
           onProfileClick={() => setProfileOpen((open) => !open)}
           profileOpen={profileOpen}
         >
+          {maintenance.enabled && (
+            <div className="maintenance-banner">
+              <strong>Maintenance mode is enabled.</strong>
+              {maintenance.message && <span>{maintenance.message}</span>}
+            </div>
+          )}
           {profileOpen && (
             <div className="profile-dropdown">
               <div className="profile-summary">

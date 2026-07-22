@@ -1,5 +1,5 @@
 import express from 'express';
-import { authenticateToken } from '../middleware/authMiddleware.js';
+import { authenticateToken, enforceMaintenanceMode } from '../middleware/authMiddleware.js';
 import {
   createDownloadManagerSession,
   listDownloadManagerItems,
@@ -10,9 +10,9 @@ import {
 // Launcher API routes for listing, tracking, and streaming downloads.
 const router = express.Router();
 
-router.get('/items', authenticateToken, listDownloadManagerItems);
-router.post('/sessions', authenticateToken, createDownloadManagerSession);
-router.patch('/sessions/:sessionId', authenticateToken, updateDownloadManagerSession);
+router.get('/items', authenticateToken, enforceMaintenanceMode, listDownloadManagerItems);
+router.post('/sessions', authenticateToken, enforceMaintenanceMode, createDownloadManagerSession);
+router.patch('/sessions/:sessionId', authenticateToken, enforceMaintenanceMode, updateDownloadManagerSession);
 router.get('/files/:fileId', streamManagedDownloadFile);
 
 export default router;
