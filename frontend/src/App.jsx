@@ -5,6 +5,7 @@ import Version from './pages/admin/Version';
 import Deployment from './pages/admin/Deployment';
 import Users from './pages/admin/Users';
 import Logs from './pages/admin/Logs';
+import LauncherReports from './pages/admin/LauncherReports';
 import Notifications from './pages/admin/Notifications';
 import Settings from './pages/admin/Settings';
 import Help from './pages/admin/Help';
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="/deployment" element={<Deployment />} />
           <Route path="/users" element={<Users />} />
           <Route path="/logs/download" element={<Logs />} />
+          <Route path="/logs/launcher" element={<LauncherReports />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/help" element={<Help />} />

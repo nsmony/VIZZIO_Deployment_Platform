@@ -10,6 +10,7 @@ import internalRoutes from './routes/internal.js';
 import adminRoutes from './routes/admin.js';
 import notificationRoutes from './routes/notifications.js';
 import settingsRoutes from './routes/settings.js';
+import launcherRoutes from './routes/launcher.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
 import { authenticateToken, enforceMaintenanceMode } from './middleware/authMiddleware.js';
 import { createDownloadToken } from './controllers/deploymentController.js';
@@ -23,6 +24,7 @@ app.use(express.json());
 app.use(rateLimiter);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/launcher', launcherRoutes);
 app.get('/api/download-token/:fileId', authenticateToken, enforceMaintenanceMode, createDownloadToken);
 app.use('/api/users', authenticateToken, enforceMaintenanceMode, userRoutes);
 app.use('/api/deployments', authenticateToken, enforceMaintenanceMode, deploymentRoutes);

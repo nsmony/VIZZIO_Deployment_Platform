@@ -6,6 +6,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,10 +31,12 @@ namespace Launcher
         private readonly Dictionary<string, Button> _navButtons = new();
         private readonly Queue<DownloadItem> _downloadQueue = new();
         private readonly HashSet<string> _queuedDownloadKeys = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, RunningDeployment> _runningDeployments = new(StringComparer.OrdinalIgnoreCase);
         private readonly ManualResetEventSlim _pauseGate = new(true);
         private readonly DispatcherTimer _pollTimer = new() { Interval = TimeSpan.FromMinutes(5) };
         private LauncherUserSettings _settings = LoadLauncherSettings();
         private LauncherBrandingSettings _branding = LoadBrandingSettings();
+        private bool _launcherUpdateCheckStarted;
         private CancellationTokenSource? _downloadCancellation;
         private CancellationTokenSource? _activeTransferCancellation;
         private bool _isDownloadActive;
@@ -88,10 +92,18 @@ namespace Launcher
             {
                 PersistDownloadState();
                 _pollTimer.Stop();
+                StopAllRunningDeployments();
             };
             _pollTimer.Tick += async (_, _) => await RefreshAsync(showStatus: false);
             ShowLogin();
-            Loaded += async (_, _) => await TryRestoreSessionAsync();
+            Loaded += async (_, _) =>
+            {
+                await TryRestoreSessionAsync();
+                if (!string.IsNullOrWhiteSpace(_api.Token))
+                {
+                    _ = CheckForLauncherUpdateAsync();
+                }
+            };
         }
 
         private void ShowLogin()
@@ -101,6 +113,7 @@ namespace Launcher
             var server = CreateTextBox(_api.ApiBaseUrl);
             var message = new TextBlock { Margin = new Thickness(0, 14, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Muted };
             var button = CreatePrimaryButton("Sign in", 130);
+            button.IsDefault = true;
 
             var panel = new StackPanel { Width = 430, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
             panel.Children.Add(CreateLogoMark(_branding, 58));
@@ -138,6 +151,7 @@ namespace Launcher
                     }
                     await LoadItemsAsync();
                     ShowManager();
+                    _ = CheckForLauncherUpdateAsync();
                 }
                 catch (LauncherApiException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
                 {
@@ -363,11 +377,13 @@ namespace Launcher
 
                 _status.Text = "Downloading...";
                 var attempt = 0;
+                var effectiveStreams = GetParallelStreamCount();
                 while (true)
                 {
                     try
                     {
                         attempt++;
+                        _status.Text = $"Downloading with {effectiveStreams} stream(s)...";
                         _activeTransferCancellation?.Dispose();
                         _activeTransferCancellation = CancellationTokenSource.CreateLinkedTokenSource(_downloadCancellation.Token);
                         var transferToken = _activeTransferCancellation.Token;
@@ -383,7 +399,7 @@ namespace Launcher
                             }
 
                             return _api.BuildFileUri(item.FileId, downloadToken);
-                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, transferToken, CreateDownloadOptions());
+                        }, targetPath, session.File.Size, item.Checksum, progress, _pauseGate, transferToken, CreateDownloadOptions(effectiveStreams));
                         break;
                     }
                     catch (OperationCanceledException)
@@ -397,8 +413,11 @@ namespace Launcher
                     }
                     catch (Exception ex) when (attempt < 3)
                     {
-                        _status.Text = $"Connection problem: {FriendlyDownloadError(ex)} Retrying ({attempt + 1}/3)...";
-                        await Task.Delay(TimeSpan.FromSeconds(2), _downloadCancellation.Token);
+                        var retryStep = DownloadResiliencePolicy.GetSessionRetryStep(effectiveStreams, GetParallelStreamCount(), attempt);
+                        effectiveStreams = retryStep.NextStreams;
+                        var retryDelay = retryStep.Delay;
+                        _status.Text = $"Connection problem: {FriendlyDownloadError(ex)} Retrying ({attempt + 1}/3) in {Math.Ceiling(retryDelay.TotalSeconds)}s with {effectiveStreams} stream(s)...";
+                        await Task.Delay(retryDelay, _downloadCancellation.Token);
                     }
                     catch (InvalidDataException)
                     {
@@ -465,6 +484,7 @@ namespace Launcher
             catch (IOException ex) when (ex.Message.StartsWith("Not enough free disk space.", StringComparison.OrdinalIgnoreCase))
             {
                 _status.Text = FriendlyError(ex);
+                ReportLauncherErrorInBackground("download", FriendlyError(ex), item);
                 var result = MessageBox.Show(
                     $"{FriendlyError(ex)}\n\nChoose a different install root now?",
                     "Insufficient disk space",
@@ -482,6 +502,7 @@ namespace Launcher
                 _failedDownloadTargetPath = string.IsNullOrWhiteSpace(_activeDownloadTargetPath) ? targetPath : _activeDownloadTargetPath;
                 RemoveDownloadState(item);
                 _status.Text = FriendlyError(ex);
+                ReportLauncherErrorInBackground("download", FriendlyError(ex), item);
             }
             finally
             {
@@ -1054,11 +1075,17 @@ namespace Launcher
         {
             var root = new Grid();
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition());
 
             var toolbar = CreateToolbar();
             Grid.SetRow(toolbar, 0);
             root.Children.Add(toolbar);
+
+            DetachFromParent(_status);
+            _status.Margin = new Thickness(0, 0, 0, 14);
+            Grid.SetRow(_status, 1);
+            root.Children.Add(_status);
 
             _cardsPanel = new WrapPanel
             {
@@ -1072,7 +1099,7 @@ namespace Launcher
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             };
-            Grid.SetRow(scroller, 1);
+            Grid.SetRow(scroller, 2);
             root.Children.Add(scroller);
 
             return root;
@@ -1227,7 +1254,7 @@ namespace Launcher
             panel.Children.Add(new TextBlock { Text = displayItem is null ? (_downloadQueue.Count > 0 ? "The next queued package will start automatically." : "There is no active download right now. Start one from the library or open Installed packages.") : $"{displayItem.FileName}    {FormatBytes(displayItem.Size ?? 0)}", Foreground = Muted, Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = "Install root", Margin = new Thickness(0, 22, 0, 6), Foreground = Muted });
             panel.Children.Add(_installPath);
-            panel.Children.Add(new TextBlock { Text = $"Space required: {FormatSpaceLabel(GetRequiredSpaceBytes(sizeItem?.Size ?? 0, sizeItem?.InstallSize))}", Margin = new Thickness(0, 14, 0, 0), Foreground = Text });
+            panel.Children.Add(new TextBlock { Text = $"Temporary disk space required: {FormatSpaceLabel(GetRequiredSpaceBytes(sizeItem?.Size ?? 0, sizeItem?.InstallSize))}", Margin = new Thickness(0, 14, 0, 0), Foreground = Text });
             panel.Children.Add(new TextBlock { Text = $"Space available: {GetAvailableSpaceLabel(_installPath.Text)}", Margin = new Thickness(0, 4, 0, 0), Foreground = Text });
             panel.Children.Add(new TextBlock { Text = "Progress", Margin = new Thickness(0, 22, 0, 0), Foreground = Muted });
             panel.Children.Add(_progress);
@@ -1404,6 +1431,7 @@ namespace Launcher
         private Border CreatePackageCard(DownloadItem item)
         {
             var installed = IsInstalled(item);
+            var running = IsRunning(item);
             var channel = NormalizeChannel(item.ReleaseType);
             var selected = ReferenceEquals(item, _selectedItem);
 
@@ -1412,7 +1440,7 @@ namespace Launcher
             top.Children.Add(CreatePill(channel, channel == "Beta" ? BetaSoft : PrimarySoft, channel == "Beta" ? Beta : Primary));
             if (installed)
             {
-                var installedPill = CreatePill("Installed", SuccessSoft, Success);
+                var installedPill = CreatePill(running ? "Running" : "Installed", SuccessSoft, Success);
                 DockPanel.SetDock(installedPill, Dock.Right);
                 top.Children.Add(installedPill);
             }
@@ -1431,11 +1459,11 @@ namespace Launcher
             });
 
             var installSizeLabel = item.InstallSize is > 0
-                ? $"Install {FormatBytes(item.InstallSize.Value)}"
+                ? $"Installed {FormatBytes(item.InstallSize.Value)}"
                 : "Install size unknown";
             var meta = new TextBlock
             {
-                Text = $"{item.VersionNumber}    Download {FormatBytes(item.Size ?? 0)}    {installSizeLabel}",
+                Text = $"{item.VersionNumber}    Archive {FormatBytes(item.Size ?? 0)}    {installSizeLabel}",
                 Foreground = Muted,
                 FontSize = 14,
                 Margin = new Thickness(0, 0, 0, 18),
@@ -1446,13 +1474,17 @@ namespace Launcher
             var actions = new StackPanel { Orientation = Orientation.Horizontal };
             var activeDownload = ReferenceEquals(item, _activeDownloadItem);
             var queuedDownload = _queuedDownloadKeys.Contains(GetDownloadKey(item));
-            var buttonText = installed ? "Open folder" : activeDownload ? "Downloading" : queuedDownload ? "Queued" : "Download";
-            var selectButton = CreatePrimaryButton(buttonText, 120);
+            var buttonText = installed ? (running ? "Stop" : "Launch") : activeDownload ? "Downloading" : queuedDownload ? "Queued" : "Download";
+            var selectButton = CreatePrimaryButton(buttonText, installed ? 88 : 120);
             selectButton.IsEnabled = installed || !activeDownload;
             selectButton.Click += (_, _) =>
             {
                 _selectedItem = item;
-                if (installed) OpenInstallFolder(item);
+                if (installed)
+                {
+                    if (running) StopDeployment(item);
+                    else LaunchDeployment(item);
+                }
                 else if (_isDownloadActive)
                 {
                     QueueDownload(item);
@@ -1466,13 +1498,32 @@ namespace Launcher
             };
             actions.Children.Add(selectButton);
 
-            var detailsButton = CreateSecondaryButton(installed ? "Uninstall" : "Details", 92);
+            if (installed)
+            {
+                var folderButton = CreateSecondaryButton("Folder", 76);
+                folderButton.Click += (_, _) =>
+                {
+                    _selectedItem = item;
+                    OpenInstallFolder(item);
+                    RenderCards();
+                };
+                actions.Children.Add(folderButton);
+            }
+
+            var detailsButton = CreateSecondaryButton(installed ? "Uninstall" : "Details", installed ? 88 : 92);
             detailsButton.Click += (_, _) =>
             {
                 _selectedItem = item;
                 if (installed)
                 {
-                    UninstallVersion(item);
+                    if (IsRunning(item))
+                    {
+                        _status.Text = "Stop the running deployment before uninstalling it.";
+                    }
+                    else
+                    {
+                        UninstallVersion(item);
+                    }
                 }
                 else
                 {
@@ -1696,6 +1747,68 @@ namespace Launcher
             }
         }
 
+        private async Task CheckForLauncherUpdateAsync()
+        {
+            if (_launcherUpdateCheckStarted) return;
+            _launcherUpdateCheckStarted = true;
+
+            try
+            {
+                var currentVersion = GetLauncherVersion();
+                var update = await _api.GetLauncherUpdateAsync(currentVersion, CancellationToken.None);
+                if (!update.UpdateAvailable) return;
+
+                var message = $"Launcher version {update.LatestVersion} is available.";
+                if (!string.IsNullOrWhiteSpace(update.ReleaseNotes))
+                {
+                    message += $"\n\n{update.ReleaseNotes}";
+                }
+
+                if (string.IsNullOrWhiteSpace(update.DownloadUrl))
+                {
+                    LauncherLog.Info($"Launcher update available but no download URL was configured: {update.LatestVersion}");
+                    return;
+                }
+
+                message += update.Required
+                    ? "\n\nThis update is required before continuing. Install now?"
+                    : "\n\nInstall now?";
+                var result = MessageBox.Show(message, "Launcher update", MessageBoxButton.YesNo, MessageBoxImage.Information);
+                if (result != MessageBoxResult.Yes)
+                {
+                    if (update.Required)
+                    {
+                        Application.Current.Shutdown();
+                    }
+                    return;
+                }
+
+                await DownloadAndRunLauncherUpdateAsync(update);
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Info($"Launcher update check failed: {FriendlyError(ex)}");
+                ReportLauncherErrorInBackground("self-update", FriendlyError(ex));
+            }
+        }
+
+        private async Task DownloadAndRunLauncherUpdateAsync(LauncherUpdateInfo update)
+        {
+            var extension = Path.GetExtension(new Uri(update.DownloadUrl).AbsolutePath);
+            if (string.IsNullOrWhiteSpace(extension)) extension = ".exe";
+            var installerPath = Path.Combine(Path.GetTempPath(), "VIZZIO", "Launcher", $"LauncherUpdate-{update.LatestVersion}{extension}");
+            _status.Text = "Downloading launcher update...";
+            await _api.DownloadFileAsync(update.DownloadUrl, installerPath, CancellationToken.None);
+            Process.Start(new ProcessStartInfo(installerPath) { UseShellExecute = true });
+            Application.Current.Shutdown();
+        }
+
+        private static string GetLauncherVersion()
+        {
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            return version is null ? "0.0.0" : $"{version.Major}.{version.Minor}.{version.Build}";
+        }
+
         private Border CreateEmptyState()
         {
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
@@ -1766,6 +1879,612 @@ namespace Launcher
             {
                 _status.Text = error;
             }
+        }
+
+        private void LaunchDeployment(DownloadItem item)
+        {
+            var key = GetDownloadKey(item);
+            if (_runningDeployments.ContainsKey(key))
+            {
+                _status.Text = $"{item.DeploymentName} {item.VersionNumber} is already running.";
+                RenderCards();
+                return;
+            }
+
+            var folder = GetInstallFolder(item);
+            if (!TryGetLaunchBatchScript(folder, out var batchPath, out var error))
+            {
+                ShowLaunchBlocked(error, item);
+                return;
+            }
+
+            if (!TryValidateLaunchPackage(folder, out error))
+            {
+                ShowLaunchBlocked(error, item);
+                return;
+            }
+
+            if (!EnsurePrerequisites(folder, out error))
+            {
+                ShowLaunchBlocked(error, item);
+                return;
+            }
+
+            if (!EnsureRequiredPortsAvailable(folder, out error))
+            {
+                ShowLaunchBlocked(error, item);
+                return;
+            }
+
+            try
+            {
+                var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{batchPath}\"",
+                    WorkingDirectory = folder,
+                    UseShellExecute = false,
+                    CreateNoWindow = false,
+                });
+
+                if (process is null)
+                {
+                    ShowLaunchBlocked("Could not launch the deployment.", item);
+                    return;
+                }
+
+                process.EnableRaisingEvents = true;
+                process.Exited += (_, _) => Dispatcher.Invoke(() => HandleRunningProcessExited(key));
+                _runningDeployments[key] = new RunningDeployment(process, batchPath, DateTimeOffset.Now);
+                LauncherLog.Info($"Launched deployment: {item.DeploymentName} {item.VersionNumber} using {batchPath}");
+                _status.Text = $"Launched {item.DeploymentName} {item.VersionNumber}.";
+                RenderCards();
+            }
+            catch (Exception ex)
+            {
+                var message = $"Could not launch the deployment: {FriendlyError(ex)}";
+                ShowLaunchBlocked(message, item);
+                LauncherLog.Info($"Launch failed for {item.DeploymentName} {item.VersionNumber}: {FriendlyError(ex)}");
+            }
+        }
+
+        private void ShowLaunchBlocked(string message, DownloadItem? item = null)
+        {
+            _status.Text = message;
+            RenderCards();
+            ReportLauncherErrorInBackground("launch", message, item);
+            MessageBox.Show(message, "Cannot launch deployment", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+
+        private void ReportLauncherErrorInBackground(string area, string message, DownloadItem? item = null)
+        {
+            if (string.IsNullOrWhiteSpace(_api.Token)) return;
+
+            var report = new LauncherErrorReportRequest
+            {
+                LauncherVersion = GetLauncherVersion(),
+                MachineName = Environment.MachineName,
+                OsVersion = Environment.OSVersion.VersionString,
+                Area = area,
+                DeploymentName = item?.DeploymentName ?? "",
+                VersionNumber = item?.VersionNumber ?? "",
+                Message = message,
+                LogTail = ReadLauncherLogTail(),
+            };
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _api.ReportLauncherErrorAsync(report, CancellationToken.None);
+                    LauncherLog.Info($"Launcher error report uploaded: {area}");
+                }
+                catch (Exception ex)
+                {
+                    LauncherLog.Info($"Launcher error report upload failed: {FriendlyError(ex)}");
+                }
+            });
+        }
+
+        private static string ReadLauncherLogTail()
+        {
+            try
+            {
+                var path = LauncherLog.GetLogPath();
+                if (!File.Exists(path)) return "";
+
+                const int maxChars = 120_000;
+                var text = File.ReadAllText(path);
+                if (text.Length <= maxChars) return text;
+                return text.Substring(text.Length - maxChars);
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
+        private void StopDeployment(DownloadItem item)
+        {
+            var key = GetDownloadKey(item);
+            if (!StopRunningDeployment(key))
+            {
+                _status.Text = $"{item.DeploymentName} {item.VersionNumber} is not running.";
+                RenderCards();
+                return;
+            }
+
+            _status.Text = $"Stopped {item.DeploymentName} {item.VersionNumber}.";
+            RenderCards();
+        }
+
+        private bool IsRunning(DownloadItem item)
+        {
+            var key = GetDownloadKey(item);
+            if (!_runningDeployments.TryGetValue(key, out var running)) return false;
+            if (!running.Process.HasExited) return true;
+
+            _runningDeployments.Remove(key);
+            return false;
+        }
+
+        private bool StopRunningDeployment(string key)
+        {
+            if (!_runningDeployments.TryGetValue(key, out var running)) return false;
+            _runningDeployments.Remove(key);
+
+            try
+            {
+                if (!running.Process.HasExited)
+                {
+                    running.Process.CloseMainWindow();
+                    if (!running.Process.WaitForExit(3000))
+                    {
+                        running.Process.Kill(entireProcessTree: true);
+                    }
+                }
+
+                LauncherLog.Info($"Stopped deployment launched from {running.BatchPath}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Info($"Failed to stop deployment launched from {running.BatchPath}: {FriendlyError(ex)}");
+                return false;
+            }
+            finally
+            {
+                running.Process.Dispose();
+            }
+        }
+
+        private void StopAllRunningDeployments()
+        {
+            foreach (var key in _runningDeployments.Keys.ToList())
+            {
+                StopRunningDeployment(key);
+            }
+        }
+
+        private void HandleRunningProcessExited(string key)
+        {
+            if (_runningDeployments.TryGetValue(key, out var running))
+            {
+                _runningDeployments.Remove(key);
+                running.Process.Dispose();
+            }
+
+            RenderCards();
+        }
+
+        private static bool TryGetLaunchBatchScript(string folder, out string batchPath, out string error)
+        {
+            batchPath = "";
+            error = "";
+            if (!Directory.Exists(folder))
+            {
+                error = "The installation folder could not be found.";
+                return false;
+            }
+
+            var scripts = Directory.EnumerateFiles(folder, "*.bat", SearchOption.TopDirectoryOnly)
+                .OrderBy(GetLaunchScriptRank)
+                .ThenBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (scripts.Count == 0)
+            {
+                if (TryCreateGeneratedLaunchBatch(folder, out batchPath))
+                {
+                    return true;
+                }
+
+                error = "This installed package does not include a top-level launch batch script.";
+                return false;
+            }
+
+            batchPath = scripts[0];
+            TryRepairLaunchBatchScript(folder, batchPath);
+            return true;
+        }
+
+        private static bool TryValidateLaunchPackage(string folder, out string error)
+        {
+            error = "";
+            var paksFolders = Directory.EnumerateDirectories(folder, "Paks", SearchOption.AllDirectories).ToList();
+            foreach (var paksFolder in paksFolders)
+            {
+                var missingContainers = Directory.EnumerateFiles(paksFolder, "*.utoc", SearchOption.TopDirectoryOnly)
+                    .Where(utocPath =>
+                    {
+                        var basePath = Path.Combine(
+                            Path.GetDirectoryName(utocPath)!,
+                            Path.GetFileNameWithoutExtension(utocPath));
+                        var pakPath = $"{basePath}.pak";
+                        var ucasPath = $"{basePath}.ucas";
+
+                        return File.Exists(pakPath) &&
+                            new FileInfo(pakPath).Length <= 4096 &&
+                            !File.Exists(ucasPath);
+                    })
+                    .Select(Path.GetFileName)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .ToList();
+
+                if (missingContainers.Count == 0) continue;
+
+                error = $"This deployment is missing Unreal content container files beside {Path.GetFileName(paksFolder)}: {string.Join(", ", missingContainers)}. Repackage or re-upload the build with the matching .ucas files, then reinstall.";
+                LauncherLog.Info(error);
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool EnsurePrerequisites(string folder, out string error)
+        {
+            error = "";
+            var manifest = LoadPrerequisiteManifest(folder, out error);
+            if (manifest is null)
+            {
+                return string.IsNullOrWhiteSpace(error);
+            }
+
+            var missing = manifest.Prerequisites
+                .Where(prerequisite => !IsPrerequisiteSatisfied(folder, prerequisite))
+                .ToList();
+            if (missing.Count == 0) return true;
+
+            var installable = missing.Where(prerequisite => prerequisite.Installer is not null).ToList();
+            var manual = missing.Where(prerequisite => prerequisite.Installer is null).ToList();
+            if (manual.Count > 0)
+            {
+                error = $"Missing prerequisites: {string.Join(", ", manual.Select(GetPrerequisiteName))}. Install them, then launch again.";
+                return false;
+            }
+
+            var result = MessageBox.Show(
+                $"This deployment needs prerequisites before it can run:\n\n{string.Join("\n", installable.Select(GetPrerequisiteName))}\n\nInstall them now?",
+                "Install prerequisites",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes)
+            {
+                error = "Launch canceled because required prerequisites are missing.";
+                return false;
+            }
+
+            foreach (var prerequisite in installable)
+            {
+                if (!RunPrerequisiteInstaller(folder, prerequisite, out error))
+                {
+                    return false;
+                }
+
+                if (!IsPrerequisiteSatisfied(folder, prerequisite))
+                {
+                    error = $"{GetPrerequisiteName(prerequisite)} still appears to be missing after installation.";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool EnsureRequiredPortsAvailable(string folder, out string error)
+        {
+            error = "";
+            var manifest = LoadPrerequisiteManifest(folder, out error);
+            if (manifest is null)
+            {
+                return string.IsNullOrWhiteSpace(error);
+            }
+
+            var requiredPorts = GetRequiredPortDeclarations(manifest);
+            var ports = requiredPorts
+                .Select(port => port.Port)
+                .Distinct()
+                .ToList();
+            if (ports.Count == 0) return true;
+
+            var invalidPorts = ports.Where(port => port < 1 || port > 65535).ToList();
+            if (invalidPorts.Count > 0)
+            {
+                error = $"prerequisites.json contains invalid port values: {string.Join(", ", invalidPorts)}.";
+                return false;
+            }
+
+            var listeners = IPGlobalProperties.GetIPGlobalProperties()
+                .GetActiveTcpListeners()
+                .Select(endpoint => endpoint.Port)
+                .ToHashSet();
+            var blocked = ports.Where(listeners.Contains).OrderBy(port => port).ToList();
+            if (blocked.Count == 0) return true;
+
+            var blockedLabels = blocked.Select(port =>
+            {
+                var label = requiredPorts.FirstOrDefault(requiredPort => requiredPort.Port == port)?.Name;
+                return string.IsNullOrWhiteSpace(label) ? port.ToString() : $"{port} ({label})";
+            });
+            error = $"Cannot launch because required port{(blocked.Count == 1 ? "" : "s")} {string.Join(", ", blockedLabels)} {(blocked.Count == 1 ? "is" : "are")} already in use. Close the app using the port, then launch again.";
+            LauncherLog.Info(error);
+            return false;
+        }
+
+        private static List<DeploymentPort> GetRequiredPortDeclarations(PrerequisiteManifest manifest)
+        {
+            var ports = manifest.RequiredPorts
+                .Where(port => port.Port != 0)
+                .ToList();
+            ports.AddRange(manifest.Ports.Select(port => new DeploymentPort { Port = port }));
+            return ports;
+        }
+
+        private static PrerequisiteManifest? LoadPrerequisiteManifest(string folder, out string error)
+        {
+            error = "";
+            var manifestPath = Path.Combine(folder, "prerequisites.json");
+            if (!File.Exists(manifestPath)) return null;
+
+            try
+            {
+                return JsonSerializer.Deserialize<PrerequisiteManifest>(File.ReadAllText(manifestPath), new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                }) ?? new PrerequisiteManifest();
+            }
+            catch (Exception ex)
+            {
+                error = $"Could not read prerequisites.json: {FriendlyError(ex)}";
+                return null;
+            }
+        }
+
+        private static bool IsPrerequisiteSatisfied(string folder, DeploymentPrerequisite prerequisite)
+        {
+            var check = prerequisite.Check;
+            if (check is null || string.IsNullOrWhiteSpace(check.Type)) return true;
+
+            return check.Type.Trim().ToLowerInvariant() switch
+            {
+                "command" => CheckCommand(check),
+                "file" => CheckFile(folder, check),
+                "env" => CheckEnvironmentVariable(check),
+                _ => false,
+            };
+        }
+
+        private static bool CheckCommand(PrerequisiteCheck check)
+        {
+            if (string.IsNullOrWhiteSpace(check.Command)) return false;
+
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = check.Command,
+                    Arguments = string.Join(" ", check.Args.Select(QuoteCommandArgument)),
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                });
+                if (process is null) return false;
+
+                process.WaitForExit(5000);
+                return process.HasExited && process.ExitCode == 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool CheckFile(string folder, PrerequisiteCheck check)
+        {
+            if (string.IsNullOrWhiteSpace(check.Path)) return false;
+
+            var path = ResolveDeploymentPath(folder, check.Path);
+            return File.Exists(path) || Directory.Exists(path);
+        }
+
+        private static bool CheckEnvironmentVariable(PrerequisiteCheck check)
+        {
+            if (string.IsNullOrWhiteSpace(check.Name)) return false;
+
+            var value = Environment.GetEnvironmentVariable(check.Name);
+            if (string.IsNullOrWhiteSpace(check.ExpectedValue)) return !string.IsNullOrWhiteSpace(value);
+            return string.Equals(value, check.ExpectedValue, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool RunPrerequisiteInstaller(string folder, DeploymentPrerequisite prerequisite, out string error)
+        {
+            error = "";
+            var installer = prerequisite.Installer;
+            if (installer is null || string.IsNullOrWhiteSpace(installer.Path))
+            {
+                error = $"{GetPrerequisiteName(prerequisite)} does not define an installer.";
+                return false;
+            }
+
+            var installerPath = ResolveDeploymentPath(folder, installer.Path);
+            if (!File.Exists(installerPath))
+            {
+                error = $"{GetPrerequisiteName(prerequisite)} installer was not found: {installer.Path}";
+                return false;
+            }
+
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = installerPath,
+                    Arguments = string.Join(" ", installer.Args.Select(QuoteCommandArgument)),
+                    WorkingDirectory = Path.GetDirectoryName(installerPath) ?? folder,
+                    UseShellExecute = true,
+                });
+                if (process is null)
+                {
+                    error = $"Could not start {GetPrerequisiteName(prerequisite)} installer.";
+                    return false;
+                }
+
+                process.WaitForExit();
+                if (process.ExitCode != 0)
+                {
+                    error = $"{GetPrerequisiteName(prerequisite)} installer exited with code {process.ExitCode}.";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = $"Could not install {GetPrerequisiteName(prerequisite)}: {FriendlyError(ex)}";
+                return false;
+            }
+        }
+
+        private static string ResolveDeploymentPath(string folder, string path)
+        {
+            return Path.IsPathRooted(path)
+                ? Path.GetFullPath(path)
+                : Path.GetFullPath(Path.Combine(folder, path));
+        }
+
+        private static string QuoteCommandArgument(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return "\"\"";
+            return value.Contains(' ') || value.Contains('"')
+                ? $"\"{value.Replace("\"", "\\\"")}\""
+                : value;
+        }
+
+        private static string GetPrerequisiteName(DeploymentPrerequisite prerequisite)
+        {
+            return string.IsNullOrWhiteSpace(prerequisite.Name) ? "Unnamed prerequisite" : prerequisite.Name;
+        }
+
+        private static bool TryCreateGeneratedLaunchBatch(string folder, out string batchPath)
+        {
+            batchPath = "";
+            if (!TryFindLaunchExecutable(folder, out var executablePath)) return false;
+
+            batchPath = Path.Combine(folder, "Launch.bat");
+            var relativeExecutable = Path.GetRelativePath(folder, executablePath);
+            var content = string.Join(Environment.NewLine, new[]
+            {
+                "@echo off",
+                "cd /d \"%~dp0\"",
+                $"start \"\" /wait \"%~dp0{relativeExecutable}\"",
+                "exit /b %ERRORLEVEL%",
+                "",
+            });
+            File.WriteAllText(batchPath, content);
+            LauncherLog.Info($"Generated launch batch script: {batchPath}");
+            return true;
+        }
+
+        private static void TryRepairLaunchBatchScript(string folder, string batchPath)
+        {
+            try
+            {
+                var content = File.ReadAllText(batchPath);
+                var repaired = System.Text.RegularExpressions.Regex.Replace(
+                    content,
+                    "%~dp0Windows\\\\([^\"\\\\]+)\\.exe",
+                    match =>
+                    {
+                        var appName = match.Groups[1].Value;
+                        var bootstrapPath = Path.Combine(folder, "Windows", $"{appName}.exe");
+                        var realBinaryFolder = Path.Combine(folder, "Windows", appName, "Binaries", "Win64");
+                        if (!File.Exists(bootstrapPath) || !Directory.Exists(realBinaryFolder))
+                        {
+                            return match.Value;
+                        }
+
+                        var expectedShippingExe = Path.Combine(realBinaryFolder, $"{appName}-Win64-Shipping.exe");
+                        if (File.Exists(expectedShippingExe))
+                        {
+                            return match.Value;
+                        }
+
+                        var directExecutable = SelectLaunchExecutable(Directory.EnumerateFiles(realBinaryFolder, "*.exe"));
+                        if (string.IsNullOrWhiteSpace(directExecutable))
+                        {
+                            return match.Value;
+                        }
+
+                        var relativeExecutable = Path.GetRelativePath(folder, directExecutable);
+                        return $"%~dp0{relativeExecutable}";
+                    });
+
+                if (!string.Equals(content, repaired, StringComparison.Ordinal))
+                {
+                    File.WriteAllText(batchPath, repaired);
+                    LauncherLog.Info($"Repaired launch batch script: {batchPath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LauncherLog.Info($"Launch batch repair skipped for {batchPath}: {FriendlyError(ex)}");
+            }
+        }
+
+        private static bool TryFindLaunchExecutable(string folder, out string executablePath)
+        {
+            executablePath = "";
+            var windowsFolder = Path.Combine(folder, "Windows");
+            if (Directory.Exists(windowsFolder))
+            {
+                var unrealExecutables = Directory.EnumerateDirectories(windowsFolder)
+                    .Select(projectFolder => Path.Combine(projectFolder, "Binaries", "Win64"))
+                    .Where(Directory.Exists)
+                    .SelectMany(binaryFolder => Directory.EnumerateFiles(binaryFolder, "*.exe"))
+                    .ToList();
+                executablePath = SelectLaunchExecutable(unrealExecutables);
+                if (!string.IsNullOrWhiteSpace(executablePath)) return true;
+            }
+
+            executablePath = SelectLaunchExecutable(Directory.EnumerateFiles(folder, "*.exe", SearchOption.AllDirectories));
+            return !string.IsNullOrWhiteSpace(executablePath);
+        }
+
+        private static string SelectLaunchExecutable(IEnumerable<string> executables)
+        {
+            return executables
+                .OrderBy(path => Path.GetFileName(path).Contains("Shipping", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(path => Path.GetFileName(path).Contains("Crash", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                .ThenBy(path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault() ?? "";
+        }
+
+        private static int GetLaunchScriptRank(string path)
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (name.Contains("launch", StringComparison.OrdinalIgnoreCase)) return 0;
+            if (name.Contains("start", StringComparison.OrdinalIgnoreCase)) return 1;
+            if (name.Contains("run", StringComparison.OrdinalIgnoreCase)) return 2;
+            return 3;
         }
 
         private void UninstallVersion(DownloadItem item)
@@ -2099,14 +2818,17 @@ namespace Launcher
                 : _settings.InstallRoot;
         }
 
-        private DownloadOptions CreateDownloadOptions()
+        private DownloadOptions CreateDownloadOptions(int? streamOverride = null)
         {
             var bandwidthLimit = _settings.BandwidthLimitMbps <= 0
                 ? 0
                 : (long)(_settings.BandwidthLimitMbps * 1024 * 1024);
+            var streamCount = Math.Clamp(streamOverride ?? GetParallelStreamCount(), 4, 16);
             return new DownloadOptions
             {
-                ParallelStreams = GetParallelStreamCount(),
+                ParallelStreams = streamCount,
+                EnableAdaptiveStreamScaling = true,
+                MinimumParallelStreams = 4,
                 BandwidthLimitBytesPerSecond = bandwidthLimit,
             };
         }
@@ -2691,5 +3413,44 @@ namespace Launcher
         {
             public string LogoPath { get; set; } = "";
         }
+
+        private sealed class PrerequisiteManifest
+        {
+            public List<DeploymentPrerequisite> Prerequisites { get; set; } = new();
+            public List<int> Ports { get; set; } = new();
+            public List<DeploymentPort> RequiredPorts { get; set; } = new();
+        }
+
+        private sealed class DeploymentPrerequisite
+        {
+            public string Name { get; set; } = "";
+            public PrerequisiteCheck? Check { get; set; }
+            public PrerequisiteInstaller? Installer { get; set; }
+        }
+
+        private sealed class PrerequisiteCheck
+        {
+            public string Type { get; set; } = "";
+            public string Command { get; set; } = "";
+            public List<string> Args { get; set; } = new();
+            public string Path { get; set; } = "";
+            public string Name { get; set; } = "";
+            [System.Text.Json.Serialization.JsonPropertyName("equals")]
+            public string ExpectedValue { get; set; } = "";
+        }
+
+        private sealed class PrerequisiteInstaller
+        {
+            public string Path { get; set; } = "";
+            public List<string> Args { get; set; } = new();
+        }
+
+        private sealed class DeploymentPort
+        {
+            public int Port { get; set; }
+            public string Name { get; set; } = "";
+        }
+
+        private sealed record RunningDeployment(Process Process, string BatchPath, DateTimeOffset StartedAt);
     }
 }

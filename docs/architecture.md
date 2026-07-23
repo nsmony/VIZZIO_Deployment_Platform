@@ -16,7 +16,7 @@
 - **Launcher Client**
   - C# .NET 8 WPF application
   - Authenticates with backend API
-  - Downloads build packages with resumable support
+  - Downloads build packages with resumable support, adaptive 4-16 stream selection, and jittered retry backoff
   - Installs versions side-by-side
 
 - **File Delivery System**

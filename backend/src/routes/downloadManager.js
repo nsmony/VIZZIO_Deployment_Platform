@@ -3,6 +3,7 @@ import { authenticateToken, enforceMaintenanceMode } from '../middleware/authMid
 import {
   createDownloadManagerSession,
   listDownloadManagerItems,
+  reportLauncherError,
   streamManagedDownloadFile,
   updateDownloadManagerSession,
 } from '../controllers/downloadManagerController.js';
@@ -13,6 +14,7 @@ const router = express.Router();
 router.get('/items', authenticateToken, enforceMaintenanceMode, listDownloadManagerItems);
 router.post('/sessions', authenticateToken, enforceMaintenanceMode, createDownloadManagerSession);
 router.patch('/sessions/:sessionId', authenticateToken, enforceMaintenanceMode, updateDownloadManagerSession);
+router.post('/error-reports', authenticateToken, enforceMaintenanceMode, reportLauncherError);
 router.get('/files/:fileId', streamManagedDownloadFile);
 
 export default router;

@@ -30,6 +30,9 @@ dotnet publish $launcherProject `
     --runtime $Runtime `
     --self-contained true `
     --output $publishDir `
+    /p:Version=$Version `
+    /p:AssemblyVersion=$Version `
+    /p:FileVersion=$Version `
     /p:PublishSingleFile=false `
     /p:PublishReadyToRun=true
 

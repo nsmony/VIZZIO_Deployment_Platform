@@ -299,7 +299,7 @@ sequenceDiagram
 PORT=4000
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/vizzio
 JWT_SECRET=change-me
-DOWNLOAD_MANAGER_TOKEN_SECRET=change-me-too
+DOWNLOAD_MANAGER_SECRET=change-me-too
 PACKAGE_ROOT=C:\VIZZIO\packages
 DOWNLOAD_DELIVERY_MODE=node
 DOWNLOAD_ROOT=/srv/vizzio/packages
@@ -463,6 +463,10 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
 - docs/admin-user-guide.md: administrator operating guide
 - docs/operations-publishing-guide.md: release publishing runbook and rollback flow
 - docs/handover-document.md: technical and operational handover package
+- docs/launcher-self-update.md: launcher update endpoint and release metadata
+- docs/launcher-error-reporting.md: launcher diagnostic upload behavior
+- docs/implementation-verification.md: current implementation check results and requirement coverage snapshot
+- docs/full-requirements-audit-2026-07-23.md: broad cross-stack requirement audit and sign-off gaps
 - backend/README.md: backend-local development specifics
 - frontend/README.md: frontend-local development specifics
 - launcher/README.md: launcher-local development specifics

@@ -111,4 +111,58 @@ namespace Launcher
         [JsonPropertyName("installSize")]
         public long? InstallSize { get; set; }
     }
+
+    public sealed class LauncherUpdateResponse
+    {
+        [JsonPropertyName("update")]
+        public LauncherUpdateInfo Update { get; set; } = new();
+    }
+
+    public sealed class LauncherUpdateInfo
+    {
+        [JsonPropertyName("currentVersion")]
+        public string CurrentVersion { get; set; } = "";
+
+        [JsonPropertyName("latestVersion")]
+        public string LatestVersion { get; set; } = "";
+
+        [JsonPropertyName("updateAvailable")]
+        public bool UpdateAvailable { get; set; }
+
+        [JsonPropertyName("required")]
+        public bool Required { get; set; }
+
+        [JsonPropertyName("downloadUrl")]
+        public string DownloadUrl { get; set; } = "";
+
+        [JsonPropertyName("releaseNotes")]
+        public string ReleaseNotes { get; set; } = "";
+    }
+
+    public sealed class LauncherErrorReportRequest
+    {
+        [JsonPropertyName("launcherVersion")]
+        public string LauncherVersion { get; set; } = "";
+
+        [JsonPropertyName("machineName")]
+        public string MachineName { get; set; } = "";
+
+        [JsonPropertyName("osVersion")]
+        public string OsVersion { get; set; } = "";
+
+        [JsonPropertyName("area")]
+        public string Area { get; set; } = "";
+
+        [JsonPropertyName("deploymentName")]
+        public string DeploymentName { get; set; } = "";
+
+        [JsonPropertyName("versionNumber")]
+        public string VersionNumber { get; set; } = "";
+
+        [JsonPropertyName("message")]
+        public string Message { get; set; } = "";
+
+        [JsonPropertyName("logTail")]
+        public string LogTail { get; set; } = "";
+    }
 }

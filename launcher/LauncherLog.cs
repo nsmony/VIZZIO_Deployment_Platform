@@ -31,5 +31,10 @@ namespace Launcher
                 // Logging must never interrupt downloads.
             }
         }
+
+        public static string GetLogPath()
+        {
+            return LogPath;
+        }
     }
 }

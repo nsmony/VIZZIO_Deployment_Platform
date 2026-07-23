@@ -28,6 +28,14 @@ namespace Launcher
         // clamps this value so company networks are not overwhelmed.
         public int ParallelStreams { get; init; } = 4;
 
+        // Allows the downloader to tune stream count for file size and bandwidth
+        // so small or constrained downloads avoid unnecessary contention.
+        public bool EnableAdaptiveStreamScaling { get; init; } = true;
+
+        // Floor used when adaptive scaling lowers stream count on constrained
+        // links. This still respects the launcher minimum of 4 streams.
+        public int MinimumParallelStreams { get; init; } = 4;
+
         // A value of 0 means "unlimited". When set, the cap is shared across all
         // chunks so four streams do not accidentally become four full-speed caps.
         public long BandwidthLimitBytesPerSecond { get; init; }
@@ -37,11 +45,10 @@ namespace Launcher
     // .part files, which is what makes resume work after network loss or restart.
     public sealed class ChunkedDownloadManager
     {
-        private const int MinChunkCount = 4;
-        private const int MaxChunkCount = 16;
+        private const int MinChunkCount = DownloadResiliencePolicy.MinChunkCount;
+        private const int MaxChunkCount = DownloadResiliencePolicy.MaxChunkCount;
         private const int MaxChunkAttempts = 5;
         private const int MaxChunkRepairPasses = 1;
-        private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan ProgressReportInterval = TimeSpan.FromMilliseconds(250);
         private readonly HttpClient _httpClient = new()
         {
@@ -81,7 +88,7 @@ namespace Launcher
 
             // Keep the caller-facing option flexible, but enforce launcher-wide
             // limits here so every download path behaves consistently.
-            var parallelStreams = Math.Clamp(options.ParallelStreams, MinChunkCount, MaxChunkCount);
+            var requestedStreams = Math.Clamp(options.ParallelStreams, MinChunkCount, MaxChunkCount);
             var bandwidthLimiter = options.BandwidthLimitBytesPerSecond > 0
                 ? new BandwidthLimiter(options.BandwidthLimitBytesPerSecond)
                 : null;
@@ -90,6 +97,8 @@ namespace Launcher
             EnsureDiskSpace(targetPath, expectedSize);
 
             var totalBytes = expectedSize > 0 ? expectedSize : await GetRemoteLengthAsync(await sourceFactory().ConfigureAwait(false), cancellationToken).ConfigureAwait(false);
+            var parallelStreams = DownloadResiliencePolicy.ResolveParallelStreamCount(requestedStreams, options.MinimumParallelStreams, totalBytes, options.BandwidthLimitBytesPerSecond, options.EnableAdaptiveStreamScaling);
+            LauncherLog.Info($"Downloader using {parallelStreams} stream(s) for {FormatBytes(totalBytes)}.");
             if (!await SupportsRangeRequestsAsync(await sourceFactory().ConfigureAwait(false), cancellationToken).ConfigureAwait(false))
             {
                 // Fallback for simple file servers. This path cannot resume as
@@ -274,7 +283,7 @@ namespace Launcher
                     catch (Exception ex) when (attempt < MaxChunkAttempts)
                     {
                         lastError = ex;
-                        await Task.Delay(RetryDelay, cancellationToken).ConfigureAwait(false);
+                        await Task.Delay(DownloadResiliencePolicy.GetChunkRetryDelay(attempt, MaxChunkAttempts), cancellationToken).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {

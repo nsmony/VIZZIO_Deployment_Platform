@@ -1,5 +1,7 @@
 # Design Document: VIZZIO Deployment Platform
 
+> Status note (2026-07-23): This document contains legacy endpoint examples from an earlier design draft. For current API and implementation behavior, use [README.md](README.md) and [docs/implementation-verification.md](docs/implementation-verification.md).
+
 ## Overview
 
 VIZZIO is a Steam-style software distribution platform tailored for delivering large Unreal Engine builds to authorized users. The system is composed of two deployable products:
@@ -600,11 +602,11 @@ CREATE INDEX ON admin_login_attempts (ip_address, attempted_at);
 
 ---
 
-### Property 31: Download token is refreshed before expiry when age reaches 55 minutes
+### Property 31: Download token is refreshed before expiry based on age or near-expiry
 
-*For any* active download whose current download token was issued more than 55 minutes ago, the Launcher SHALL request a refreshed token from the API before the 60-minute expiry is reached and replace the in-use token with the new one.
+*For any* active download, when the current download token age reaches 55 minutes, or when the token's remaining lifetime is below 60 seconds (including already expired), the Launcher SHALL request a refreshed token from the API and replace the in-use token.
 
-**Validates: Requirements 8.13**
+**Validates: Requirements 8.13, 15.3**
 
 ---
 

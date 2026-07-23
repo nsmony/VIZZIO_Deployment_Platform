@@ -283,7 +283,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 
 1. THE File_Server SHALL reject all requests for Version package archives that do not include a valid Download Token, returning HTTP 401.
 2. THE API SHALL sign Download Tokens using a secret key not exposed to clients.
-3. WHEN a Download Token's remaining lifetime falls below 60 seconds or the token has expired, THE Launcher SHALL request a new Download Token from the API; THE API SHALL issue new Download Tokens with a lifetime between 60 and 900 seconds.
+3. WHILE a download is active, WHEN the current Download Token age reaches 55 minutes, OR WHEN its remaining lifetime falls below 60 seconds or the token has expired, THE Launcher SHALL request a new Download Token from the API; THE API SHALL issue refreshed Download Tokens as signed JWTs with a lifetime of no more than 1 hour.
 4. THE API SHALL scope each Download Token to a specific User and a specific Version; IF a token is presented for a different User or Version than the one it was issued for, THE API SHALL return an HTTP 403 response.
 5. WHEN the File Server receives a package archive request, THE File Server SHALL verify the Download Token is valid and has not expired before serving any archive data.
 6. IF the token validation service is unavailable when the File Server receives a package archive request, THEN THE File Server SHALL deny the request and SHALL NOT serve any archive data.

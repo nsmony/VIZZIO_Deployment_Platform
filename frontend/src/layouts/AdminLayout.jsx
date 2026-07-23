@@ -15,6 +15,7 @@ function PageTitle() {
     '/users': 'Users & Permissions',
     '/deployment': 'Deployments',
     '/logs/download': 'Download Logs',
+    '/logs/launcher': 'Launcher Reports',
     '/notifications': 'Notifications',
     '/settings': 'Settings',
     '/help': 'Help & Docs',

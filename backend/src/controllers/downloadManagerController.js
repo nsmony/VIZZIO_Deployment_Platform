@@ -8,6 +8,7 @@ import {
   parseRangeHeader,
   updateManagedDownloadSession,
 } from '../services/downloadManagerService.js';
+import { saveLauncherErrorReport } from '../services/launcherErrorReportService.js';
 
 // HTTP handlers used by the Windows launcher download manager.
 export async function listDownloadManagerItems(req, res) {
@@ -60,6 +61,20 @@ export async function updateDownloadManagerSession(req, res) {
     res.json({ session });
   } catch (error) {
     res.status(error.status || 400).json({ error: error.message });
+  }
+}
+
+export async function reportLauncherError(req, res) {
+  try {
+    const report = await saveLauncherErrorReport({
+      user: req.user,
+      body: req.body,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+    res.status(201).json({ report });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not save launcher error report' });
   }
 }
 

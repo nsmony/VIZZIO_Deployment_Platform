@@ -40,7 +40,10 @@ export default function Sidebar({ isOpen = true }) {
     {
       label: 'Logs',
       type: 'logs',
-      items: [{ label: 'Download Logs', href: '/logs/download', icon: 'logs' }],
+      items: [
+        { label: 'Download Logs', href: '/logs/download', icon: 'logs' },
+        { label: 'Launcher Reports', href: '/logs/launcher', icon: 'logs' },
+      ],
     },
     {
       label: '',

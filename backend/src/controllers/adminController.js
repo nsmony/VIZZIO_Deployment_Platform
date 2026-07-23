@@ -3,6 +3,10 @@ import {
   getDownloadLogs,
   getNotifications,
 } from '../services/adminService.js';
+import {
+  getLauncherErrorReport,
+  listLauncherErrorReports,
+} from '../services/launcherErrorReportService.js';
 
 // HTTP handlers for admin dashboard and audit-log screens.
 export async function dashboard(req, res) {
@@ -55,6 +59,30 @@ export async function exportDownloadLogs(req, res) {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="download-logs-${date}.csv"`);
   res.send(csv);
+}
+
+export async function launcherErrorReports(req, res) {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  try {
+    res.json({ reports: await listLauncherErrorReports(req.query) });
+  } catch {
+    res.status(500).json({ error: 'Unable to load launcher error reports.' });
+  }
+}
+
+export async function launcherErrorReport(req, res) {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  try {
+    res.json({ report: await getLauncherErrorReport(req.params.reportId) });
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Unable to load launcher error report.' });
+  }
 }
 
 function isAdmin(user) {

@@ -296,6 +296,18 @@ export async function fetchDownloadLogs(token, deploymentId) {
   return request(`/admin/download-logs${query ? `?${query}` : ''}`, token);
 }
 
+export async function fetchLauncherErrorReports(token, filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.deployment) params.set('deployment', filters.deployment);
+  if (filters.area) params.set('area', filters.area);
+  const query = params.toString();
+  return request(`/admin/launcher-error-reports${query ? `?${query}` : ''}`, token);
+}
+
+export async function fetchLauncherErrorReport(token, reportId) {
+  return request(`/admin/launcher-error-reports/${encodeURIComponent(reportId)}`, token);
+}
+
 export async function exportDownloadLogs(token, deploymentId) {
   const params = new URLSearchParams();
   if (deploymentId) params.set('deploymentId', deploymentId);

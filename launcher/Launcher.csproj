@@ -9,9 +9,15 @@
     <PublishSingleFile>false</PublishSingleFile>
     <PublishReadyToRun>true</PublishReadyToRun>
     <AssemblyName>Launcher</AssemblyName>
+    <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <None Update="launcher-branding.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="branding\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Launcher.Tests\**\*.cs" />
+    <EmbeddedResource Remove="Launcher.Tests\**\*" />
+    <None Remove="Launcher.Tests\**\*" />
   </ItemGroup>
 </Project>

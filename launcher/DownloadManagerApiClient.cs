@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -61,6 +62,24 @@ namespace Launcher
             return await response.Content.ReadFromJsonAsync<DownloadItemsResponse>(JsonOptions, cancellationToken) ?? new DownloadItemsResponse();
         }
 
+        public async Task<LauncherUpdateInfo> GetLauncherUpdateAsync(string currentVersion, CancellationToken cancellationToken)
+        {
+            var response = await _httpClient.GetAsync($"{ApiBaseUrl.TrimEnd('/')}/launcher/update?currentVersion={Uri.EscapeDataString(currentVersion)}", cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+            var update = await response.Content.ReadFromJsonAsync<LauncherUpdateResponse>(JsonOptions, cancellationToken);
+            return update?.Update ?? new LauncherUpdateInfo();
+        }
+
+        public async Task DownloadFileAsync(string sourceUrl, string targetPath, CancellationToken cancellationToken)
+        {
+            using var response = await _httpClient.GetAsync(sourceUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+            Directory.CreateDirectory(Path.GetDirectoryName(targetPath)!);
+            await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+            await using var target = File.Create(targetPath);
+            await source.CopyToAsync(target, cancellationToken);
+        }
+
         public async Task<DownloadSessionResponse> CreateSessionAsync(DownloadItem item, CancellationToken cancellationToken)
         {
             // A session gives the launcher a short-lived token for file streaming.
@@ -82,6 +101,16 @@ namespace Launcher
             var response = await _httpClient.PatchAsJsonAsync(
                 $"{ApiBaseUrl.TrimEnd('/')}/download-manager/sessions/{Uri.EscapeDataString(sessionId)}",
                 new { status, downloadedSize, totalSize },
+                cancellationToken);
+            await EnsureSuccessAsync(response, cancellationToken);
+        }
+
+        public async Task ReportLauncherErrorAsync(LauncherErrorReportRequest report, CancellationToken cancellationToken)
+        {
+            ApplyBearerToken();
+            var response = await _httpClient.PostAsJsonAsync(
+                $"{ApiBaseUrl.TrimEnd('/')}/download-manager/error-reports",
+                report,
                 cancellationToken);
             await EnsureSuccessAsync(response, cancellationToken);
         }
