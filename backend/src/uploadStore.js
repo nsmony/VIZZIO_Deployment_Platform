@@ -116,7 +116,7 @@ export async function saveUploadedStream({ originalName, title, stream, uploaded
   });
   if (!batchScriptName) {
     await fs.promises.rm(filePath, { force: true }).catch(() => {});
-    throw new Error('Deployment package archive must contain a top-level launch batch script.');
+    throw new Error('Deployment package archive must contain a launch batch script at the archive root or inside one top-level folder.');
   }
 
   const file = {

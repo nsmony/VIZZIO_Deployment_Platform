@@ -8,6 +8,7 @@ import { parseRangeHeader, validateDownloadTokenFileAccess } from '../src/servic
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../src/downloadManagerToken.js';
 import { verifySha256 } from '../src/services/downloadIntegrityService.js';
 import { getPackageInstallSize, inspectPackageSource } from '../src/services/packageArchiveService.js';
+import { findTopLevelBatchScriptInArchive } from '../src/archiveValidation.js';
 
 test('normal ranged download requests parse a byte range', () => {
   assert.deepEqual(parseRangeHeader('bytes=0-99', 1000), { start: 0, end: 99 });
@@ -193,6 +194,106 @@ test('server archive source rejects staging folder paths', async () => {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('ZIP archives may contain one wrapper folder with a launch batch script', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const packagePath = path.join(tempRoot, 'wrapped.zip');
+    await writeSimpleZip(packagePath, [
+      { name: 'SICC/Launch.bat', content: 'echo launch' },
+      { name: 'SICC/Windows/readme.txt', content: 'ok' },
+    ]);
+
+    assert.equal(await findTopLevelBatchScriptInArchive(packagePath), 'SICC/Launch.bat');
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('ZIP archives reject deeply nested launch batch scripts', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const packagePath = path.join(tempRoot, 'deep.zip');
+    await writeSimpleZip(packagePath, [
+      { name: 'Builds/SICC/Launch.bat', content: 'echo launch' },
+    ]);
+
+    assert.equal(await findTopLevelBatchScriptInArchive(packagePath), null);
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+async function writeSimpleZip(filePath, entries) {
+  const buffers = [];
+  const centralDirectory = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const nameBuffer = Buffer.from(entry.name, 'utf8');
+    const data = Buffer.from(entry.content, 'utf8');
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt32LE(0, 10);
+    localHeader.writeUInt32LE(0, 14);
+    localHeader.writeUInt32LE(data.length, 18);
+    localHeader.writeUInt32LE(data.length, 22);
+    localHeader.writeUInt16LE(nameBuffer.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    buffers.push(localHeader, nameBuffer, data);
+    centralDirectory.push({ nameBuffer, size: data.length, offset });
+    offset += localHeader.length + nameBuffer.length + data.length;
+  }
+
+  const centralStart = offset;
+  for (const entry of centralDirectory) {
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt32LE(0, 12);
+    centralHeader.writeUInt32LE(0, 16);
+    centralHeader.writeUInt32LE(entry.size, 20);
+    centralHeader.writeUInt32LE(entry.size, 24);
+    centralHeader.writeUInt16LE(entry.nameBuffer.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(entry.offset, 42);
+    buffers.push(centralHeader, entry.nameBuffer);
+    offset += centralHeader.length + entry.nameBuffer.length;
+  }
+
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(0, 4);
+  eocd.writeUInt16LE(0, 6);
+  eocd.writeUInt16LE(centralDirectory.length, 8);
+  eocd.writeUInt16LE(centralDirectory.length, 10);
+  eocd.writeUInt32LE(offset - centralStart, 12);
+  eocd.writeUInt32LE(centralStart, 16);
+  eocd.writeUInt16LE(0, 20);
+  buffers.push(eocd);
+
+  await fs.writeFile(filePath, Buffer.concat(buffers));
+}
 
 
 

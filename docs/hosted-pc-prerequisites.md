@@ -65,9 +65,9 @@ Restart the backend terminal or Windows service, then verify:
 7z i
 ```
 
-The backend accepts ZIP and 7z package sources, but each package must contain at
-least one top-level `.bat` launch script. ZIP validation is built in. 7z
-validation requires `7z` or `7za` on the backend PC.
+The backend accepts ZIP and 7z package sources, but each package must contain a
+launch `.bat` at the archive root or inside the only top-level folder. ZIP
+validation is built in. 7z validation requires `7z` or `7za` on the backend PC.
 
 Large Unreal deployments are expected to be tens of GiB. For server staging
 folders, the backend creates a generated `.7z` package when 7-Zip is available.

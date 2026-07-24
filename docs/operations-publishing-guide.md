@@ -11,8 +11,8 @@ This guide defines the standard operating procedure for publishing a new deploym
 - Package source prepared:
   - archive file, or
   - server staging folder
-- Expected launch batch script is included as a top-level `.bat` file in the
-  package content
+- Expected launch batch script is included at the archive root or inside the
+  only top-level folder
 - Target deployment exists (or will be created in this process)
 
 ## 3. Release Checklist
@@ -45,10 +45,25 @@ When adding a version, choose one package source:
 - Register existing server archive path
 - Register server staging folder path (system archives folder into package)
 
-ZIP and 7z archives must contain at least one top-level `.bat` file. Nested
-batch scripts, such as `Package/Launch.bat`, are rejected because the launcher
-expects the script at the installed package root. 7z validation requires `7z` or
-`7za` on the backend server.
+ZIP and 7z archives must contain a launch `.bat` file at the archive root or
+inside one wrapper folder. Both of these are accepted:
+
+```text
+SICC-v2.zip
+  Launch.bat
+  Windows/
+```
+
+```text
+SICC-v2.zip
+  SICC/
+    Launch.bat
+    Windows/
+```
+
+Deeply nested or ambiguous layouts, such as `Builds/SICC/Launch.bat`, are
+rejected because the launcher expects the script at the installed package root
+after extraction. 7z validation requires `7z` or `7za` on the backend server.
 
 For 50-60 GiB Unreal deployments, prefer the server staging-folder flow. With
 7-Zip installed on the backend PC, staging folders are converted into generated

@@ -48,7 +48,7 @@ export async function getSevenZipStatus() {
 
 async function findTopLevelBatchScriptInZip(filePath) {
   const entries = await readZipEntryNames(filePath);
-  return entries.find(isTopLevelBatchScript) || null;
+  return findAllowedLaunchBatchScript(entries);
 }
 
 async function readZipEntryNames(filePath) {
@@ -139,7 +139,7 @@ async function readZipCentralDirectoryInfo(handle, tailBuffer, eocdOffset, archi
 async function findTopLevelBatchScriptIn7Zip(filePath) {
   const output = await runSevenZipList(filePath);
   const entries = parseSevenZipListOutput(output);
-  return entries.find(isTopLevelBatchScript) || null;
+  return findAllowedLaunchBatchScript(entries);
 }
 
 async function runSevenZipList(filePath) {
@@ -212,9 +212,41 @@ function parseSevenZipListOutput(output) {
   return entries;
 }
 
-function isTopLevelBatchScript(entryName) {
+function findAllowedLaunchBatchScript(entries) {
+  const normalizedEntries = entries
+    .map(normalizeArchiveEntry)
+    .filter(Boolean);
+
+  const rootBatch = normalizedEntries.find(isRootBatchScript);
+  if (rootBatch) return rootBatch;
+
+  const topLevelFolders = new Set(
+    normalizedEntries
+      .filter((entry) => entry.includes('/'))
+      .map((entry) => entry.split('/')[0])
+  );
+  const rootFiles = normalizedEntries.filter((entry) => !entry.includes('/'));
+  if (rootFiles.length > 0 || topLevelFolders.size !== 1) {
+    return null;
+  }
+
+  const onlyFolder = [...topLevelFolders][0];
+  return normalizedEntries.find((entry) => isSingleWrapperBatchScript(entry, onlyFolder)) || null;
+}
+
+function normalizeArchiveEntry(entryName) {
   const normalized = String(entryName || '').replace(/\\/g, '/').replace(/^\/+/, '');
   if (!normalized || normalized.endsWith('/')) return false;
-  if (normalized.includes('/')) return false;
-  return normalized.toLowerCase().endsWith('.bat');
+  return normalized;
+}
+
+function isRootBatchScript(entryName) {
+  return !entryName.includes('/') && entryName.toLowerCase().endsWith('.bat');
+}
+
+function isSingleWrapperBatchScript(entryName, wrapperFolder) {
+  const prefix = `${wrapperFolder}/`;
+  if (!entryName.startsWith(prefix)) return false;
+  const relativeName = entryName.slice(prefix.length);
+  return !relativeName.includes('/') && relativeName.toLowerCase().endsWith('.bat');
 }

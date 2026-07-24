@@ -157,9 +157,9 @@ Create a version using one package source:
 - Existing server archive path
 - Server staging folder path to be archived
 
-Every source must include a launch batch script as a top-level `.bat` file. ZIP
-archives are inspected directly; 7z archives require `7z` or `7za` on the
-backend server for validation.
+Every source must include a launch batch script either at the archive root or
+inside the only top-level folder. ZIP archives are inspected directly; 7z
+archives require `7z` or `7za` on the backend server for validation.
 
 For large Unreal deployments, prefer Server staging folder on the backend PC.
 When 7-Zip is available, the backend turns staging folders into generated `.7z`
@@ -244,7 +244,8 @@ Check:
 
 - Path exists on server
 - Path is within allowed package root
-- Archive or staging folder contains a top-level `.bat` launch script
+- Archive or staging folder contains a launch `.bat` at the root or inside the
+  only top-level folder
 
 ### 13.3 Repeated login failures
 

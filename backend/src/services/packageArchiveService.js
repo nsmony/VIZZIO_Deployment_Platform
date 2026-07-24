@@ -87,7 +87,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
   ensureSupportedArchive(resolvedPath);
   const batchScriptName = await findTopLevelBatchScriptInArchive(resolvedPath);
   if (!batchScriptName) {
-    throw new Error('Deployment package archive must contain a top-level launch batch script.');
+    throw new Error('Deployment package archive must contain a launch batch script at the archive root or inside one top-level folder.');
   }
 
   return {
