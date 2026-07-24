@@ -1,5 +1,9 @@
 # Launcher Tools
 
-Place `7za.exe` in this folder before building the installer if 7z package extraction must work on clean machines.
+Place `7z.exe` or `7za.exe` in this folder before building the installer when
+7z package extraction must work on clean user machines.
 
-The installer script copies `7za.exe` beside `Launcher.exe`. At runtime the launcher first checks its own install directory, then falls back to `PATH`.
+The installer build script also auto-detects `C:\Program Files\7-Zip\7z.exe` or
+an extractor on `PATH` when this folder is empty. It copies the extractor beside
+`Launcher.exe`; at runtime the launcher checks its own install directory first,
+then falls back to `PATH`.

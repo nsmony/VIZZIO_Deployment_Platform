@@ -6,6 +6,7 @@ function StatIcon({ name }) {
     active: 'm5 12 4 4L19 6',
     versions: 'M7 17 17 7M9 7h8v8',
     failed: 'M12 5v8m0 4h.01',
+    archive: 'M4 7h16M6 7v12h12V7M9 11h6',
   };
 
   return (
@@ -15,9 +16,15 @@ function StatIcon({ name }) {
   );
 }
 
-export default function DeploymentStatCard({ title, value, helper, tone = 'blue', icon }) {
+export default function DeploymentStatCard({ title, value, helper, tone = 'blue', icon, active = false, onClick }) {
+  const CardElement = onClick ? 'button' : 'article';
+
   return (
-    <article className="deployment-stat-card">
+    <CardElement
+      className={`deployment-stat-card${onClick ? ' clickable' : ''}${active ? ' active' : ''}`}
+      type={onClick ? 'button' : undefined}
+      onClick={onClick}
+    >
       <div className={`deployment-stat-icon ${tone}`}>
         <StatIcon name={icon} />
       </div>
@@ -26,6 +33,6 @@ export default function DeploymentStatCard({ title, value, helper, tone = 'blue'
         <strong>{value}</strong>
         <span className={tone === 'red' ? 'danger' : tone === 'green' ? 'success' : ''}>{helper}</span>
       </div>
-    </article>
+    </CardElement>
   );
 }

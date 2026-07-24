@@ -17,10 +17,12 @@ function ToolbarIcon({ name }) {
 export default function FilterToolbar({
   search,
   status,
+  channel,
   sort,
   viewMode,
   onSearchChange,
   onStatusChange,
+  onChannelChange,
   onSortChange,
   onViewModeChange,
   onCreate,
@@ -39,12 +41,14 @@ export default function FilterToolbar({
       <select value={status} onChange={(event) => onStatusChange(event.target.value)} aria-label="Filter by status">
         <option value="all">All Status</option>
         <option value="Active">Active</option>
-        <option value="Paused">Paused</option>
-        <option value="Cancelled">Cancelled</option>
+        <option value="Archived">Archived</option>
         <option value="Draft">Draft</option>
-        <option value="Testing">Testing</option>
         <option value="Inactive">Inactive</option>
-        <option value="Failed">Failed</option>
+      </select>
+      <select value={channel} onChange={(event) => onChannelChange(event.target.value)} aria-label="Filter by release channel">
+        <option value="all">All Channels</option>
+        <option value="stable">Stable</option>
+        <option value="beta">Beta</option>
       </select>
       <select value={sort} onChange={(event) => onSortChange(event.target.value)} aria-label="Sort deployments">
         <option value="recent">Recently Created</option>

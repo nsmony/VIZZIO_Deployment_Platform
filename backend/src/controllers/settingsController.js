@@ -1,4 +1,5 @@
 import { getAdminSettings, saveAdminSettings, resetAdminSettings } from '../services/settingsService.js';
+import { getSystemReadiness } from '../services/systemReadinessService.js';
 
 export async function fetchSettings(req, res) {
   if (!isAdmin(req.user)) {
@@ -28,6 +29,18 @@ export async function resetSettings(req, res) {
 
   const settings = await resetAdminSettings();
   res.json({ settings });
+}
+
+export async function systemReadiness(req, res) {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  try {
+    res.json({ readiness: await getSystemReadiness() });
+  } catch {
+    res.status(500).json({ error: 'Unable to check system readiness.' });
+  }
 }
 
 function isAdmin(user) {

@@ -110,6 +110,23 @@ export function updateDeploymentVersion(versionId, updates) {
   });
 }
 
+export function updateDeploymentVersions(deploymentId, where, updates) {
+  return prisma.deploymentVersion.updateMany({
+    where: {
+      deploymentId,
+      deletedAt: null,
+      ...where,
+    },
+    data: updates,
+  });
+}
+
+export function removeDeployment(id) {
+  return prisma.deployment.delete({
+    where: { id },
+  });
+}
+
 export function findVersionById(versionId) {
   return prisma.deploymentVersion.findFirst({
     where: { id: versionId, deletedAt: null },

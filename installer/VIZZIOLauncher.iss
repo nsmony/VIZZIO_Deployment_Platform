@@ -34,9 +34,10 @@ UninstallDisplayIcon={app}\Launcher.exe
 ; folders intact if the publish step creates native dependency directories.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; 7za.exe is optional: older launcher builds may not ship the package extraction
-; helper yet, so skipifsourcedoesntexist keeps packaging backward-compatible.
+; 7z extraction support is bundled by the build script so clean user machines
+; can install .7z deployment packages without installing 7-Zip separately.
 Source: "{#RepoRoot}\launcher\tools\7za.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#RepoRoot}\launcher\tools\7z.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{autoprograms}\VIZZIO Launcher"; Filename: "{app}\Launcher.exe"; WorkingDir: "{app}"

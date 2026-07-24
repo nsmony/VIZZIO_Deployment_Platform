@@ -47,7 +47,7 @@ test('corrupted file detection fails when SHA-256 does not match', async () => {
   assert.equal(await verifySha256(filePath, expected), false);
 });
 
-test('server staging folders are packaged into downloadable ZIP archives', async () => {
+test('server staging folders are packaged into downloadable archives', async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
   const previousRoot = process.env.PACKAGE_ROOT;
   process.env.PACKAGE_ROOT = tempRoot;
@@ -68,13 +68,17 @@ test('server staging folders are packaged into downloadable ZIP archives', async
     });
 
     assert.equal(result.packageSource, 'generatedArchive');
-    assert.equal(result.fileName, 'v1.0.0.zip');
-    assert.equal(result.fileType, 'application/zip');
+    assert.match(result.fileName, /^v1\.0\.0\.(zip|7z)$/);
+    assert.match(result.fileType, /^application\/(zip|x-7z-compressed)$/);
     assert.ok(result.packageSize > 0n);
     assert.match(result.checksum, /^[a-f0-9]{64}$/);
 
     const archive = await fs.readFile(result.packagePath);
-    assert.equal(archive.subarray(0, 2).toString('utf8'), 'PK');
+    if (result.fileName.endsWith('.zip')) {
+      assert.equal(archive.subarray(0, 2).toString('utf8'), 'PK');
+    } else {
+      assert.equal(archive.subarray(0, 6).toString('hex'), '377abcaf271c');
+    }
   } finally {
     if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
     else process.env.PACKAGE_ROOT = previousRoot;

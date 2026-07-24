@@ -7,13 +7,16 @@ import {
   findDeploymentsForUser,
   findVersionById,
   findDeploymentVersion,
+  removeDeployment,
   updateDeployment,
   updateDeploymentVersion,
+  updateDeploymentVersions,
 } from '../repositories/deploymentRepository.js';
 import { inspectPackageSource } from './packageArchiveService.js';
+import { notifyAdmins } from './notificationService.js';
 
 const RELEASE_TYPES = new Set(['stable', 'beta']);
-const VERSION_STATUSES = new Set(['draft', 'released', 'archived', 'deleted', 'paused', 'canceled']);
+const VERSION_STATUSES = new Set(['draft', 'released', 'archived', 'deleted']);
 
 // Return deployments the current user is allowed to see.
 export async function getDeploymentsForRequest(user) {
@@ -45,7 +48,13 @@ export async function createDeployment(data, createdBy) {
     versions: data.versions || [],
     createdBy,
   };
-  return toPublicDeployment(await addDeployment(deployment));
+  const createdDeployment = await addDeployment(deployment);
+  await notifyAdmins({
+    type: 'deployment',
+    title: 'Deployment created',
+    message: `${createdDeployment.name} was created.`,
+  });
+  return toPublicDeployment(createdDeployment);
 }
 
 export async function editDeployment(deploymentId, data) {
@@ -92,10 +101,12 @@ export async function registerVersion(deploymentId, data, userId) {
     versionNumber,
     deploymentId,
     createArchive: true,
+    knownChecksum: data.checksum,
+    knownBatchScriptName: data.batchScriptName,
   });
 
   try {
-    return toPublicVersion(await addDeploymentVersion(deploymentId, {
+    const createdVersion = await addDeploymentVersion(deploymentId, {
       versionNumber,
       description,
       releaseType,
@@ -107,7 +118,13 @@ export async function registerVersion(deploymentId, data, userId) {
       checksum: packageInfo.checksum,
       releasedAt: status === 'released' ? new Date() : null,
       releasedBy: status === 'released' && isUuid(userId) ? userId : null,
-    }), { admin: true });
+    });
+    await notifyAdmins({
+      type: 'version',
+      title: 'Version registered',
+      message: `${deployment.name} ${createdVersion.versionNumber} was registered as ${createdVersion.releaseType} ${createdVersion.status}.`,
+    });
+    return toPublicVersion(createdVersion, { admin: true });
   } catch (error) {
     if (error.code === 'P2002') {
       throw new Error('That version is already registered for this deployment.');
@@ -117,7 +134,13 @@ export async function registerVersion(deploymentId, data, userId) {
 }
 
 export async function validatePackage(data) {
-  const packageInfo = await inspectPackageSource({ ...data, createArchive: false });
+  const sourceType = String(data.sourceType || '');
+  const shouldPrepareArchive = sourceType === 'stagingFolder' && Boolean(data.versionNumber);
+  const packageInfo = await inspectPackageSource({
+    ...data,
+    createArchive: shouldPrepareArchive,
+    skipChecksum: true,
+  });
   return {
     packageSource: packageInfo.packageSource,
     packagePath: packageInfo.packagePath,
@@ -132,6 +155,7 @@ export async function validatePackage(data) {
 export async function changeVersion(deploymentId, versionId, data, userId) {
   const version = await findDeploymentVersion(deploymentId, versionId);
   if (!version) return null;
+  const deployment = await findDeploymentById(deploymentId);
 
   const updates = {};
   if (data.description !== undefined) {
@@ -158,34 +182,87 @@ export async function changeVersion(deploymentId, versionId, data, userId) {
   }
 
   if (Object.keys(updates).length === 0) throw new Error('No version changes were provided.');
-  return toPublicVersion(await updateDeploymentVersion(versionId, updates));
+  const updatedVersion = await updateDeploymentVersion(versionId, updates);
+  if (updates.status || updates.releaseType || updates.description !== undefined) {
+    await notifyAdmins({
+      type: 'version',
+      title: 'Version updated',
+      message: `${deployment?.name || 'Deployment'} ${updatedVersion.versionNumber} is now ${updatedVersion.releaseType} ${updatedVersion.status}.`,
+    });
+  }
+  return toPublicVersion(updatedVersion);
 }
 
-export async function updateDeploymentRunState(deploymentId, action) {
+export async function archiveDeployment(deploymentId) {
   const deployment = await findDeploymentById(deploymentId);
   if (!deployment) return null;
 
-  const status = String(action || '').toLowerCase() === 'cancel' ? 'canceled' : 'paused';
-  const activeVersion = (deployment.versions || []).find((version) => version.status === 'released');
-  if (!activeVersion) {
-    const error = new Error('Deployment does not have a running version.');
+  if ((deployment.versions || []).length === 0) {
+    const error = new Error('Deployment does not have versions to archive.');
     error.status = 409;
     throw error;
   }
 
-  await updateDeploymentVersion(activeVersion.id, { status });
-  return toPublicDeployment(await findDeploymentById(deploymentId), { admin: true });
+  await updateDeploymentVersions(deploymentId, {}, {
+    status: 'archived',
+    releasedAt: null,
+    releasedBy: null,
+  });
+  const archivedDeployment = await findDeploymentById(deploymentId);
+  await notifyAdmins({
+    type: 'deployment',
+    title: 'Deployment archived',
+    message: `${archivedDeployment.name} and its versions were archived.`,
+  });
+  return toPublicDeployment(archivedDeployment, { admin: true });
+}
+
+export async function restoreDeployment(deploymentId) {
+  const deployment = await findDeploymentById(deploymentId);
+  if (!deployment) return null;
+
+  await updateDeploymentVersions(deploymentId, { status: 'archived' }, {
+    status: 'draft',
+    releasedAt: null,
+    releasedBy: null,
+  });
+  const restoredDeployment = await findDeploymentById(deploymentId);
+  await notifyAdmins({
+    type: 'deployment',
+    title: 'Deployment restored',
+    message: `${restoredDeployment.name} and its archived versions were restored to draft.`,
+  });
+  return toPublicDeployment(restoredDeployment, { admin: true });
+}
+
+export async function deleteDeployment(deploymentId) {
+  const deployment = await findDeploymentById(deploymentId);
+  if (!deployment) return null;
+
+  await removeDeployment(deploymentId);
+  await notifyAdmins({
+    type: 'deployment',
+    title: 'Deployment deleted',
+    message: `${deployment.name} was deleted.`,
+  });
+  return toPublicDeployment(deployment, { admin: true });
 }
 
 export async function deleteVersion(versionId, userId) {
   const version = await findVersionById(versionId);
   if (!version) return null;
 
-  return toPublicVersion(await updateDeploymentVersion(versionId, {
+  const deletedVersion = await updateDeploymentVersion(versionId, {
     status: 'deleted',
     deletedAt: new Date(),
     deletedBy: isUuid(userId) ? userId : null,
-  }), { admin: true });
+  });
+  await notifyAdmins({
+    type: 'version',
+    title: 'Version deleted',
+    message: `${version.deployment.name} ${version.versionNumber} was deleted.`,
+  });
+  return toPublicVersion(deletedVersion, { admin: true });
 }
 
 export async function getDeploymentDetails(deploymentId, user) {

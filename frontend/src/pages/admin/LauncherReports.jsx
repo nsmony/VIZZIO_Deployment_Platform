@@ -4,13 +4,14 @@ import '../../styles/Logs.css';
 
 const AREA_OPTIONS = [
   { value: '', label: 'All Areas' },
-  { value: 'launch', label: 'Launch' },
-  { value: 'download', label: 'Download' },
-  { value: 'self-update', label: 'Self-update' },
+  { value: 'download', label: 'Download / Install' },
+  { value: 'launch', label: 'Deployment Launch' },
+  { value: 'self-update', label: 'Launcher Update' },
 ];
 
 export default function LauncherReports() {
   const [reports, setReports] = useState([]);
+  const [allReports, setAllReports] = useState([]);
   const [deployment, setDeployment] = useState('');
   const [area, setArea] = useState('');
   const [selectedReport, setSelectedReport] = useState(null);
@@ -21,20 +22,36 @@ export default function LauncherReports() {
   const token = localStorage.getItem('vizzio_token');
 
   useEffect(() => {
+    loadReportOptions();
+  }, []);
+
+  useEffect(() => {
     loadReports();
   }, [deployment, area]);
 
   const deployments = useMemo(() => {
-    return [...new Set(reports.map((report) => report.context?.deploymentName).filter(Boolean))].sort();
-  }, [reports]);
+    return [...new Set(allReports.map((report) => report.context?.deploymentName).filter(Boolean))].sort();
+  }, [allReports]);
 
   const latestReport = reports[0];
+
+  async function loadReportOptions() {
+    try {
+      const data = await fetchLauncherErrorReports(token);
+      setAllReports(data.reports || []);
+    } catch {
+      setAllReports([]);
+    }
+  }
 
   async function loadReports() {
     setIsLoading(true);
     setError('');
 
     try {
+      if (!deployment && !area) {
+        await loadReportOptions();
+      }
       const data = await fetchLauncherErrorReports(token, { deployment, area });
       setReports(data.reports || []);
       setSelectedReport(null);
@@ -47,6 +64,7 @@ export default function LauncherReports() {
 
   async function openReport(reportId) {
     setIsDetailLoading(true);
+    setSelectedReport(null);
     setError('');
 
     try {
@@ -81,7 +99,7 @@ export default function LauncherReports() {
             </select>
           </label>
           <label>
-            Area
+            Failure area
             <select value={area} onChange={(event) => setArea(event.target.value)}>
               {AREA_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -104,7 +122,7 @@ export default function LauncherReports() {
           <div className="summary-row">
             <div>
               <p className="summary-title">Scope</p>
-              <strong>{deployment || 'All deployments'}</strong>
+              <strong>{getScopeLabel(deployment, area)}</strong>
             </div>
             <div>
               <p className="summary-title">Reports</p>
@@ -166,7 +184,15 @@ export default function LauncherReports() {
         </div>
 
         {(selectedReport || isDetailLoading) && (
-          <section className="launcher-report-detail" aria-live="polite">
+          <div className="logs-modal-backdrop" onClick={() => setSelectedReport(null)} role="presentation">
+            <section
+              className="launcher-report-detail logs-modal"
+              aria-live="polite"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Launcher report detail"
+              onClick={(event) => event.stopPropagation()}
+            >
             {isDetailLoading ? (
               <div className="logs-empty">Loading report details...</div>
             ) : (
@@ -213,11 +239,18 @@ export default function LauncherReports() {
                 <pre className="report-log-tail">{selectedReport.logTail || 'No launcher log tail was included.'}</pre>
               </>
             )}
-          </section>
+            </section>
+          </div>
         )}
       </section>
     </main>
   );
+}
+
+function getScopeLabel(deployment, area) {
+  const deploymentLabel = deployment || 'All deployments';
+  const areaLabel = area ? formatArea(area) : '';
+  return areaLabel ? `${deploymentLabel} / ${areaLabel}` : deploymentLabel;
 }
 
 function formatDate(value) {
@@ -227,6 +260,12 @@ function formatDate(value) {
 
 function formatArea(value) {
   if (!value) return 'Launcher';
+  const labels = {
+    download: 'Download / Install',
+    launch: 'Deployment Launch',
+    'self-update': 'Launcher Update',
+  };
+  if (labels[value]) return labels[value];
   return value
     .split('-')
     .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))

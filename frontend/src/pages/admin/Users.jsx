@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createGroup,
   createUser,
@@ -47,7 +47,10 @@ export default function Users() {
 
   // Form state for user and group modals.
   const [form, setForm] = useState(emptyForm);
+  const [userGroupSearch, setUserGroupSearch] = useState('');
   const [groupForm, setGroupForm] = useState(emptyGroupForm);
+  const [groupMemberSearch, setGroupMemberSearch] = useState('');
+  const [groupDeploymentSearch, setGroupDeploymentSearch] = useState('');
   const [editingUser, setEditingUser] = useState(null);
   const [editingGroup, setEditingGroup] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -100,6 +103,33 @@ export default function Users() {
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
   const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
 
+  const filteredUserGroups = useMemo(() => {
+    const normalizedSearch = userGroupSearch.trim().toLowerCase();
+    if (!normalizedSearch) return groups;
+    return groups.filter((group) =>
+      group.name.toLowerCase().includes(normalizedSearch)
+    );
+  }, [groups, userGroupSearch]);
+
+  const filteredGroupMembers = useMemo(() => {
+    const normalizedSearch = groupMemberSearch.trim().toLowerCase();
+    if (!normalizedSearch) return users;
+    return users.filter((user) =>
+      user.name.toLowerCase().includes(normalizedSearch) ||
+      String(user.username || '').toLowerCase().includes(normalizedSearch) ||
+      user.email.toLowerCase().includes(normalizedSearch)
+    );
+  }, [users, groupMemberSearch]);
+
+  const filteredGroupDeployments = useMemo(() => {
+    const normalizedSearch = groupDeploymentSearch.trim().toLowerCase();
+    if (!normalizedSearch) return deployments;
+    return deployments.filter((deployment) =>
+      deployment.name.toLowerCase().includes(normalizedSearch) ||
+      String(deployment.description || '').toLowerCase().includes(normalizedSearch)
+    );
+  }, [deployments, groupDeploymentSearch]);
+
   // Reset to page one when filters change.
   useEffect(() => {
     setPage(1);
@@ -135,6 +165,7 @@ export default function Users() {
   function openCreateForm() {
     setEditingUser(null);
     setForm(emptyForm);
+    setUserGroupSearch('');
     setMessage('');
     setError('');
     setIsFormOpen(true);
@@ -153,6 +184,7 @@ export default function Users() {
       groups: user.groups || [],
       password: '',
     });
+    setUserGroupSearch('');
     setMessage('');
     setError('');
     setIsFormOpen(true);
@@ -164,12 +196,15 @@ export default function Users() {
     setIsFormOpen(false);
     setEditingUser(null);
     setForm(emptyForm);
+    setUserGroupSearch('');
   }
 
   // Open a blank group form.
   function openCreateGroupForm() {
     setEditingGroup(null);
     setGroupForm(emptyGroupForm);
+    setGroupMemberSearch('');
+    setGroupDeploymentSearch('');
     setMessage('');
     setError('');
     setIsGroupFormOpen(true);
@@ -185,6 +220,8 @@ export default function Users() {
         .filter((user) => (user.groups || []).includes(group.name))
         .map((user) => user.id),
     });
+    setGroupMemberSearch('');
+    setGroupDeploymentSearch('');
     setMessage('');
     setError('');
     setIsGroupFormOpen(true);
@@ -196,6 +233,8 @@ export default function Users() {
     setIsGroupFormOpen(false);
     setEditingGroup(null);
     setGroupForm(emptyGroupForm);
+    setGroupMemberSearch('');
+    setGroupDeploymentSearch('');
   }
 
   function updateField(field, value) {
@@ -499,27 +538,30 @@ export default function Users() {
       <section className="users-toolbar">
         <div className="users-filters">
           <div className="search-input">
-            <span aria-hidden="true">Search</span>
             <input
               type="text"
-              placeholder="Search users"
+              placeholder="Search users..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
 
-          <select value={filterRole} onChange={(event) => setFilterRole(event.target.value)}>
-            <option>All Users</option>
-            <option>Admin</option>
-            <option>User</option>
-          </select>
+          <ToolbarDropdown
+            label="User filter"
+            value={filterRole}
+            options={['All Users', 'Admin', 'User'].map((option) => ({ label: option, value: option }))}
+            onChange={setFilterRole}
+          />
 
-          <select value={filterGroup} onChange={(event) => setFilterGroup(event.target.value)}>
-            <option>All Groups</option>
-            {groupNames.map((group) => (
-              <option key={group}>{group}</option>
-            ))}
-          </select>
+          <ToolbarDropdown
+            label="Group filter"
+            value={filterGroup}
+            options={[
+              { label: 'All Groups', value: 'All Groups' },
+              ...groupNames.map((group) => ({ label: group, value: group })),
+            ]}
+            onChange={setFilterGroup}
+          />
         </div>
 
         <div className="users-actions">
@@ -737,23 +779,42 @@ export default function Users() {
               </label>
             </div>
 
-            <fieldset className="checkbox-fieldset">
-              <legend>Groups</legend>
-              {groups.length > 0 ? (
-                groups.map((group) => (
-                  <label className="checkbox-row" key={group.id}>
-                    <input
-                      type="checkbox"
-                      checked={form.groups.includes(group.name)}
-                      onChange={() => toggleUserGroup(group.name)}
-                    />
-                    <span>{group.name}</span>
-                  </label>
-                ))
-              ) : (
-                <p className="muted-text">Create a group before assigning access.</p>
-              )}
-            </fieldset>
+            <details className="picker-dropdown">
+              <summary>
+                <span>
+                  <strong>Groups</strong>
+                  <small>{form.groups.length} selected</small>
+                </span>
+                <span className="picker-chevron" aria-hidden="true" />
+              </summary>
+              <div className="picker-panel">
+                <input
+                  className="picker-search"
+                  type="search"
+                  placeholder="Search groups..."
+                  value={userGroupSearch}
+                  onChange={(event) => setUserGroupSearch(event.target.value)}
+                />
+                {groups.length === 0 ? (
+                  <p className="muted-text">Create a group before assigning access.</p>
+                ) : filteredUserGroups.length === 0 ? (
+                  <p className="muted-text">No groups match this search.</p>
+                ) : (
+                  <div className="picker-options">
+                    {filteredUserGroups.map((group) => (
+                      <label className="checkbox-row picker-row" key={group.id}>
+                        <input
+                          type="checkbox"
+                          checked={form.groups.includes(group.name)}
+                          onChange={() => toggleUserGroup(group.name)}
+                        />
+                        <span>{group.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
 
             {!editingUser && (
               <label>
@@ -927,42 +988,80 @@ export default function Users() {
               />
             </label>
 
-            <fieldset className="checkbox-fieldset">
-              <legend>Members</legend>
-              {users.length > 0 ? (
-                users.map((user) => (
-                  <label className="checkbox-row" key={user.id}>
-                    <input
-                      type="checkbox"
-                      checked={groupForm.memberIds.includes(user.id)}
-                      onChange={() => toggleGroupMember(user.id)}
-                    />
-                    <span>{user.name}</span>
-                    <small>{user.email}</small>
-                  </label>
-                ))
-              ) : (
-                <p className="muted-text">Create users before adding members.</p>
-              )}
-            </fieldset>
+            <details className="picker-dropdown">
+              <summary>
+                <span>
+                  <strong>Members</strong>
+                  <small>{groupForm.memberIds.length} selected</small>
+                </span>
+                <span className="picker-chevron" aria-hidden="true" />
+              </summary>
+              <div className="picker-panel">
+                <input
+                  className="picker-search"
+                  type="search"
+                  placeholder="Search users..."
+                  value={groupMemberSearch}
+                  onChange={(event) => setGroupMemberSearch(event.target.value)}
+                />
+                {users.length === 0 ? (
+                  <p className="muted-text">Create users before adding members.</p>
+                ) : filteredGroupMembers.length === 0 ? (
+                  <p className="muted-text">No users match this search.</p>
+                ) : (
+                  <div className="picker-options">
+                    {filteredGroupMembers.map((user) => (
+                      <label className="checkbox-row picker-row" key={user.id}>
+                        <input
+                          type="checkbox"
+                          checked={groupForm.memberIds.includes(user.id)}
+                          onChange={() => toggleGroupMember(user.id)}
+                        />
+                        <span>{user.name}</span>
+                        <small>{user.email}</small>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
 
-            <fieldset className="checkbox-fieldset">
-              <legend>Deployment Access</legend>
-              {deployments.length > 0 ? (
-                deployments.map((deployment) => (
-                  <label className="checkbox-row" key={deployment.id}>
-                    <input
-                      type="checkbox"
-                      checked={groupForm.deploymentIds.includes(deployment.id)}
-                      onChange={() => toggleGroupDeployment(deployment.id)}
-                    />
-                    <span>{deployment.name}</span>
-                  </label>
-                ))
-              ) : (
-                <p className="muted-text">No deployments available.</p>
-              )}
-            </fieldset>
+            <details className="picker-dropdown">
+              <summary>
+                <span>
+                  <strong>Deployment Access</strong>
+                  <small>{groupForm.deploymentIds.length} selected</small>
+                </span>
+                <span className="picker-chevron" aria-hidden="true" />
+              </summary>
+              <div className="picker-panel">
+                <input
+                  className="picker-search"
+                  type="search"
+                  placeholder="Search deployments..."
+                  value={groupDeploymentSearch}
+                  onChange={(event) => setGroupDeploymentSearch(event.target.value)}
+                />
+                {deployments.length === 0 ? (
+                  <p className="muted-text">No deployments available.</p>
+                ) : filteredGroupDeployments.length === 0 ? (
+                  <p className="muted-text">No deployments match this search.</p>
+                ) : (
+                  <div className="picker-options">
+                    {filteredGroupDeployments.map((deployment) => (
+                      <label className="checkbox-row picker-row" key={deployment.id}>
+                        <input
+                          type="checkbox"
+                          checked={groupForm.deploymentIds.includes(deployment.id)}
+                          onChange={() => toggleGroupDeployment(deployment.id)}
+                        />
+                        <span>{deployment.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
 
             <div className="modal-actions">
               <button type="button" className="secondary-btn" onClick={closeGroupForm}>Cancel</button>
@@ -1000,6 +1099,55 @@ function DetailBlock({ title, value }) {
     <div className="detail-block">
       <span>{title}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function ToolbarDropdown({ label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function closeOnOutsideClick(event) {
+      if (!dropdownRef.current?.contains(event.target)) setOpen(false);
+    }
+
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, []);
+
+  return (
+    <div className={`toolbar-select ${open ? 'open' : ''}`} ref={dropdownRef}>
+      <button
+        type="button"
+        className="toolbar-select-trigger"
+        aria-label={label}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>{value}</span>
+        <span className="toolbar-select-chevron" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="toolbar-select-menu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={value === option.value}
+              className={value === option.value ? 'selected' : ''}
+              key={option.value}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+            >
+              <span>{option.label}</span>
+              {value === option.value && <span className="toolbar-select-check" aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

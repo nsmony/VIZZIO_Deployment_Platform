@@ -22,6 +22,7 @@ const emptyVersion = {
   packageSize: '',
   checksum: '',
   batchScriptName: '',
+  preparedPackagePath: '',
   description: '',
 };
 
@@ -34,6 +35,16 @@ function formatPackageSize(value) {
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function getPackageSourceHint(sourceType) {
+  if (sourceType === 'upload') {
+    return 'Use this for a ZIP or 7z stored anywhere on your computer.';
+  }
+  if (sourceType === 'serverArchive') {
+    return 'Use this for an archive that already exists on the backend PC inside the package root.';
+  }
+  return 'Use this for an unpacked folder that already exists on the backend PC inside the package root.';
 }
 
 export default function Version() {
@@ -116,6 +127,15 @@ export default function Version() {
           fileType: selectedFile.type || nextForm.fileType,
           packageSize: String(uploadedPackage.size),
           checksum: uploadedPackage.checksum || nextForm.checksum,
+          batchScriptName: uploadedPackage.batchScriptName || nextForm.batchScriptName,
+        };
+      }
+
+      if (nextForm.preparedPackagePath) {
+        nextForm = {
+          ...nextForm,
+          packagePath: nextForm.preparedPackagePath,
+          sourceType: 'serverArchive',
         };
       }
 
@@ -145,6 +165,7 @@ export default function Version() {
       packageSize: '',
       checksum: '',
       batchScriptName: '',
+      preparedPackagePath: '',
     });
   }
 
@@ -156,13 +177,23 @@ export default function Version() {
     setError('');
     try {
       // Ask the backend to check the path and calculate package details.
-      const result = await validateDeploymentPackage(token, form.packagePath, form.sourceType);
+      const result = await validateDeploymentPackage(token, {
+        packagePath: form.packagePath,
+        sourceType: form.sourceType,
+        versionNumber: form.versionNumber,
+        deploymentName: deployment?.name,
+        deploymentId: deployment?.id,
+      });
       const packageInfo = result.package;
       setForm((current) => ({
         ...current,
-        sourceType: packageInfo.packageSource || current.sourceType,
+        preparedPackagePath: packageInfo.packageSource === 'generatedArchive'
+          ? packageInfo.packagePath
+          : '',
         fileName: packageInfo.fileName || '',
-        fileType: packageInfo.fileType || '',
+        fileType: current.sourceType === 'stagingFolder' && !packageInfo.fileName
+          ? 'Generated .7z archive'
+          : packageInfo.fileType || '',
         packageSize: packageInfo.packageSize || '',
         checksum: packageInfo.checksum || '',
         batchScriptName: packageInfo.batchScriptName || '',
@@ -275,34 +306,39 @@ export default function Version() {
                 // Reset package fields when the source type changes.
                 setSelectedFile(null);
                 setPackageValidated(false);
-                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '', batchScriptName: '', description: form.description });
+                setForm({ ...form, sourceType: event.target.value, packagePath: '', fileName: '', fileType: '', packageSize: '', checksum: '', batchScriptName: '', preparedPackagePath: '', description: form.description });
               }}
             >
               <option value="stagingFolder">Server staging folder</option>
               <option value="serverArchive">Server archive path</option>
               <option value="upload">Upload archive</option>
             </select>
+            <span className="version-field-hint">{getPackageSourceHint(form.sourceType)}</span>
           </label>
           <label className="version-path-field">
             {form.sourceType === 'stagingFolder' ? 'Server staging folder path' : 'Server archive path'}
             <input
               value={form.packagePath}
               onChange={(event) => updatePackagePath(event.target.value)}
-              placeholder={form.sourceType === 'stagingFolder' ? '/var/vizzio/packages/digital-twin/v1.3.0' : '/var/vizzio/packages/digital-twin-v1.3.0.zip'}
+              placeholder={form.sourceType === 'stagingFolder' ? 'C:\\VIZZIO\\packages\\digital-twin\\v1.3.0' : 'C:\\VIZZIO\\packages\\digital-twin-v1.3.0.zip'}
               required={form.sourceType !== 'upload'}
               disabled={form.sourceType === 'upload'}
             />
+            {form.sourceType !== 'upload' && (
+              <span className="version-field-hint">Server paths must be inside the backend package root. For files elsewhere, choose Upload archive.</span>
+            )}
           </label>
           {form.sourceType !== 'upload' && (
             <div className="version-form-actions">
               <button className="secondary-btn" type="button" disabled={validatingPackage || !form.packagePath || Boolean(selectedFile)} onClick={handleValidatePackage}>
-                {validatingPackage ? 'Validating...' : form.sourceType === 'stagingFolder' ? 'Validate folder' : 'Validate archive'}
+                {validatingPackage ? form.sourceType === 'stagingFolder' ? 'Preparing...' : 'Validating...' : form.sourceType === 'stagingFolder' ? 'Prepare folder' : 'Validate archive'}
               </button>
-              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' ? 'Folder ready for packaging' : 'Archive validated'}</span>}
+              {packageValidated && <span className="version-validation-ok">{form.sourceType === 'stagingFolder' ? 'Package prepared; checksum runs during register' : 'Archive validated; checksum runs during register'}</span>}
             </div>
           )}
           {form.sourceType === 'upload' && <label className="version-file-field">
             Upload package archive
+            <span className="version-field-hint">Choose a ZIP or 7z from this computer. It will be copied into backend storage after validation.</span>
             <input
               type="file"
               accept=".zip,.7z,application/zip,application/x-7z-compressed"
@@ -341,21 +377,27 @@ export default function Version() {
               rows="3"
             />
           </label>
-          <label>
+          <label className="version-metadata-field">
             File name
             <input value={form.fileName} readOnly placeholder={form.sourceType === 'stagingFolder' ? 'Generated when the version is registered' : 'Validate or upload a package first'} />
+            {form.preparedPackagePath && <span className="version-field-hint">Prepared archive: {form.preparedPackagePath}</span>}
           </label>
-          <label>
+          <label className="version-metadata-field">
             File type
             <input value={form.fileType} readOnly placeholder="application/zip" />
           </label>
-          <label>
+          <label className="version-metadata-field">
+            Detected launch script
+            <input value={form.batchScriptName} readOnly placeholder="Validate or upload a package first" />
+            <span className="version-field-hint">The launcher runs this top-level batch file after install.</span>
+          </label>
+          <label className="version-metadata-field">
             Package size in bytes
             <input type="number" min="0" step="1" value={form.packageSize} readOnly placeholder="1073741824" />
           </label>
           <label className="version-checksum-field">
             Checksum
-            <input value={form.checksum} readOnly placeholder="SHA-256 checksum" />
+            <input value={form.checksum} readOnly placeholder="Calculated when the version is registered" />
           </label>
           <div className="version-form-actions">
             <button className="primary-btn" type="submit" disabled={saving || (form.sourceType === 'upload' ? !selectedFile : !packageValidated)}>{saving ? 'Registering...' : 'Register version'}</button>
@@ -363,7 +405,7 @@ export default function Version() {
         </form>
       )}
 
-      {error && <p className="version-message error">{error}</p>}
+      {error && <ErrorDialog message={error} onClose={() => setError('')} />}
 
       <section className="version-list-card">
         <div className="version-list-heading">
@@ -535,9 +577,35 @@ export default function Version() {
   );
 }
 
+function ErrorDialog({ message, onClose }) {
+  return (
+    <div className="version-modal-backdrop" onClick={onClose} role="presentation">
+      <section
+        className="version-modal version-error-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="version-error-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="version-modal-header">
+          <h3 id="version-error-title">Version action failed</h3>
+        </header>
+        <div className="version-error-body">
+          <p>{message}</p>
+        </div>
+        <footer className="version-modal-actions">
+          <button className="version-error-ok-btn" type="button" onClick={onClose}>
+            OK
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function groupVersions(versions) {
   const channelOrder = ['stable', 'beta'];
-  const statusOrder = ['released', 'archived', 'draft', 'paused', 'canceled', 'failed'];
+  const statusOrder = ['released', 'archived', 'draft'];
 
   return channelOrder.flatMap((channel) =>
     statusOrder

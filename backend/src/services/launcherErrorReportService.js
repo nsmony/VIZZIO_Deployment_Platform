@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { notifyAdmins } from './notificationService.js';
 
 const REPORT_ROOT = path.resolve(process.env.LAUNCHER_ERROR_REPORT_ROOT || path.join(process.cwd(), 'storage', 'launcher-error-reports'));
 const MAX_LOG_CHARS = 120_000;
@@ -50,6 +51,11 @@ export async function saveLauncherErrorReport({ user, body, ipAddress, userAgent
   await fs.mkdir(REPORT_ROOT, { recursive: true });
   const filePath = path.join(REPORT_ROOT, `${report.id}.json`);
   await fs.writeFile(filePath, JSON.stringify(report, null, 2), 'utf8');
+  await notifyAdmins({
+    type: 'launcher',
+    title: 'Launcher failure reported',
+    message: `${report.context.deploymentName || 'Launcher'} ${report.context.area} failed: ${report.context.message || 'No message provided.'}`,
+  });
   return { id: report.id, savedAt: report.receivedAt };
 }
 

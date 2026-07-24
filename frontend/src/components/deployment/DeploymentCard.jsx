@@ -29,8 +29,8 @@ function CardActionIcon({ type }) {
   );
 }
 
-export default function DeploymentCard({ deployment, onView, onEdit, onToggleMenu, menuOpen, onCopyId, onPause, onCancel }) {
-  const isRunning = deployment.displayStatus === 'Active';
+export default function DeploymentCard({ deployment, onView, onEdit, onToggleMenu, menuOpen, onCopyId, onArchive, onRestore, onDelete }) {
+  const isArchived = deployment.displayStatus === 'Archived';
 
   return (
     <article className="deployment-card">
@@ -77,8 +77,12 @@ export default function DeploymentCard({ deployment, onView, onEdit, onToggleMen
             <div className="deployment-more-menu">
               <button type="button" onClick={() => onView(deployment)}>View details</button>
               <button type="button" onClick={() => onCopyId(deployment)}>Copy ID</button>
-              {isRunning && <button type="button" onClick={() => onPause(deployment)}>Pause</button>}
-              {isRunning && <button type="button" onClick={() => onCancel(deployment)}>Cancel</button>}
+              {isArchived ? (
+                <button type="button" onClick={() => onRestore(deployment)}>Restore draft</button>
+              ) : (
+                <button type="button" onClick={() => onArchive(deployment)}>Archive deployment</button>
+              )}
+              <button className="danger" type="button" onClick={() => onDelete(deployment)}>Delete deployment</button>
             </div>
           )}
         </div>

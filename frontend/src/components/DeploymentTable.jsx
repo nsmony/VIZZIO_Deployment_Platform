@@ -8,12 +8,16 @@ export default function DeploymentTable({ deployments }) {
   const visibleDeployments = useMemo(() => {
     const items = [...deployments];
 
-    if (filterMode === 'released') {
-      return items.filter((dep) => dep.status?.toLowerCase() === 'released');
+    if (filterMode === 'active') {
+      return items.filter((dep) => dep.status?.toLowerCase() === 'active');
     }
 
     if (filterMode === 'draft') {
       return items.filter((dep) => dep.status?.toLowerCase() === 'draft');
+    }
+
+    if (filterMode === 'archived') {
+      return items.filter((dep) => dep.status?.toLowerCase() === 'archived');
     }
 
     if (filterMode === 'az') {
@@ -52,8 +56,9 @@ export default function DeploymentTable({ deployments }) {
                 <button type="button" onClick={() => applyFilter('all')}>Show All</button>
                 <button type="button" onClick={() => applyFilter('az')}>Sort A-Z by module name</button>
                 <button type="button" onClick={() => applyFilter('za')}>Sort Z-A by module name</button>
-                <button type="button" onClick={() => applyFilter('released')}>Status: Released</button>
+                <button type="button" onClick={() => applyFilter('active')}>Status: Active</button>
                 <button type="button" onClick={() => applyFilter('draft')}>Status: Draft</button>
+                <button type="button" onClick={() => applyFilter('archived')}>Status: Archived</button>
               </div>
             )}
           </div>
@@ -70,17 +75,23 @@ export default function DeploymentTable({ deployments }) {
           </tr>
         </thead>
         <tbody>
-          {visibleDeployments.map((dep, idx) => (
-            <tr key={idx}>
-              <td>{dep.module}</td>
-              <td>{dep.latestBeta}</td>
-              <td>{dep.stableVersion}</td>
-              <td>
-                <span className={`status ${dep.status?.toLowerCase() || ''}`}>{dep.status}</span>
-              </td>
-              <td>{dep.lastUpdated}</td>
+          {visibleDeployments.length === 0 ? (
+            <tr>
+              <td colSpan="5" className="deployment-table-empty">No deployments match this view.</td>
             </tr>
-          ))}
+          ) : (
+            visibleDeployments.map((dep, idx) => (
+              <tr key={`${dep.module}-${idx}`}>
+                <td>{dep.module}</td>
+                <td>{dep.latestBeta}</td>
+                <td>{dep.stableVersion}</td>
+                <td>
+                  <span className={`status ${dep.status?.toLowerCase() || ''}`}>{dep.status}</span>
+                </td>
+                <td>{dep.lastUpdated}</td>
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>

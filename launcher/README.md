@@ -72,10 +72,23 @@ The installer is written to `installer\artifacts`.
 The `-Version` value is stamped into both the installer metadata and the
 launcher assembly version used by the self-update check.
 
-To bundle 7z extraction support for clean machines, provide `7za.exe`:
+The installer bundles `7z.exe` or `7za.exe` beside `Launcher.exe` so users can
+extract `.7z` deployment packages without installing 7-Zip themselves. The build
+script looks in this order:
+
+- `-SevenZipPath`, if provided
+- `launcher\tools\7za.exe` or `launcher\tools\7z.exe`
+- `C:\Program Files\7-Zip\7z.exe`
+- `C:\Program Files (x86)\7-Zip\7z.exe`
+- `7z.exe` or `7za.exe` on `PATH`
+
+If no extractor is found, the installer build fails instead of producing a
+launcher that cannot install `.7z` packages.
+
+To provide the extractor explicitly:
 
 ```powershell
-.\scripts\build_launcher_installer.ps1 -Version 0.1.0 -SevenZipPath C:\Tools\7za.exe
+.\scripts\build_launcher_installer.ps1 -Version 0.1.0 -SevenZipPath "C:\Program Files\7-Zip\7z.exe"
 ```
 
 User settings are stored under `%LOCALAPPDATA%\VIZZIO\Launcher`, and the JWT is stored in Windows Credential Manager, so installer upgrades replace app binaries while preserving user configuration.

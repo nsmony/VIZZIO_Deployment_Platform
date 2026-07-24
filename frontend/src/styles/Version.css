@@ -13,15 +13,19 @@
 }
 
 .version-filter select {
-  padding: 12px 14px;
+  appearance: none;
+  min-height: 48px;
+  padding: 12px 42px 12px 14px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: white;
+  background: white url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 14px center / 14px 14px no-repeat;
   color: var(--text);
+  font-weight: 400;
 }
 
 .version-register-card textarea {
   width: 100%;
+  min-height: 104px;
   padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -29,6 +33,37 @@
   color: var(--text);
   font: inherit;
   resize: vertical;
+}
+
+.version-register-card input[readonly] {
+  min-height: 44px;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 400;
+}
+
+.version-register-card input[readonly]::placeholder,
+.version-register-card textarea::placeholder {
+  color: #64748b;
+  font-weight: 400;
+}
+
+.version-metadata-field {
+  gap: 7px;
+}
+
+.version-metadata-field input {
+  font-size: 13px;
+}
+
+.version-field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .version-table-wrap {
@@ -143,6 +178,16 @@
   color: #991b1b;
 }
 
+.status-paused {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-canceled {
+  background: #f1f5f9;
+  color: #475569;
+}
+
 .status-deleted {
   background: #f1f5f9;
   color: #64748b;
@@ -221,10 +266,26 @@
   width: min(760px, 100%);
   max-height: min(88vh, 760px);
   overflow: auto;
-  border-radius: 14px;
+  border-radius: 18px;
   border: 1px solid #dbe5f0;
   background: white;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.32);
+}
+
+.version-error-modal {
+  width: min(540px, 100%);
+}
+
+.version-error-body {
+  padding: 24px 24px 18px;
+}
+
+.version-error-body p {
+  margin: 0;
+  color: #991b1b;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .version-modal-header {
@@ -309,10 +370,30 @@
   padding: 0 18px 18px;
 }
 
+.version-error-modal .version-modal-actions {
+  padding: 0 24px 24px;
+}
+
+.version-error-ok-btn {
+  min-width: 112px;
+  min-height: 42px;
+  padding: 0 20px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: white;
+  font: inherit;
+  font-weight: 600;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
+}
+
 @media (max-width: 700px) {
   .version-filter {
     width: 100%;
     min-width: 0;
+  }
+
+  .version-register-card {
+    grid-template-columns: 1fr;
   }
 
   .version-modal-grid {

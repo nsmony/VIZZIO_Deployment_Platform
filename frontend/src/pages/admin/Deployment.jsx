@@ -1,10 +1,11 @@
 ﻿import { useEffect, useMemo, useState } from 'react';
 import {
-  cancelDeployment,
+  archiveDeployment,
   createDeployment,
+  deleteDeployment,
   fetchDeploymentDetails,
   fetchDeployments,
-  pauseDeployment,
+  restoreDeployment,
   updateDeployment,
 } from '../../api';
 import DeploymentCard from '../../components/deployment/DeploymentCard';
@@ -30,6 +31,7 @@ export default function Deployment() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [channelFilter, setChannelFilter] = useState('all');
   const [sortMode, setSortMode] = useState('recent');
   const [viewMode, setViewMode] = useState('grid');
   const [page, setPage] = useState(1);
@@ -60,20 +62,20 @@ export default function Deployment() {
   // Go back to the first page whenever filters change.
   useEffect(() => {
     setPage(1);
-  }, [search, statusFilter, sortMode, pageSize]);
+  }, [search, statusFilter, channelFilter, sortMode, pageSize]);
 
   // Calculate summary numbers from the loaded deployments.
   const kpis = useMemo(() => {
     const totalVersions = deployments.reduce((sum, deployment) => sum + deployment.versionCount, 0);
     const activeDeployments = deployments.filter((deployment) => deployment.displayStatus === 'Active').length;
-    const failedDeployments = deployments.filter((deployment) => deployment.displayStatus === 'Failed').length;
+    const archivedDeployments = deployments.filter((deployment) => deployment.displayStatus === 'Archived').length;
     const activePercent = deployments.length ? Math.round((activeDeployments / deployments.length) * 1000) / 10 : 0;
 
     return {
       total: deployments.length,
       active: activeDeployments,
       versions: totalVersions,
-      failed: failedDeployments,
+      archived: archivedDeployments,
       activePercent,
     };
   }, [deployments]);
@@ -87,7 +89,10 @@ export default function Deployment() {
         deployment.name.toLowerCase().includes(normalizedSearch) ||
         String(deployment.description || '').toLowerCase().includes(normalizedSearch);
       const matchesStatus = statusFilter === 'all' || deployment.displayStatus === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesChannel =
+        channelFilter === 'all' ||
+        deployment.versions.some((version) => version.releaseType === channelFilter);
+      return matchesSearch && matchesStatus && matchesChannel;
     });
 
     return filtered.sort((a, b) => {
@@ -97,7 +102,7 @@ export default function Deployment() {
       if (sortMode === 'oldest') return new Date(a.createdRaw) - new Date(b.createdRaw);
       return new Date(b.createdRaw) - new Date(a.createdRaw);
     });
-  }, [deployments, search, statusFilter, sortMode]);
+  }, [deployments, search, statusFilter, channelFilter, sortMode]);
 
   const pageCount = Math.max(1, Math.ceil(filteredDeployments.length / pageSize));
   const pagedDeployments = filteredDeployments.slice((page - 1) * pageSize, page * pageSize);
@@ -200,19 +205,28 @@ export default function Deployment() {
     }
   }
 
-  async function handleRunAction(deployment, action) {
+  async function handleDeploymentLifecycle(deployment, action) {
     const token = localStorage.getItem('vizzio_token');
     if (!token) return;
 
     setOpenMenuId(null);
     try {
-      const result = action === 'pause'
-        ? await pauseDeployment(token, deployment.id)
-        : await cancelDeployment(token, deployment.id);
+      if (action === 'delete') {
+        if (!window.confirm(`Delete deployment ${deployment.name}? All version records for this deployment will also be removed.`)) return;
+        await deleteDeployment(token, deployment.id);
+        setDeployments((current) => current.filter((item) => item.id !== deployment.id));
+        setDetailDeployment(null);
+        setToast({ type: 'success', message: 'Deployment deleted.' });
+        return;
+      }
+
+      const result = action === 'archive'
+        ? await archiveDeployment(token, deployment.id)
+        : await restoreDeployment(token, deployment.id);
       const updated = enrichDeployment(result.deployment);
       setDeployments((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setDetailDeployment((current) => (current?.id === updated.id ? updated : current));
-      setToast({ type: 'success', message: action === 'pause' ? 'Deployment paused.' : 'Deployment cancelled.' });
+      setToast({ type: 'success', message: action === 'archive' ? 'Deployment archived.' : 'Deployment restored to draft.' });
     } catch (actionError) {
       setToast({ type: 'error', message: actionError.message });
     }
@@ -224,20 +238,22 @@ export default function Deployment() {
       <FilterToolbar
         search={search}
         status={statusFilter}
+        channel={channelFilter}
         sort={sortMode}
         viewMode={viewMode}
         onSearchChange={setSearch}
         onStatusChange={setStatusFilter}
+        onChannelChange={setChannelFilter}
         onSortChange={setSortMode}
         onViewModeChange={setViewMode}
         onCreate={openCreateForm}
       />
 
       <section className="deployment-kpi-grid">
-        <DeploymentStatCard title="Total Deployments" value={kpis.total} helper="All time" tone="blue" icon="deployments" />
-        <DeploymentStatCard title="Active Deployments" value={kpis.active} helper={`${kpis.activePercent}% of total`} tone="green" icon="active" />
+        <DeploymentStatCard title="Total Deployments" value={kpis.total} helper="All time" tone="blue" icon="deployments" active={statusFilter === 'all'} onClick={() => setStatusFilter('all')} />
+        <DeploymentStatCard title="Active Deployments" value={kpis.active} helper={`${kpis.activePercent}% of total`} tone="green" icon="active" active={statusFilter === 'Active'} onClick={() => setStatusFilter('Active')} />
         <DeploymentStatCard title="Total Versions" value={kpis.versions} helper="Across all deployments" tone="purple" icon="versions" />
-        <DeploymentStatCard title="Failed Deployments" value={kpis.failed} helper={kpis.failed ? 'Needs attention' : 'No failures'} tone="red" icon="failed" />
+        <DeploymentStatCard title="Archived Deployments" value={kpis.archived} helper={kpis.archived ? 'Click to review' : 'None archived'} tone="red" icon="archive" active={statusFilter === 'Archived'} onClick={() => setStatusFilter('Archived')} />
       </section>
 
       {toast && (
@@ -264,8 +280,8 @@ export default function Deployment() {
             <input name="logoUrl" value={form.logoUrl} onChange={updateField} placeholder="https://..." />
           </label>
           <label className="deployment-description-field">
-            Description <span>(optional)</span>
-            <textarea name="description" value={form.description} onChange={updateField} placeholder="What this deployment contains" rows="3" />
+            Description shown in deployment cards <span>(optional)</span>
+            <textarea name="description" value={form.description} onChange={updateField} placeholder="Type a short description, then save the deployment" rows="3" />
           </label>
           <div className="deployment-form-actions">
             <button className="secondary-btn" type="button" onClick={closeForm}>Cancel</button>
@@ -298,8 +314,9 @@ export default function Deployment() {
                 onToggleMenu={(id) => setOpenMenuId((current) => (current === id ? null : id))}
                 menuOpen={openMenuId === deployment.id}
                 onCopyId={copyDeploymentId}
-                onPause={(item) => handleRunAction(item, 'pause')}
-                onCancel={(item) => handleRunAction(item, 'cancel')}
+                onArchive={(item) => handleDeploymentLifecycle(item, 'archive')}
+                onRestore={(item) => handleDeploymentLifecycle(item, 'restore')}
+                onDelete={(item) => handleDeploymentLifecycle(item, 'delete')}
               />
             ))}
           </section>
@@ -354,12 +371,18 @@ export default function Deployment() {
                 </dl>
                 <div className="deployment-version-list">
                   <h3>Versions</h3>
+                  {detailDeployment.displayStatus === 'Archived' && (
+                    <p className="deployment-muted">This deployment is archived. Restore it from deployment actions to move archived versions back to draft.</p>
+                  )}
                   {detailDeployment.versions.length === 0 ? (
                     <p className="deployment-muted">No versions registered.</p>
                   ) : (
                     detailDeployment.versions.map((version) => (
                       <div key={version.id}>
-                        <strong>{version.versionNumber}</strong>
+                        <div>
+                          <strong>{version.versionNumber}</strong>
+                          {version.description && <p>{version.description}</p>}
+                        </div>
                         <span>{version.releaseType}</span>
                         <span>{version.status}</span>
                       </div>
@@ -383,29 +406,22 @@ export default function Deployment() {
 function enrichDeployment(deployment) {
   const versions = deployment.versions || [];
   const releasedCount = versions.filter((version) => version.status === 'released').length;
-  const failedCount = versions.filter((version) => version.status === 'failed').length;
-  const pausedCount = versions.filter((version) => version.status === 'paused').length;
-  const canceledCount = versions.filter((version) => version.status === 'canceled').length;
-  const hasBeta = versions.some((version) => version.releaseType === 'beta' && version.status !== 'released');
-  const displayStatus = failedCount > 0
-    ? 'Failed'
-    : canceledCount > 0
-      ? 'Cancelled'
-      : pausedCount > 0
-        ? 'Paused'
-        : releasedCount > 0
-          ? 'Active'
-          : hasBeta
-            ? 'Testing'
-            : versions.length > 0
-              ? 'Draft'
-              : 'Inactive';
+  const archivedCount = versions.filter((version) => version.status === 'archived').length;
+  const archiveLikeCount = versions.filter((version) => version.status === 'archived').length;
+  const displayStatus = versions.length > 0 && archiveLikeCount === versions.length
+      ? 'Archived'
+      : releasedCount > 0
+        ? 'Active'
+        : versions.length > 0
+          ? 'Draft'
+          : 'Inactive';
 
   return {
     ...deployment,
     versions,
     versionCount: versions.length,
     releasedCount,
+    archivedCount,
     displayStatus,
     createdRaw: deployment.created || deployment.createdAt || new Date().toISOString(),
     createdLabel: formatDate(deployment.created || deployment.createdAt),

@@ -1,8 +1,36 @@
 import prisma from '../prisma.js';
 
+export async function notifyAdmins({ title, message, type = 'info' }) {
+  if (!title || !message) return;
+
+  try {
+    const admins = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        role: { equals: 'Admin', mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+
+    if (admins.length === 0) return;
+
+    await prisma.notification.createMany({
+      data: admins.map((admin) => ({
+        userId: admin.id,
+        title,
+        message,
+        type,
+      })),
+    });
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('[notification-write]', error);
+    }
+  }
+}
+
 export async function listNotifications(user) {
   const userId = await resolveUserId(user);
-  await seedSampleNotifications(userId);
   const notifications = await prisma.notification.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
@@ -13,7 +41,6 @@ export async function listNotifications(user) {
 
 export async function getUnreadNotificationCount(user) {
   const userId = await resolveUserId(user);
-  await seedSampleNotifications(userId);
   return prisma.notification.count({ where: { userId, isRead: false } });
 }
 
@@ -89,35 +116,6 @@ async function resolveUserId(user) {
   const error = new Error('Notification user was not found.');
   error.status = 404;
   throw error;
-}
-
-async function seedSampleNotifications(userId) {
-  const existing = await prisma.notification.count({ where: { userId } });
-  if (existing > 0) return;
-
-  await prisma.notification.createMany({
-    data: [
-      {
-        userId,
-        title: 'Deployment status updated',
-        message: 'A deployment version is ready for review.',
-        type: 'deployment',
-      },
-      {
-        userId,
-        title: 'New download activity',
-        message: 'A package was downloaded from the portal.',
-        type: 'download',
-      },
-      {
-        userId,
-        title: 'User access changed',
-        message: 'A group permission update was applied.',
-        type: 'user',
-        isRead: true,
-      },
-    ],
-  });
 }
 
 function serializeNotification(notification) {

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import appPackage from '../../../package.json';
-import { fetchAdminSettings, resetAdminSettings, saveAdminSettings } from '../../api/index.js';
+import { fetchAdminSettings, fetchSystemReadiness, resetAdminSettings, saveAdminSettings } from '../../api/index.js';
 import { clearStoredSession, getValidToken } from '../../hooks/useAuth.js';
 import '../../styles/UtilityPages.css';
 
@@ -16,6 +16,7 @@ const defaultSettings = {
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('General');
   const [serverStatus, setServerStatus] = useState('Checking');
+  const [readiness, setReadiness] = useState(null);
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState(defaultSettings);
   const [loading, setLoading] = useState(true);
@@ -59,14 +60,17 @@ export default function Settings() {
     setMessage('');
 
     try {
-      const healthUrl = `${apiBase.replace(/\/api\/?$/, '')}/api/health`;
-      const response = await fetch(healthUrl);
-      if (!response.ok) throw new Error('Health check failed');
-      setServerStatus('Online');
-      setMessage('Server connection is available.');
-    } catch {
+      const data = await fetchSystemReadiness(token);
+      const nextReadiness = data.readiness || null;
+      setReadiness(nextReadiness);
+      setServerStatus(formatReadinessStatus(nextReadiness?.status));
+      setMessage(nextReadiness?.status === 'ready'
+        ? 'Server prerequisites are ready.'
+        : 'Review the server prerequisite checks below.');
+    } catch (error) {
       setServerStatus('Offline');
-      setMessage('Server connection could not be reached.');
+      setReadiness(null);
+      setMessage(error.message || 'Server connection could not be reached.');
     }
   }
 
@@ -153,7 +157,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'Server' && (
-          <SettingsPanel title="Server" description="Review frontend connection details and backend availability.">
+          <SettingsPanel title="Server" description="Review hosted backend prerequisites and frontend connection details.">
             <SettingsRow title="API URL" description={apiBase} />
             <SettingsRow title="Download URL" description={downloadBase} />
             <SettingsRow title="Server Status">
@@ -164,6 +168,19 @@ export default function Settings() {
                 Test Connection
               </button>
             </SettingsRow>
+            {readiness?.checks?.length > 0 && (
+              <div className="settings-health-list">
+                {readiness.checks.map((check) => (
+                  <div className="settings-health-row" key={check.key}>
+                    <div>
+                      <h4>{check.label}</h4>
+                      <p>{check.message || check.value}</p>
+                    </div>
+                    <span className={`settings-badge ${check.status}`}>{formatCheckStatus(check.status)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </SettingsPanel>
         )}
 
@@ -253,4 +270,17 @@ function SettingsRow({ title, description, value, children }) {
       </div>
     </div>
   );
+}
+
+function formatReadinessStatus(status) {
+  if (status === 'ready') return 'Online';
+  if (status === 'ready-with-warnings') return 'Warnings';
+  if (status === 'not-ready') return 'Offline';
+  return 'Checking';
+}
+
+function formatCheckStatus(status) {
+  if (status === 'ok') return 'OK';
+  if (status === 'warning') return 'Warning';
+  return 'Error';
 }

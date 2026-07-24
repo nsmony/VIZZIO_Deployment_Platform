@@ -7,8 +7,9 @@
 
 .section-header h3 {
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text);
+  margin: 0;
 }
 
 .groups-list {
@@ -26,9 +27,16 @@
 }
 
 .group-name {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
   margin-bottom: 4px;
+}
+
+.groups-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .group-users {
@@ -53,4 +61,9 @@
 .group-status.inactive {
   background: var(--bg);
   color: var(--text-muted);
+}
+
+.group-status.no-access {
+  background: #f1f5f9;
+  color: #475569;
 }

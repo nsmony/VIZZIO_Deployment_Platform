@@ -8,6 +8,7 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,6 +41,8 @@ namespace Launcher
         private CancellationTokenSource? _downloadCancellation;
         private CancellationTokenSource? _activeTransferCancellation;
         private bool _isDownloadActive;
+        private bool _isFinalizingDownload;
+        private bool _cancelCleanupInProgress;
         private bool _pauseRequested;
         private bool _resumeAfterPauseStop;
         private DownloadItem? _activeDownloadItem;
@@ -280,9 +283,11 @@ namespace Launcher
 
             var ownsDownload = false;
             var keepPausedDownload = false;
+            var resetAfterCancel = false;
             try
             {
                 _isDownloadActive = true;
+                _isFinalizingDownload = false;
                 _pauseRequested = startPaused;
                 _resumeAfterPauseStop = false;
                 _activeDownloadItem = item;
@@ -335,35 +340,63 @@ namespace Launcher
                 var tokenIssuedAt = DateTimeOffset.UtcNow;
                 var lastSessionProgressUpdate = DateTimeOffset.MinValue;
                 var sessionProgressUpdateRunning = false;
+                var lastUiProgressUpdate = DateTimeOffset.MinValue;
+                var lastDownloadStatePersist = DateTimeOffset.MinValue;
+                var lastDiskSpaceCheck = DateTimeOffset.MinValue;
 
                 var progress = new Progress<DownloadProgress>(value =>
                 {
-                    if (_pauseRequested || !_pauseGate.IsSet)
+                    if (_pauseRequested || _deletePartialOnCancel || !_pauseGate.IsSet)
                     {
                         return;
                     }
 
-                    _progress.Value = value.Percent;
+                    var now = DateTimeOffset.UtcNow;
+                    var downloadComplete = value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes;
                     _lastDownloadedSize = value.DownloadedBytes;
                     _activeDownloadTotalSize = value.TotalBytes;
-                    _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
-                    var remainingRequiredBytes = GetRequiredSpaceBytes(value.TotalBytes - value.DownloadedBytes, session.File.InstallSize);
-                    if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, remainingRequiredBytes, out var shortfall))
+
+                    if (downloadComplete || now - lastUiProgressUpdate >= TimeSpan.FromMilliseconds(500))
                     {
-                        PauseActiveDownload($"Download paused because disk space is low. Shortfall: {FormatDiskSpace(shortfall)}.", "Low disk space");
-                        return;
+                        lastUiProgressUpdate = now;
+                        _progress.Value = value.Percent;
+                        _metrics.Text = $"Speed: {FormatBytes((long)value.BytesPerSecond)}/s   ETA: {value.Eta:mm\\:ss}   {FormatBytes(value.DownloadedBytes)} / {FormatBytes(value.TotalBytes)}";
                     }
-                    PersistDownloadState();
-                    if (value.TotalBytes > 0 && value.DownloadedBytes >= value.TotalBytes)
+
+                    if (downloadComplete || now - lastDiskSpaceCheck >= TimeSpan.FromSeconds(2))
                     {
+                        lastDiskSpaceCheck = now;
+                        var remainingRequiredBytes = GetRequiredSpaceBytes(value.TotalBytes - value.DownloadedBytes, session.File.InstallSize);
+                        if (_pauseGate.IsSet && IsDiskSpaceBelowRemaining(_activeDownloadTargetPath, remainingRequiredBytes, out var shortfall))
+                        {
+                            PauseActiveDownload($"Download paused because disk space is low. Shortfall: {FormatDiskSpace(shortfall)}.", "Low disk space");
+                            return;
+                        }
+                    }
+
+                    if (downloadComplete || now - lastDownloadStatePersist >= TimeSpan.FromSeconds(5))
+                    {
+                        lastDownloadStatePersist = now;
+                        PersistDownloadState();
+                    }
+
+                    if (downloadComplete)
+                    {
+                        if (!_isFinalizingDownload)
+                        {
+                            _isFinalizingDownload = true;
+                            _status.Text = "Download complete. Verifying package...";
+                            RenderCards();
+                            RefreshDownloadPageIfVisible();
+                        }
+
                         _pauseGate.Set();
                         _pauseButton.IsEnabled = false;
                         _pauseButton.Content = "Pause";
                     }
 
-                    var now = DateTimeOffset.UtcNow;
                     if (!sessionProgressUpdateRunning &&
-                        (now - lastSessionProgressUpdate >= TimeSpan.FromSeconds(2) || value.DownloadedBytes >= value.TotalBytes))
+                        (now - lastSessionProgressUpdate >= TimeSpan.FromSeconds(2) || downloadComplete))
                     {
                         lastSessionProgressUpdate = now;
                         sessionProgressUpdateRunning = true;
@@ -435,8 +468,15 @@ namespace Launcher
                     }
                 }
                 RemoveDownloadState(item);
-                _status.Text = "Extracting package...";
+                _isFinalizingDownload = true;
+                _progress.Value = 100;
+                _metrics.Text = $"Speed: -   ETA: -   {FormatBytes(session.File.Size)} / {FormatBytes(session.File.Size)}";
+                _status.Text = "Download complete. Extracting package...";
                 _pauseButton.IsEnabled = false;
+                _activeTransferCancellation?.Dispose();
+                _activeTransferCancellation = null;
+                RenderCards();
+                RefreshDownloadPageIfVisible();
                 var installedPath = await Task.Run(() => InstallPackage(targetPath, installFolder), _downloadCancellation.Token);
                 var completed = await TryCompleteSessionAsync(session.Session.Id, session.File.Size, session.File.Size);
                 _progress.Value = 100;
@@ -473,7 +513,8 @@ namespace Launcher
                 {
                     DeleteDownloadArtifacts(_activeDownloadTargetPath);
                     RemoveDownloadState(item);
-                    _status.Text = "Download canceled. Partial package files were removed.";
+                    resetAfterCancel = true;
+                    CompleteCanceledDownloadUi(item);
                 }
                 else
                 {
@@ -518,6 +559,7 @@ namespace Launcher
                         var resumeAfterPauseStop = _resumeAfterPauseStop;
                         _resumeAfterPauseStop = false;
                         _deletePartialOnCancel = false;
+                        _isFinalizingDownload = false;
                         _pauseGate.Reset();
                         _isDownloadActive = true;
                         _activeDownloadItem = item;
@@ -532,6 +574,7 @@ namespace Launcher
                             _pauseRequested = false;
                             _pauseGate.Set();
                             _isDownloadActive = false;
+                            _isFinalizingDownload = false;
                             _activeDownloadItem = null;
                             _activeDownloadTargetPath = "";
                             _activeDownloadSessionId = "";
@@ -542,7 +585,11 @@ namespace Launcher
                     }
                     else
                     {
-                        if (_downloadQueue.Count == 0 && _failedDownloadItem is null)
+                        if (resetAfterCancel)
+                        {
+                            CompleteCanceledDownloadUi(item);
+                        }
+                        else if (_downloadQueue.Count == 0 && _failedDownloadItem is null)
                         {
                             _selectedItem = null;
                         }
@@ -552,6 +599,8 @@ namespace Launcher
                         _pauseRequested = false;
                         _resumeAfterPauseStop = false;
                         _deletePartialOnCancel = false;
+                        _isFinalizingDownload = false;
+                        _cancelCleanupInProgress = false;
                         _activeDownloadTargetPath = "";
                         _activeDownloadSessionId = "";
                         _activeDownloadTotalSize = 0;
@@ -722,7 +771,15 @@ namespace Launcher
             // Cancel always opens the pause gate first so a paused worker can
             // observe cancellation instead of waiting forever.
             LauncherLog.Info($"Cancel clicked: {GetDownloadLabel(_activeDownloadItem)}");
+            if (_isFinalizingDownload)
+            {
+                _status.Text = "The package is already finalizing. Wait for extraction to finish.";
+                await Task.CompletedTask;
+                return;
+            }
+
             _deletePartialOnCancel = true;
+            _cancelCleanupInProgress = true;
             _pauseRequested = false;
             _resumeAfterPauseStop = false;
             _pauseGate.Set();
@@ -730,6 +787,10 @@ namespace Launcher
             _pauseButton.Content = "Pause";
             _startButton.IsEnabled = false;
             _status.Text = "Canceling download...";
+            _selectedItem = _activeDownloadItem;
+            ResetDownloadProgress();
+            RenderCards();
+            RefreshDownloadPageIfVisible();
             PersistDownloadState();
             ReportActiveSessionStatusInBackground("canceled");
             _downloader.CancelActiveRequests();
@@ -737,8 +798,9 @@ namespace Launcher
             _downloadCancellation?.Cancel();
             if (_activeTransferCancellation is null && _activeDownloadItem is not null)
             {
+                var canceledItem = _activeDownloadItem;
                 DeleteDownloadArtifacts(_activeDownloadTargetPath);
-                RemoveDownloadState(_activeDownloadItem);
+                RemoveDownloadState(canceledItem);
                 _pauseRequested = false;
                 _activeDownloadItem = null;
                 _activeDownloadTargetPath = "";
@@ -746,12 +808,8 @@ namespace Launcher
                 _activeDownloadTotalSize = 0;
                 _lastDownloadedSize = 0;
                 _isDownloadActive = false;
-                _pauseButton.IsEnabled = false;
-                _pauseButton.Content = "Pause";
-                _startButton.IsEnabled = true;
-                _status.Text = "Download canceled. Partial package files were removed.";
-                RenderCards();
-                RefreshDownloadPageIfVisible();
+                _isFinalizingDownload = false;
+                CompleteCanceledDownloadUi(canceledItem);
             }
             await Task.CompletedTask;
         }
@@ -794,9 +852,34 @@ namespace Launcher
 
             _failedDownloadItem = null;
             _failedDownloadTargetPath = "";
+            ResetDownloadProgress();
+            _status.Text = "Failed download cleared.";
+            RenderCards();
+            RefreshDownloadPageIfVisible();
+        }
+
+        private void ResetDownloadProgress()
+        {
             _progress.Value = 0;
             _metrics.Text = "Speed: -   ETA: -";
-            _status.Text = "Failed download cleared.";
+            _lastDownloadedSize = 0;
+        }
+
+        private void CompleteCanceledDownloadUi(DownloadItem item)
+        {
+            _selectedItem = item;
+            _activeDownloadItem = null;
+            _isDownloadActive = false;
+            _isFinalizingDownload = false;
+            _cancelCleanupInProgress = false;
+            _pauseRequested = false;
+            _resumeAfterPauseStop = false;
+            _pauseGate.Set();
+            _pauseButton.IsEnabled = false;
+            _pauseButton.Content = "Pause";
+            _startButton.IsEnabled = true;
+            ResetDownloadProgress();
+            _status.Text = "Download canceled. Partial package files were removed.";
             RenderCards();
             RefreshDownloadPageIfVisible();
         }
@@ -1227,16 +1310,17 @@ namespace Launcher
             DetachFromParent(_pauseButton);
 
             var hasFailedDownload = _failedDownloadItem is not null && !_isDownloadActive;
+            var canCancelActiveDownload = _isDownloadActive && !_isFinalizingDownload && !_cancelCleanupInProgress;
             var displayItem = _activeDownloadItem ?? _failedDownloadItem;
             var queuedItem = _downloadQueue.Count > 0 ? _downloadQueue.Peek() : null;
             var sizeItem = displayItem ?? queuedItem ?? _selectedItem;
             _startButton.Content = hasFailedDownload ? "Retry" : "Download";
-            _startButton.IsEnabled = !_isDownloadActive && (hasFailedDownload || _selectedItem is not null);
-            _pauseButton.IsEnabled = _isDownloadActive;
+            _startButton.IsEnabled = !_isDownloadActive && !_cancelCleanupInProgress && (hasFailedDownload || _selectedItem is not null);
+            _pauseButton.IsEnabled = _isDownloadActive && !_isFinalizingDownload && !_cancelCleanupInProgress;
             _pauseButton.Content = _pauseGate.IsSet ? "Pause" : "Resume";
 
             var cancelButton = CreateSecondaryButton(hasFailedDownload ? "Clear" : "Cancel", 90);
-            cancelButton.IsEnabled = _isDownloadActive || hasFailedDownload;
+            cancelButton.IsEnabled = canCancelActiveDownload || hasFailedDownload;
             cancelButton.Click += async (_, _) =>
             {
                 if (hasFailedDownload)
@@ -1881,10 +1965,10 @@ namespace Launcher
             }
         }
 
-        private void LaunchDeployment(DownloadItem item)
+        private async void LaunchDeployment(DownloadItem item)
         {
             var key = GetDownloadKey(item);
-            if (_runningDeployments.ContainsKey(key))
+            if (IsRunning(item))
             {
                 _status.Text = $"{item.DeploymentName} {item.VersionNumber} is already running.";
                 RenderCards();
@@ -1924,7 +2008,9 @@ namespace Launcher
                     Arguments = $"/c \"{batchPath}\"",
                     WorkingDirectory = folder,
                     UseShellExecute = false,
-                    CreateNoWindow = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true,
                 });
 
                 if (process is null)
@@ -1933,8 +2019,32 @@ namespace Launcher
                     return;
                 }
 
+                var output = new StringBuilder();
+                process.OutputDataReceived += (_, eventArgs) => AppendProcessLine(output, eventArgs.Data);
+                process.ErrorDataReceived += (_, eventArgs) => AppendProcessLine(output, eventArgs.Data);
                 process.EnableRaisingEvents = true;
-                process.Exited += (_, _) => Dispatcher.Invoke(() => HandleRunningProcessExited(key));
+                process.Exited += (_, _) =>
+                {
+                    if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+                    {
+                        Dispatcher.BeginInvoke(() => HandleRunningProcessExited(key));
+                    }
+                };
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                await Task.Delay(TimeSpan.FromSeconds(2));
+                if (process.HasExited)
+                {
+                    var exitCode = process.ExitCode;
+                    var detail = output.Length > 0
+                        ? $" Output: {TrimProcessOutput(output.ToString())}"
+                        : "";
+                    process.Dispose();
+                    ShowLaunchBlocked($"Could not launch the deployment. The launch script exited with code {exitCode}.{detail}", item);
+                    return;
+                }
+
                 _runningDeployments[key] = new RunningDeployment(process, batchPath, DateTimeOffset.Now);
                 LauncherLog.Info($"Launched deployment: {item.DeploymentName} {item.VersionNumber} using {batchPath}");
                 _status.Text = $"Launched {item.DeploymentName} {item.VersionNumber}.";
@@ -1946,6 +2056,20 @@ namespace Launcher
                 ShowLaunchBlocked(message, item);
                 LauncherLog.Info($"Launch failed for {item.DeploymentName} {item.VersionNumber}: {FriendlyError(ex)}");
             }
+        }
+
+        private static void AppendProcessLine(StringBuilder output, string? line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return;
+            if (output.Length > 8000) return;
+            output.AppendLine(line.Trim());
+        }
+
+        private static string TrimProcessOutput(string value)
+        {
+            var text = value.Trim();
+            const int maxLength = 1200;
+            return text.Length <= maxLength ? text : text[^maxLength..];
         }
 
         private void ShowLaunchBlocked(string message, DownloadItem? item = null)
@@ -2004,17 +2128,23 @@ namespace Launcher
             }
         }
 
-        private void StopDeployment(DownloadItem item)
+        private async void StopDeployment(DownloadItem item)
         {
             var key = GetDownloadKey(item);
-            if (!StopRunningDeployment(key))
+            if (!_runningDeployments.ContainsKey(key))
             {
                 _status.Text = $"{item.DeploymentName} {item.VersionNumber} is not running.";
                 RenderCards();
                 return;
             }
 
-            _status.Text = $"Stopped {item.DeploymentName} {item.VersionNumber}.";
+            _status.Text = $"Stopping {item.DeploymentName} {item.VersionNumber}...";
+            RenderCards();
+
+            var stopped = await Task.Run(() => StopRunningDeployment(key));
+            _status.Text = stopped
+                ? $"Stopped {item.DeploymentName} {item.VersionNumber}."
+                : $"{item.DeploymentName} {item.VersionNumber} is not running.";
             RenderCards();
         }
 
@@ -2025,6 +2155,7 @@ namespace Launcher
             if (!running.Process.HasExited) return true;
 
             _runningDeployments.Remove(key);
+            running.Process.Dispose();
             return false;
         }
 
@@ -2035,13 +2166,25 @@ namespace Launcher
 
             try
             {
-                if (!running.Process.HasExited)
+                if (running.Process.HasExited)
+                {
+                    LauncherLog.Info($"Running deployment already exited: {running.BatchPath}");
+                    return false;
+                }
+
+                try
                 {
                     running.Process.CloseMainWindow();
-                    if (!running.Process.WaitForExit(3000))
-                    {
-                        running.Process.Kill(entireProcessTree: true);
-                    }
+                }
+                catch
+                {
+                    // Console wrappers often do not have a window. Fall back to
+                    // killing the tracked process tree below.
+                }
+
+                if (!running.Process.WaitForExit(3000))
+                {
+                    running.Process.Kill(entireProcessTree: true);
                 }
 
                 LauncherLog.Info($"Stopped deployment launched from {running.BatchPath}");
@@ -2655,10 +2798,18 @@ namespace Launcher
                 throw new InvalidDataException("Could not start the 7z extractor.");
             }
 
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
             process.WaitForExit();
+            Task.WaitAll(outputTask, errorTask);
             if (process.ExitCode != 0)
             {
-                var error = process.StandardError.ReadToEnd();
+                var error = errorTask.Result;
+                if (string.IsNullOrWhiteSpace(error))
+                {
+                    error = outputTask.Result;
+                }
+
                 throw new InvalidDataException(string.IsNullOrWhiteSpace(error) ? "7z extraction failed." : error.Trim());
             }
         }

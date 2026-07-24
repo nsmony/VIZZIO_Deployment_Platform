@@ -5,10 +5,13 @@ import { listUploadedFiles, findUploadedFile, getUploadedFilePath } from '../upl
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../downloadManagerToken.js';
 import { getPackageInstallSize } from './packageArchiveService.js';
 import { userCanAccessVersion } from './deploymentService.js';
+import { notifyAdmins } from './notificationService.js';
 import { findUserByUsername } from '../repositories/userRepository.js';
 
 const VERSION_FILE_PREFIX = 'version:';
-const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
+const DEFAULT_PACKAGE_ROOT = process.platform === 'win32'
+  ? 'C:\\VIZZIO\\packages'
+  : '/var/vizzio/packages';
 const VALID_SESSION_STATUSES = new Set(['pending', 'downloading', 'paused', 'canceled', 'failed', 'completed']);
 const STOPPED_SESSION_STATUSES = new Set(['paused', 'canceled', 'failed']);
 
@@ -190,13 +193,22 @@ export async function createManagedDownloadSession({ user, fileId, versionId, ip
 async function recordDownloadActivity({ userId, versionId, ipAddress, userAgent }) {
   if (!isUuid(versionId)) return;
   try {
-    await prisma.downloadLog.create({
+    const log = await prisma.downloadLog.create({
       data: {
         userId,
         versionId,
         ipAddress: ipAddress || null,
         userAgent: userAgent || null,
       },
+      include: {
+        user: true,
+        version: { include: { deployment: true } },
+      },
+    });
+    await notifyAdmins({
+      type: 'download',
+      title: 'Download requested',
+      message: `${log.user.displayName || log.user.username} requested ${log.version.deployment.name} ${log.version.versionNumber}.`,
     });
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') {

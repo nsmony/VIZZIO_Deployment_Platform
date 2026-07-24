@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import StatCard from '../../components/StatCard';
 import DeploymentTable from '../../components/DeploymentTable';
 import RecentActivity from '../../components/RecentActivity';
@@ -41,6 +42,11 @@ export default function Dashboard() {
   if (error) return <div className="loading error-text">{error}</div>;
   if (!data) return <div className="loading">Loading...</div>;
 
+  const stats = data.stats || {};
+  const attention = data.attention || [];
+  const totalDeployments = stats.totalDeployments ?? data.deployments?.length ?? 0;
+  const totalVersions = stats.totalVersions ?? (stats.stableReleases || 0) + (stats.betaReleases || 0);
+
   return (
     <main className="dashboard">
       <header className="dashboard-header">
@@ -48,11 +54,44 @@ export default function Dashboard() {
       </header>
 
       <div className="stats-grid">
-        <StatCard title="Groups" subtitle="Managed workspaces" value={data.stats.groups} change="5.1% last month" trend="up" icon="groups" />
-        <StatCard title="Active Deployments" subtitle="Live rollout count" value={data.stats.activeDeployments} change="4.6% this week" trend="up" icon="deployment" />
-        <StatCard title="Stable Releases" subtitle="Production ready packages" value={data.stats.stableReleases} change="No change this week" trend="flat" icon="release" />
-        <StatCard title="Beta Releases" subtitle="Packages in testing" value={data.stats.betaReleases} change="2.1% this week" trend="down" icon="release" />
+        <StatCard title="Deployments" subtitle="Registered package families" value={totalDeployments} change={`${stats.activeDeployments || 0} active`} icon="deployment" />
+        <StatCard title="Versions" subtitle="All registered releases" value={totalVersions} change={`${stats.archivedDeployments || 0} archived deployments`} icon="packages" />
+        <StatCard title="Stable Releases" subtitle="Production ready packages" value={stats.stableReleases || 0} change="Released stable versions" icon="release" />
+        <StatCard title="Groups" subtitle="Managed access groups" value={stats.groups || 0} change={`${stats.activeUsers || 0} active users`} icon="groups" />
       </div>
+
+      <section className="overview-actions" aria-label="Quick actions">
+        <OverviewAction to="/deployment" title="Create deployment" description="Start a new deployment family." />
+        <OverviewAction to="/version" title="Register version" description="Add a ZIP, 7z, or staged package." />
+        <OverviewAction to="/users" title="Manage access" description="Assign users, groups, and deployments." />
+        <OverviewAction to="/logs/launcher" title="Launcher reports" description="Review launcher-side failures." />
+      </section>
+
+      <section className="attention-panel">
+        <div className="attention-header">
+          <div>
+            <h2>Needs Attention</h2>
+            <p>Setup gaps that can block users from seeing or launching deployments.</p>
+          </div>
+          <span>{attention.length} item{attention.length === 1 ? '' : 's'}</span>
+        </div>
+
+        {attention.length === 0 ? (
+          <p className="attention-empty">No setup issues found.</p>
+        ) : (
+          <div className="attention-list">
+            {attention.map((item, index) => (
+              <div className="attention-item" key={`${item.title}-${index}`}>
+                <div>
+                  <h3>{item.title}</h3>
+                  <p>{item.description}</p>
+                </div>
+                <Link to={item.href || '/dashboard'}>{item.action || 'Review'}</Link>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="content-grid">
         <div className="main-content">
@@ -67,3 +106,11 @@ export default function Dashboard() {
   );
 }
 
+function OverviewAction({ to, title, description }) {
+  return (
+    <Link to={to} className="overview-action">
+      <strong>{title}</strong>
+      <span>{description}</span>
+    </Link>
+  );
+}

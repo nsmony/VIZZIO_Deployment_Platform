@@ -1,12 +1,14 @@
 import {
+  archiveDeployment,
   changeVersion,
   createDeployment,
+  deleteDeployment,
   deleteVersion,
   editDeployment,
   getDeploymentDetails,
   getDeploymentsForRequest,
   registerVersion,
-  updateDeploymentRunState,
+  restoreDeployment,
   userCanAccessVersion,
   validatePackage,
 } from '../services/deploymentService.js';
@@ -47,11 +49,11 @@ export async function updateDeploymentHandler(req, res) {
   }
 }
 
-export async function pauseDeploymentHandler(req, res) {
+export async function archiveDeploymentHandler(req, res) {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
 
   try {
-    const deployment = await updateDeploymentRunState(req.params.deploymentId, 'pause');
+    const deployment = await archiveDeployment(req.params.deploymentId);
     if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
     res.json({ deployment });
   } catch (error) {
@@ -59,15 +61,27 @@ export async function pauseDeploymentHandler(req, res) {
   }
 }
 
-export async function cancelDeploymentHandler(req, res) {
+export async function restoreDeploymentHandler(req, res) {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
 
   try {
-    const deployment = await updateDeploymentRunState(req.params.deploymentId, 'cancel');
+    const deployment = await restoreDeployment(req.params.deploymentId);
     if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
     res.json({ deployment });
   } catch (error) {
     res.status(error.status || 400).json({ error: error.message });
+  }
+}
+
+export async function deleteDeploymentHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  try {
+    const deployment = await deleteDeployment(req.params.deploymentId);
+    if (!deployment) return res.status(404).json({ error: 'Deployment not found.' });
+    res.json({ deployment });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 }
 
@@ -79,7 +93,7 @@ export async function registerVersionHandler(req, res) {
     if (!version) return res.status(404).json({ error: 'Deployment not found.' });
     res.status(201).json({ version });
   } catch (error) {
-    res.status(isPackageSourceError(error) ? 422 : 400).json({ error: error.message });
+    res.status(isPackageSourceError(error) ? 422 : 400).json({ error: toPublicVersionError(error) });
   }
 }
 
@@ -183,5 +197,15 @@ function isDuplicateError(error) {
 }
 
 function isPackageSourceError(error) {
-  return /not found|must be inside|must point|must contain|source path is required/i.test(error.message || '');
+  return /not found|must be inside|must point|must contain|requires 7z|could not be inspected|source path is required/i.test(error.message || '');
+}
+
+function toPublicVersionError(error) {
+  const message = error.message || '';
+  if (isPackageSourceError(error)) return message;
+  if (/already registered/i.test(message)) return message;
+  if (/prisma|invocation|unknown argument|column|database/i.test(message)) {
+    return 'Version could not be registered because the backend database is not ready. Run Prisma migrations, restart the backend, and try again.';
+  }
+  return message || 'Version could not be registered.';
 }

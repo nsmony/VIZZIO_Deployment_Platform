@@ -11,7 +11,6 @@ import '../styles/TopNavbar.css';
 
 function HeaderIcon({ type }) {
   const paths = {
-    search: 'M10.5 18a7.5 7.5 0 1 1 5.3-12.8A7.5 7.5 0 0 1 10.5 18Zm5.7-1.8 3.3 3.3',
     bell: 'M6.5 9.5a5.5 5.5 0 0 1 11 0v3.7l1.4 2.3H5.1l1.4-2.3V9.5Zm3.5 8.8a2.3 2.3 0 0 0 4 0',
     settings: 'M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm7.2 3.5a7.7 7.7 0 0 0-.1-1l2-1.5-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1l-.3-2.6h-4l-.4 2.6a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.5a7.7 7.7 0 0 0 0 2l-2 1.5 2 3.4 2.4-1a7.4 7.4 0 0 0 1.7 1l.4 2.6h4l.3-2.6a7.4 7.4 0 0 0 1.7-1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1Z',
   };
@@ -155,11 +154,6 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
       </div>
 
       <div className="top-navbar-right">
-        <label className="top-search">
-          <HeaderIcon type="search" />
-          <input type="search" placeholder="Search deployments..." />
-          <kbd>Ctrl K</kbd>
-        </label>
         <div className="notification-menu" ref={notificationRef}>
           <button
             className={`top-icon-button ${unreadCount > 0 ? 'notification-dot' : ''}`}

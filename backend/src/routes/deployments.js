@@ -1,12 +1,13 @@
 import express from 'express';
 import {
-  cancelDeploymentHandler,
+  archiveDeploymentHandler,
   createDeploymentHandler,
+  deleteDeploymentHandler,
   getDeploymentDetailsHandler,
   listUploadedPackages,
   listDeployments,
-  pauseDeploymentHandler,
   registerVersionHandler,
+  restoreDeploymentHandler,
   updateDeploymentHandler,
   updateVersionHandler,
   uploadPackage,
@@ -21,10 +22,11 @@ router.get('/uploads', listUploadedPackages);
 router.post('/', createDeploymentHandler);
 router.post('/versions/validate-package', validatePackageHandler);
 router.patch('/:deploymentId', updateDeploymentHandler);
-router.post('/:deploymentId/pause', pauseDeploymentHandler);
-router.post('/:deploymentId/cancel', cancelDeploymentHandler);
+router.post('/:deploymentId/archive', archiveDeploymentHandler);
+router.post('/:deploymentId/restore', restoreDeploymentHandler);
 router.post('/:deploymentId/versions', registerVersionHandler);
 router.patch('/:deploymentId/versions/:versionId', updateVersionHandler);
+router.delete('/:deploymentId', deleteDeploymentHandler);
 router.post('/uploads', uploadPackage);
 router.get('/:deploymentId', getDeploymentDetailsHandler);
 

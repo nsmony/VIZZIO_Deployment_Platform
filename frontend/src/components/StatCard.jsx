@@ -67,6 +67,8 @@ function StatIcon({ type }) {
 }
 
 export default function StatCard({ title, value, change, trend, subtitle, icon = 'packages' }) {
+  const trendSymbol = trend === 'up' ? '+' : trend === 'down' ? '-' : '';
+
   return (
     <div className="stat-card">
       <div className="stat-top">
@@ -81,10 +83,12 @@ export default function StatCard({ title, value, change, trend, subtitle, icon =
         </div>
       </div>
       <div className="stat-value">{value}</div>
-      <div className={`stat-trend ${trend}`}>
-        <span className="trend-arrow">{trend === 'up' ? '↑' : trend === 'down' ? '↓' : '•'}</span>
-        <span>{change}</span>
-      </div>
+      {change && (
+        <div className={`stat-trend ${trend || 'flat'}`}>
+          {trendSymbol && <span className="trend-arrow">{trendSymbol}</span>}
+          <span>{change}</span>
+        </div>
+      )}
     </div>
   );
 }

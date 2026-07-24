@@ -71,42 +71,9 @@
   background: currentColor;
 }
 
-.top-icon-button svg,
-.top-search svg {
+.top-icon-button svg {
   width: 20px;
   height: 20px;
-}
-
-.top-search {
-  width: min(360px, 32vw);
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 12px;
-  border: 1px solid #dce5f2;
-  border-radius: 12px;
-  background: white;
-  color: #5b6b83;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
-}
-
-.top-search input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  color: #10223f;
-  font: inherit;
-}
-
-.top-search kbd {
-  padding: 4px 7px;
-  border-radius: 7px;
-  background: #eef3f9;
-  color: #65758f;
-  font-size: 12px;
-  font-family: inherit;
 }
 
 .top-icon-button {
@@ -322,10 +289,6 @@
 }
 
 @media (max-width: 980px) {
-  .top-search {
-    display: none;
-  }
-
   .top-profile-name {
     display: none;
   }

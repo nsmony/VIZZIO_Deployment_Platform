@@ -23,7 +23,7 @@
 .logs-panel {
   background: white;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 18px;
   padding: 28px;
   display: grid;
   gap: 24px;
@@ -48,26 +48,29 @@
 .logs-settings select {
   width: 100%;
   min-width: 0;
-  padding: 14px 16px;
+  appearance: none;
+  padding: 14px 44px 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: white;
+  border-radius: 12px;
+  background: white url("data:image/svg+xml,%3Csvg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 16px center / 14px 14px no-repeat;
   color: var(--text);
+  font-weight: 400;
 }
 
 .primary-btn {
   border: none;
   background: var(--primary);
   color: white;
-  border-radius: 8px;
-  padding: 14px 22px;
+  min-height: 48px;
+  border-radius: 12px;
+  padding: 0 22px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .logs-summary-card {
   background: #f8fafc;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 26px;
   min-width: 0;
 }
@@ -133,7 +136,7 @@
 .logs-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   min-width: 0;
 }
 
@@ -190,7 +193,7 @@
   border: 1px solid var(--border);
   background: white;
   color: var(--text);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 14px;
   font-weight: 700;
   cursor: pointer;
@@ -203,9 +206,27 @@
 
 .launcher-report-detail {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 22px;
   min-width: 0;
+}
+
+.logs-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.56);
+}
+
+.logs-modal {
+  width: min(920px, 100%);
+  max-height: min(88vh, 820px);
+  overflow: auto;
+  background: white;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.32);
 }
 
 .report-detail-header {
@@ -252,7 +273,7 @@
   gap: 8px;
   padding: 16px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 18px;
 }
 
@@ -275,7 +296,7 @@
   overflow-wrap: anywhere;
   background: #0f172a;
   color: #e2e8f0;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 16px;
   font-size: 12px;
   line-height: 1.5;

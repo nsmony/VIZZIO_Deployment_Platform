@@ -6,14 +6,18 @@
   margin-bottom: 20px;
 }
 
-.recent-activity h3 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text);
-  margin-bottom: 4px;
+.recent-activity-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 16px;
+}
+
+.recent-activity h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
 }
 
 .view-all {
@@ -30,6 +34,13 @@
   margin-top: 16px;
 }
 
+.activity-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .activity-item {
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
@@ -41,7 +52,7 @@
 
 .activity-name {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
   margin-bottom: 4px;
 }

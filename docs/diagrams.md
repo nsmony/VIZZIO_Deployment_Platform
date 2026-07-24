@@ -20,7 +20,7 @@ graph TD
 ```mermaid
 flowchart LR
     A1[Admin logs in] --> A2[Create deployment]
-    A2 --> A3[Add version\nupload archive or register server path or zip staging folder]
+    A2 --> A3[Add version\nupload archive or register server archive or prepare staging folder]
     A3 --> A4[Set channel and release state]
     A4 --> A5[Grant group access]
 

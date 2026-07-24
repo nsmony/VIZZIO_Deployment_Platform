@@ -23,7 +23,7 @@
   gap: 18px;
   padding: 28px;
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 18px;
   background: white;
 }
 
@@ -71,10 +71,11 @@
 .utility-primary-button {
   justify-self: start;
   border: none;
-  border-radius: 999px;
+  min-height: 42px;
+  border-radius: 12px;
   background: var(--primary);
   color: white;
-  padding: 12px 20px;
+  padding: 0 20px;
   font-weight: 700;
 }
 
@@ -126,7 +127,7 @@
 
 .settings-workspace {
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 18px;
   background: white;
   box-shadow: 0 18px 42px rgba(15, 23, 42, 0.05);
   overflow: hidden;
@@ -200,12 +201,14 @@
 .settings-row-control select {
   min-width: 140px;
   min-height: 38px;
-  padding: 0 12px;
+  appearance: none;
+  padding: 0 36px 0 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: white;
+  background: white url("data:image/svg+xml,%3Csvg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 12px center / 12px 12px no-repeat;
   color: var(--text);
   font: inherit;
+  font-weight: 400;
 }
 
 .settings-text-input,
@@ -312,14 +315,60 @@
   color: #047857;
 }
 
+.settings-badge.ok {
+  background: #dcfce7;
+  color: #047857;
+}
+
 .settings-badge.offline {
   background: #fef2f2;
   color: #b91c1c;
 }
 
+.settings-badge.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.settings-badge.warnings,
+.settings-badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .settings-badge.checking {
   background: #fef3c7;
   color: #92400e;
+}
+
+.settings-health-list {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.settings-health-row h4 {
+  margin: 0 0 6px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.settings-health-row p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .settings-message {

@@ -3,10 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { findUploadedFile } from '../uploadStore.js';
-import { ensureSupportedArchive } from '../archiveValidation.js';
+import { SEVEN_ZIP_EXECUTABLES, ensureSupportedArchive, findTopLevelBatchScriptInArchive } from '../archiveValidation.js';
 
 // Helpers for validating package paths and creating ZIP archives.
-export const DEFAULT_PACKAGE_ROOT = '/var/vizzio/packages';
+export const DEFAULT_PACKAGE_ROOT = process.platform === 'win32'
+  ? 'C:\\VIZZIO\\packages'
+  : '/var/vizzio/packages';
 
 const ZIP_VERSION_NEEDED = 20;
 const ZIP_METHOD_STORE = 0;
@@ -18,7 +20,7 @@ export function getPackageRoot() {
 }
 
 // Inspect a staged folder, server archive, or uploaded package.
-export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive }) {
+export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, skipChecksum = false }) {
   const rawPackagePath = String(packagePath || '').trim();
   if (!rawPackagePath) throw new Error('Package source path is required.');
   const normalizedSourceType = String(sourceType || '').trim();
@@ -31,7 +33,8 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       fileName: upload.originalName,
       fileType: inferFileType(upload.originalName),
       packageSize: BigInt(upload.size),
-      checksum: upload.checksum || null,
+      checksum: skipChecksum ? null : knownChecksum || upload.checksum || null,
+      batchScriptName: knownBatchScriptName || upload.batchScriptName || '',
     };
   }
 
@@ -73,15 +76,19 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       packagePath: archivePath,
       packageSource: 'generatedArchive',
       fileName: path.basename(archivePath),
-      fileType: 'application/zip',
+      fileType: inferFileType(archivePath),
       packageSize: BigInt(archiveStat.size),
-      checksum: await sha256File(archivePath),
+      checksum: skipChecksum ? null : knownChecksum || await sha256File(archivePath),
       batchScriptName,
     };
   }
 
   if (!stat.isFile()) throw new Error('Package source path must point to a file or staging folder.');
   ensureSupportedArchive(resolvedPath);
+  const batchScriptName = await findTopLevelBatchScriptInArchive(resolvedPath);
+  if (!batchScriptName) {
+    throw new Error('Deployment package archive must contain a top-level launch batch script.');
+  }
 
   return {
     packagePath: resolvedPath,
@@ -89,7 +96,8 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
     fileName: path.basename(resolvedPath),
     fileType: inferFileType(resolvedPath),
     packageSize: BigInt(stat.size),
-    checksum: await sha256File(resolvedPath),
+    checksum: skipChecksum ? null : knownChecksum || await sha256File(resolvedPath),
+    batchScriptName: knownBatchScriptName || batchScriptName,
   };
 }
 
@@ -151,14 +159,36 @@ async function findLaunchBatchScript(folderPath) {
 async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName, versionNumber, deploymentId }) {
   const outputDir = path.join(packageRoot, '_generated', sanitizePathPart(deploymentName || deploymentId || 'deployment'));
   await fs.promises.mkdir(outputDir, { recursive: true });
-  const outputPath = path.join(outputDir, `${sanitizePathPart(versionNumber || 'version')}.zip`);
-  const tempPath = `${outputPath}.${process.pid}.${Date.now()}.tmp`;
-  if (!await trySystemZip(folderPath, tempPath)) {
-    await fs.promises.rm(tempPath, { force: true });
-    await writeStoredZip(folderPath, tempPath);
+  const outputBase = path.join(outputDir, sanitizePathPart(versionNumber || 'version'));
+  const sevenZipOutputPath = `${outputBase}.7z`;
+  const sevenZipTempPath = `${sevenZipOutputPath}.${process.pid}.${Date.now()}.tmp`;
+
+  if (await fileExists(sevenZipOutputPath)) {
+    return sevenZipOutputPath;
   }
-  await fs.promises.rename(tempPath, outputPath);
-  return outputPath;
+
+  if (await trySevenZipArchive(folderPath, sevenZipTempPath)) {
+    await fs.promises.rm(sevenZipOutputPath, { force: true });
+    await fs.promises.rename(sevenZipTempPath, sevenZipOutputPath);
+    return sevenZipOutputPath;
+  }
+
+  await fs.promises.rm(sevenZipTempPath, { force: true });
+
+  const zipOutputPath = `${outputBase}.zip`;
+  const zipTempPath = `${zipOutputPath}.${process.pid}.${Date.now()}.tmp`;
+  if (!await trySystemZip(folderPath, zipTempPath)) {
+    await fs.promises.rm(zipTempPath, { force: true });
+    await writeStoredZip(folderPath, zipTempPath);
+  }
+  await fs.promises.rm(zipOutputPath, { force: true });
+  await fs.promises.rename(zipTempPath, zipOutputPath);
+  return zipOutputPath;
+}
+
+async function fileExists(filePath) {
+  const stat = await fs.promises.stat(filePath).catch(() => null);
+  return Boolean(stat?.isFile() && stat.size > 0);
 }
 
 async function readZipInstallSize(filePath) {
@@ -220,8 +250,16 @@ async function readZipInstallSize(filePath) {
 }
 
 async function read7ZipInstallSize(filePath) {
+  for (const executable of SEVEN_ZIP_EXECUTABLES) {
+    const size = await tryRead7ZipInstallSize(executable, filePath);
+    if (size !== null) return size;
+  }
+  return null;
+}
+
+async function tryRead7ZipInstallSize(executable, filePath) {
   return new Promise((resolve, reject) => {
-    const child = spawn('7z', ['l', '-slt', filePath], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(executable, ['l', '-slt', filePath], { stdio: ['ignore', 'pipe', 'ignore'] });
     let output = '';
 
     child.stdout.on('data', (chunk) => {
@@ -243,39 +281,43 @@ async function read7ZipInstallSize(filePath) {
         return;
       }
 
-      let totalSize = 0;
-      let currentRecord = {};
-
-      const flushRecord = () => {
-        if (!currentRecord.Path || currentRecord.Type || currentRecord.Folder === '+') {
-          currentRecord = {};
-          return;
-        }
-
-        const size = Number(currentRecord.Size || 0);
-        if (Number.isFinite(size) && size > 0) {
-          totalSize += size;
-        }
-        currentRecord = {};
-      };
-
-      for (const rawLine of output.split(/\r?\n/)) {
-        const line = rawLine.trim();
-        if (!line) {
-          flushRecord();
-          continue;
-        }
-
-        const separator = line.indexOf(' = ');
-        if (separator <= 0) continue;
-        const key = line.slice(0, separator);
-        const value = line.slice(separator + 3);
-        currentRecord[key] = value;
-      }
-      flushRecord();
-      resolve(totalSize > 0 ? totalSize : null);
+      resolve(parse7ZipInstallSize(output));
     });
   });
+}
+
+function parse7ZipInstallSize(output) {
+  let totalSize = 0;
+  let currentRecord = {};
+
+  const flushRecord = () => {
+    if (!currentRecord.Path || currentRecord.Type || currentRecord.Folder === '+') {
+      currentRecord = {};
+      return;
+    }
+
+    const size = Number(currentRecord.Size || 0);
+    if (Number.isFinite(size) && size > 0) {
+      totalSize += size;
+    }
+    currentRecord = {};
+  };
+
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushRecord();
+      continue;
+    }
+
+    const separator = line.indexOf(' = ');
+    if (separator <= 0) continue;
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 3);
+    currentRecord[key] = value;
+  }
+  flushRecord();
+  return totalSize > 0 ? totalSize : null;
 }
 
 async function trySystemZip(folderPath, outputPath) {
@@ -289,8 +331,50 @@ async function trySystemZip(folderPath, outputPath) {
   });
 }
 
+async function trySevenZipArchive(folderPath, outputPath) {
+  for (const executable of SEVEN_ZIP_EXECUTABLES) {
+    const created = await runSevenZipArchive(executable, folderPath, outputPath);
+    if (created) return true;
+  }
+
+  return false;
+}
+
+function runSevenZipArchive(executable, folderPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(executable, ['a', '-t7z', '-mx=0', outputPath, '.'], {
+      cwd: folderPath,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let errorOutput = '';
+
+    child.stderr.on('data', (chunk) => {
+      errorOutput += chunk.toString();
+    });
+
+    child.on('error', (error) => {
+      if (error.code === 'ENOENT') {
+        resolve(false);
+        return;
+      }
+
+      reject(error);
+    });
+
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve(true);
+        return;
+      }
+
+      reject(new Error(errorOutput.trim() || '7z could not create the package archive.'));
+    });
+  });
+}
+
 async function writeStoredZip(folderPath, outputPath) {
   const files = await listFiles(folderPath);
+  assertBuiltInZipCapacity(files);
   const centralDirectory = [];
   let offset = 0;
 
@@ -298,8 +382,8 @@ async function writeStoredZip(folderPath, outputPath) {
     fs.createWriteStream(outputPath),
     async (output) => {
       for (const file of files) {
-        const data = await fs.promises.readFile(file.absolutePath);
         const nameBuffer = Buffer.from(file.zipPath, 'utf8');
+        const data = await fs.promises.readFile(file.absolutePath);
         const crc = crc32(data);
         const localHeader = createLocalFileHeader(nameBuffer, crc, data.length);
         await writeBuffer(output, localHeader);
@@ -333,6 +417,7 @@ async function listFiles(rootPath) {
         files.push({
           absolutePath,
           zipPath: path.relative(rootPath, absolutePath).split(path.sep).join('/'),
+          size: (await fs.promises.stat(absolutePath)).size,
         });
       }
     }
@@ -341,6 +426,17 @@ async function listFiles(rootPath) {
   await walk(rootPath);
   if (files.length === 0) throw new Error('Server staging folder must contain files.');
   return files.sort((a, b) => a.zipPath.localeCompare(b.zipPath));
+}
+
+function assertBuiltInZipCapacity(files) {
+  const maxSingleFileBytes = 0x7fffffff;
+  const maxZip32Bytes = 0xffffffff;
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  const tooLargeFile = files.find((file) => file.size > maxSingleFileBytes);
+
+  if (tooLargeFile || totalBytes > maxZip32Bytes) {
+    throw new Error('Server staging folder is too large for built-in ZIP packaging. Install 7z or 7za on the backend PC, restart the backend, then validate again.');
+  }
 }
 
 async function usingResource(stream, work) {

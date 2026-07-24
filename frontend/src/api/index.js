@@ -8,15 +8,21 @@ import { clearStoredSession } from '../hooks/useAuth.js';
 async function request(endpoint, token, options = {}) {
   const { headers: optionHeaders = {}, ...requestOptions } = options;
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...requestOptions,
-    headers: {
-      Authorization: token ? `Bearer ${token}` : undefined,
-      ...optionHeaders,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, {
+      ...requestOptions,
+      headers: {
+        Authorization: token ? `Bearer ${token}` : undefined,
+        ...optionHeaders,
+      },
+    });
+  } catch {
+    throw new Error(`Could not reach the backend at ${API_BASE}. Check the server URL, Cloudflare Tunnel, and backend service.`);
+  }
 
-  const data = await response.json().catch(() => ({}));
+  const body = await response.text().catch(() => '');
+  const data = parseJsonBody(body);
   if (!response.ok) {
     if (response.status === 401) {
       clearStoredSession();
@@ -25,10 +31,30 @@ async function request(endpoint, token, options = {}) {
       }
     }
 
-    const message = data.maintenanceMessage || data.error || 'API request failed';
+    const message = extractApiErrorMessage(data, body, response);
     throw new Error(message);
   }
   return data;
+}
+
+function parseJsonBody(body) {
+  if (!body) return {};
+  try {
+    return JSON.parse(body);
+  } catch {
+    return {};
+  }
+}
+
+function extractApiErrorMessage(data, body, response) {
+  if (data.maintenanceMessage) return data.maintenanceMessage;
+  if (typeof data.error === 'string' && data.error.trim()) return data.error;
+  if (data.error?.message) return data.error.message;
+  if (body && !body.trim().startsWith('<')) return body.trim();
+  if (response.status === 404) return 'The requested backend endpoint was not found.';
+  if (response.status === 500) return 'The backend hit an internal error. Check the backend terminal logs.';
+  if (response.status >= 500) return 'The backend is temporarily unavailable. Try again after checking the server.';
+  return `Request failed with HTTP ${response.status}.`;
 }
 
 export async function login(username, password) {
@@ -60,15 +86,21 @@ export async function updateDeployment(token, deploymentId, deployment) {
   });
 }
 
-export async function pauseDeployment(token, deploymentId) {
-  return request(`/deployments/${encodeURIComponent(deploymentId)}/pause`, token, {
+export async function archiveDeployment(token, deploymentId) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}/archive`, token, {
     method: 'POST',
   });
 }
 
-export async function cancelDeployment(token, deploymentId) {
-  return request(`/deployments/${encodeURIComponent(deploymentId)}/cancel`, token, {
+export async function restoreDeployment(token, deploymentId) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}/restore`, token, {
     method: 'POST',
+  });
+}
+
+export async function deleteDeployment(token, deploymentId) {
+  return request(`/deployments/${encodeURIComponent(deploymentId)}`, token, {
+    method: 'DELETE',
   });
 }
 
@@ -92,11 +124,11 @@ export async function fetchDeploymentDetails(token, deploymentId) {
   return request(`/deployments/${encodeURIComponent(deploymentId)}`, token);
 }
 
-export async function validateDeploymentPackage(token, packagePath, sourceType) {
+export async function validateDeploymentPackage(token, packageInfo) {
   return request('/deployment-versions/validate-package', token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ packagePath, sourceType }),
+    body: JSON.stringify(packageInfo),
   });
 }
 
@@ -112,6 +144,10 @@ export async function fetchUploadedPackages(token) {
 
 export async function fetchAdminSettings(token) {
   return request('/settings', token);
+}
+
+export async function fetchSystemReadiness(token) {
+  return request('/settings/readiness', token);
 }
 
 export async function saveAdminSettings(token, settings) {

@@ -59,8 +59,8 @@ graph TD
 ```mermaid
 flowchart LR
     A1[Admin logs in] --> A2[Create deployment]
-    A2 --> A3[Add version\n(upload archive OR register server path OR zip staging folder)]
-    A3 --> A4[Mark release state\nReleased or Archived]
+    A2 --> A3[Add version\n(upload archive OR register server archive OR prepare staging folder)]
+    A3 --> A4[Mark version state\nDraft, Released, or Archived]
     A4 --> A5[Grant group access]
 
     U1[Launcher user logs in] --> U2[Launcher fetches accessible items]
@@ -216,6 +216,8 @@ VIZZIO_Deployment_Platform/
 - Access control mapping (group to deployment)
 - Download manager sessions and audit logging
 - Package path validation, staging archive creation, checksum and install-size metadata
+- Admin notifications for deployment/version lifecycle changes, download requests,
+  and launcher-side failure reports
 
 ## 7. Frontend Architecture
 
@@ -223,6 +225,10 @@ VIZZIO_Deployment_Platform/
 - Token-aware auth handling with expiry checks
 - Central API client with auth headers and session cleanup on unauthorized responses
 - Admin modules for users, groups, deployments, versions, settings, and logs
+- Dashboard overview with real deployment/version/group counts, quick actions, and
+  setup attention items for missing versions or group access
+- Notification bell and Notifications page backed by persisted notification
+  records with read/delete controls
 
 ## 8. Launcher Architecture
 
@@ -340,6 +346,15 @@ npm run prisma:migrate
 npm run dev
 ```
 
+For an existing hosted database, apply committed migrations before starting or
+restarting the backend:
+
+```powershell
+cd backend
+npx prisma migrate deploy
+npx prisma generate
+```
+
 ### 13.3 Frontend
 
 ```powershell
@@ -368,6 +383,11 @@ Build installer:
 ```powershell
 .\scripts\build_launcher_installer.ps1 -Version "0.1.0"
 ```
+
+The installer bundles `7z.exe` or `7za.exe` beside `Launcher.exe` so all user
+PCs can extract `.7z` deployment packages without installing 7-Zip manually. The
+build script auto-detects 7-Zip from `launcher\tools`, the standard Windows
+install path, or `PATH`; if no extractor is available, installer creation fails.
 
 With explicit Inno path:
 
@@ -399,7 +419,7 @@ Artifacts are generated under installer output folders.
 3. Set channel and release state
 4. Grant deployment access to groups
 5. Verify launcher visibility with a real user account
-6. Monitor download logs and failed activity
+6. Monitor notifications, download logs, launcher reports, and failed activity
 
 ### 15.3 Maintenance Mode
 
@@ -454,6 +474,14 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
 - Verify session identifier validity checks and database persistence path
 - Validate against the currently running backend instance and port
 
+### 18.4 Notifications appear empty
+
+- Confirm an event source has occurred after the notification feature was enabled.
+- Notifications are created for active admin users when deployments or versions
+  change, users request downloads, or the launcher submits an error report.
+- Confirm the signed-in admin maps to a managed user record with an active Admin
+  role.
+
 ## 19. Reference Documents
 
 - requirements.md: source of product acceptance criteria
@@ -463,6 +491,7 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
 - docs/admin-user-guide.md: administrator operating guide
 - docs/operations-publishing-guide.md: release publishing runbook and rollback flow
 - docs/handover-document.md: technical and operational handover package
+- docs/hosted-pc-prerequisites.md: supervisor-PC hosted deployment prerequisites
 - docs/launcher-self-update.md: launcher update endpoint and release metadata
 - docs/launcher-error-reporting.md: launcher diagnostic upload behavior
 - docs/implementation-verification.md: current implementation check results and requirement coverage snapshot

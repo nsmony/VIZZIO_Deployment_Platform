@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Transform } from 'stream';
 import { pipeline } from 'stream/promises';
-import { ensureSupportedArchive } from './archiveValidation.js';
+import { ensureSupportedArchive, findTopLevelBatchScriptInArchive } from './archiveValidation.js';
 
 // Small file manifest used for packages uploaded through the admin panel.
 const __filename = fileURLToPath(import.meta.url);
@@ -110,6 +110,15 @@ export async function saveUploadedStream({ originalName, title, stream, uploaded
     throw new Error('Upload file is required');
   }
 
+  const batchScriptName = await findTopLevelBatchScriptInArchive(filePath).catch(async (error) => {
+    await fs.promises.rm(filePath, { force: true }).catch(() => {});
+    throw error;
+  });
+  if (!batchScriptName) {
+    await fs.promises.rm(filePath, { force: true }).catch(() => {});
+    throw new Error('Deployment package archive must contain a top-level launch batch script.');
+  }
+
   const file = {
     id: fileId,
     fileId,
@@ -117,6 +126,7 @@ export async function saveUploadedStream({ originalName, title, stream, uploaded
     originalName: filename,
     size,
     checksum: checksum.digest('hex'),
+    batchScriptName,
     uploadedBy,
     uploadedAt: new Date().toISOString(),
   };
@@ -130,6 +140,11 @@ export async function saveUploadedStream({ originalName, title, stream, uploaded
 
 export function listUploadedFiles() {
   return readManifest();
+}
+
+export function getUploadStorageRoot() {
+  ensureDownloadDir();
+  return downloadDir;
 }
 
 export function findUploadedFile(fileId) {

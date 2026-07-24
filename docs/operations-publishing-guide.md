@@ -11,7 +11,8 @@ This guide defines the standard operating procedure for publishing a new deploym
 - Package source prepared:
   - archive file, or
   - server staging folder
-- Expected launch batch script is included in package content
+- Expected launch batch script is included as a top-level `.bat` file in the
+  package content
 - Target deployment exists (or will be created in this process)
 
 ## 3. Release Checklist
@@ -20,9 +21,10 @@ This guide defines the standard operating procedure for publishing a new deploym
 2. Confirm deployment target name.
 3. Confirm package source path or file.
 4. Confirm channel assignment (Stable or Beta).
-5. Confirm status assignment (Released or Archived).
+5. Confirm status assignment (Draft, Released, or Archived).
 6. Confirm target group access plan.
 7. Confirm rollback option (previous released version still available).
+8. Confirm notification and monitoring plan.
 
 ## 4. Publish Workflow
 
@@ -43,11 +45,29 @@ When adding a version, choose one package source:
 - Register existing server archive path
 - Register server staging folder path (system archives folder into package)
 
+ZIP and 7z archives must contain at least one top-level `.bat` file. Nested
+batch scripts, such as `Package/Launch.bat`, are rejected because the launcher
+expects the script at the installed package root. 7z validation requires `7z` or
+`7za` on the backend server.
+
+For 50-60 GiB Unreal deployments, prefer the server staging-folder flow. With
+7-Zip installed on the backend PC, staging folders are converted into generated
+`.7z` packages instead of relying on small built-in ZIP packaging.
+
 Set:
 
 - Version number
 - Channel: Stable or Beta
-- Status: Released or Archived
+- Initial status: Draft, Released, or Archived
+
+Deployment-level Archive/Restore/Delete actions are available on the
+Deployments page and apply to every version in that deployment. Version-level
+Archive/Restore/Delete actions are available on the Versions page and apply
+only to the selected version.
+
+Use Draft while reviewing package metadata. Use Released only when the package
+should appear in the launcher for authorized users. Use Archived to keep the
+record hidden from launcher users.
 
 ### Step 4: Validate Version Metadata
 
@@ -55,8 +75,12 @@ Verify the newly added version includes:
 
 - Expected package artifact path/name
 - Size metadata
-- Checksum status
+- Checksum status after registration
 - Correct channel and status
+
+Validation checks package shape and launch-script presence. For large archives,
+SHA-256 checksum generation is deferred to registration because it must read the
+whole package file.
 
 ### Step 5: Grant Access
 
@@ -71,6 +95,10 @@ Use a real launcher test user account in target group and validate:
 - Archived versions are hidden
 - Download session can start
 - Download logs register activity
+- Admin notification appears for the version/deployment change or download
+  request
+- Launcher Reports stays clear of new launch, prerequisite, install, or download
+  failures
 
 ### Step 7: Release Communication
 
@@ -126,6 +154,16 @@ If release is bad:
 - Confirm download session creation path succeeded.
 - Confirm download log insert path and database connectivity.
 
+### 8.4 Notifications do not appear
+
+- Confirm the admin account is active and has Admin role in the managed users
+  table.
+- Confirm the event happened after notification support was enabled.
+- Confirm backend notification writes are not failing in the backend terminal
+  logs.
+- Download-request notifications are created when the launcher creates a managed
+  download session.
+
 ## 9. Post-Release Audit
 
 Capture these fields in release notes:
@@ -139,3 +177,4 @@ Capture these fields in release notes:
 - Verification account used
 - Verification timestamp
 - Result
+- Notification/log/report review result

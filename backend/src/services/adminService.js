@@ -27,25 +27,46 @@ export async function getAdminDashboard() {
     }),
   ]);
 
+  const activeStatuses = new Set(['draft', 'released']);
+  const archiveStatuses = new Set(['archived', 'paused', 'canceled']);
   const releasedVersions = versions.filter((version) => version.status === 'released');
+  const activeDeployments = deployments.filter((deployment) => {
+    const deploymentVersions = getVisibleVersions(deployment.versions);
+    return deploymentVersions.some((version) => version.status === 'released');
+  });
+  const archivedDeployments = deployments.filter((deployment) => {
+    const deploymentVersions = getVisibleVersions(deployment.versions);
+    return deploymentVersions.length > 0 && deploymentVersions.every((version) => archiveStatuses.has(version.status));
+  });
+  const draftDeployments = deployments.filter((deployment) => {
+    const deploymentVersions = getVisibleVersions(deployment.versions);
+    return deploymentVersions.length === 0 || deploymentVersions.every((version) => activeStatuses.has(version.status) && version.status !== 'released');
+  });
+  const attention = buildDashboardAttention(deployments, groups);
 
   return {
     stats: {
+      totalDeployments: deployments.length,
+      totalVersions: versions.length,
       groups: groups.length,
+      users: users.length,
       activeUsers: users.filter((user) => user.isActive).length,
-      activeDeployments: deployments.length,
+      activeDeployments: activeDeployments.length,
+      draftDeployments: draftDeployments.length,
+      archivedDeployments: archivedDeployments.length,
       stableReleases: releasedVersions.filter((version) => version.releaseType === 'stable').length,
       betaReleases: releasedVersions.filter((version) => version.releaseType === 'beta').length,
     },
     deployments: deployments.map((deployment) => {
-      const deploymentVersions = deployment.versions.filter((version) => !version.deletedAt && version.status !== 'deleted');
+      const deploymentVersions = getVisibleVersions(deployment.versions);
       const latestBeta = deploymentVersions.find((version) => version.releaseType === 'beta');
       const stableVersion = deploymentVersions.find((version) => version.releaseType === 'stable');
+      const allArchived = deploymentVersions.length > 0 && deploymentVersions.every((version) => archiveStatuses.has(version.status));
       return {
         module: deployment.name,
         latestBeta: latestBeta?.versionNumber || '-',
         stableVersion: stableVersion?.versionNumber || '-',
-        status: deploymentVersions.some((version) => version.status === 'released') ? 'Released' : 'Draft',
+        status: allArchived ? 'Archived' : deploymentVersions.some((version) => version.status === 'released') ? 'Active' : 'Draft',
         lastUpdated: formatRelativeTime(deploymentVersions[0]?.createdAt || deployment.createdAt),
       };
     }),
@@ -64,7 +85,54 @@ export async function getAdminDashboard() {
       users: group.members.length,
       status: group.deploymentAccesses.length > 0 ? 'Active' : 'No access',
     })),
+    attention,
   };
+}
+
+function getVisibleVersions(versions = []) {
+  return versions.filter((version) => !version.deletedAt && version.status !== 'deleted');
+}
+
+function buildDashboardAttention(deployments, groups) {
+  const items = [];
+
+  deployments.forEach((deployment) => {
+    const deploymentVersions = getVisibleVersions(deployment.versions);
+    const hasReleasedVersion = deploymentVersions.some((version) => version.status === 'released');
+    const isArchived = deploymentVersions.length > 0 && deploymentVersions.every((version) => ['archived', 'paused', 'canceled'].includes(version.status));
+
+    if (deploymentVersions.length === 0) {
+      items.push({
+        title: deployment.name,
+        description: 'No versions registered yet.',
+        action: 'Register version',
+        href: '/version',
+      });
+      return;
+    }
+
+    if (!hasReleasedVersion && !isArchived) {
+      items.push({
+        title: deployment.name,
+        description: 'No released version is available to launcher users.',
+        action: 'Review versions',
+        href: '/version',
+      });
+    }
+  });
+
+  groups.forEach((group) => {
+    if (group.deploymentAccesses.length === 0) {
+      items.push({
+        title: group.name,
+        description: 'Group has no deployment access assigned.',
+        action: 'Manage access',
+        href: '/users',
+      });
+    }
+  });
+
+  return items.slice(0, 6);
 }
 
 export async function getNotifications() {
