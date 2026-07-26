@@ -1,5 +1,13 @@
 # Design Document: VIZZIO Deployment Platform
 
+> Status: original target design and correctness specification. It is not an
+> exact reference for the current HTTP routes or database schema. For current
+> runtime behavior, use `README.md`, the operational guides under `docs/`, and
+> the route/schema source files. In particular, the implemented API uses shared
+> `/api/auth`, `/api/users`, `/api/deployments`, `/api/download-manager`, and
+> `/api/settings` routes rather than the proposed `/api/admin/*` route family
+> below.
+
 > Status note (2026-07-23): This document contains legacy endpoint examples from an earlier design draft. For current API and implementation behavior, use [README.md](README.md) and [docs/implementation-verification.md](docs/implementation-verification.md).
 
 ## Overview

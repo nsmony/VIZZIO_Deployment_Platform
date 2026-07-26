@@ -18,6 +18,17 @@ export async function authenticateToken(req, res, next) {
   }
 }
 
+// Administrative routes must authorize the role after authentication. Keeping
+// this separate from authenticateToken lets launcher/user routes accept the
+// same JWT format without gaining admin privileges.
+export function requireAdmin(req, res, next) {
+  if (String(req.user?.role || '').toLowerCase() !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
+
+  return next();
+}
+
 export async function enforceMaintenanceMode(req, res, next) {
   const settings = await getAdminSettings();
   if (!settings.maintenanceMode) {

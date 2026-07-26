@@ -42,6 +42,8 @@ The platform enables controlled software release and distribution with group-bas
 - Login rate limiting to reduce brute-force attempts
 - Package root and path safety validation
 - Maintenance mode controls
+- Admin-role middleware on all user/group management routes
+- Admin-role validation in the frontend portal guard
 
 ## 6. Key Operational Procedures
 
@@ -79,6 +81,10 @@ npm run dev
 - backend/.env for API, DB, token, and package delivery settings
 - frontend/.env for API and download base URLs
 - launcher branding and runtime settings for client presentation
+
+Use `backend/.env.example` and `frontend/.env.example` as the variable
+inventories. Replace every sample secret and set `ENABLE_DEMO_USERS=false` for
+hosted environments.
 
 ## 9. Known Risks and Guardrails
 

@@ -9,8 +9,8 @@ graph TD
     A[Admin Web Panel\nReact + Vite] -->|REST /api| B[Backend API\nNode.js + Express]
     L[Windows Launcher\n.NET 8 WPF] -->|REST /api| B
     B -->|Prisma| D[(PostgreSQL)]
-    L -->|Range file download| F[Nginx or Node Delivery]
-    F -->|Token validation| B
+    L -->|Tokenized range request| B
+    B -->|Node stream or X-Accel-Redirect| F[Nginx or Node Delivery]
     F --> S[(Package Storage)]
     B --> S
 ```
@@ -97,9 +97,9 @@ sequenceDiagram
     L->>B: Create download session
     B-->>L: Metadata and token
     L->>F: Range requests with token
-    F->>B: Validate token
-    B-->>F: Approved
-    F-->>L: Chunks
+    B->>B: Validate token, session, access, and path
+    B-->>F: Stream directly or authorize internal redirect
+    F-->>L: Byte ranges
     L->>L: Merge and checksum
     L->>L: Extract and mark installed
     L->>B: Write activity log

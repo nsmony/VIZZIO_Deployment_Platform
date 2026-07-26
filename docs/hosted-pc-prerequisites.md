@@ -19,18 +19,22 @@ Set production values in `backend/.env` before exposing the backend:
 
 ```env
 DATABASE_URL=postgresql://postgres:strong-password@localhost:5432/vizzio
+NODE_ENV=production
 JWT_SECRET=replace-this-with-a-long-random-secret
 DOWNLOAD_SECRET=replace-this-with-a-different-long-random-secret
 DOWNLOAD_MANAGER_SECRET=replace-this-with-a-third-long-random-secret
 PORT=4000
 PACKAGE_ROOT=C:\VIZZIO\packages
 DOWNLOAD_ROOT=C:\VIZZIO\downloads
+DOWNLOAD_DELIVERY_MODE=node
+DOWNLOAD_ACCEL_PREFIX=/_vizzio_downloads
 PACKAGE_UPLOAD_MAX_BYTES=85899345920
 LAUNCHER_ERROR_REPORT_ROOT=C:\VIZZIO\launcher-error-reports
 LAUNCHER_LATEST_VERSION=0.1.0
 LAUNCHER_DOWNLOAD_URL=https://example.com/VIZZIO-Launcher-Setup-0.1.0.exe
 LAUNCHER_RELEASE_NOTES=Initial hosted release.
 LAUNCHER_UPDATE_REQUIRED=false
+ENABLE_DEMO_USERS=false
 ```
 
 Do not use the default JWT or download secrets when the backend is reachable
@@ -49,6 +53,11 @@ npx prisma generate
 there only when registering by server path. Browser uploads can be selected from
 any admin computer location and are copied into backend storage after
 validation.
+
+Use `DOWNLOAD_DELIVERY_MODE=node` when the Windows backend streams files
+directly. If Nginx is added, change it to `nginx` and configure `PACKAGE_ROOT`
+and `DOWNLOAD_ROOT` to the same Nginx-backed private directory (or otherwise
+ensure every downloadable package is inside both roots).
 
 ## 7z backend setup
 

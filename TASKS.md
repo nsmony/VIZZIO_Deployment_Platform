@@ -1,5 +1,9 @@
 # VIZZIO Deployment Platform - Task Breakdown
 
+> Status: planning backlog and delivery history. Checked items describe intended
+> work tracking, not current executable verification. Use the dated audits under
+> `docs/` plus fresh build/test results for implementation status.
+
 ## 1. Week 1: Design & Architecture
 - Review requirements and confirm product scope.
 - Define high-level system architecture.

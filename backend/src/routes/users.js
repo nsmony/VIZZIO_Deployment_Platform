@@ -1,4 +1,5 @@
 import express from 'express';
+import { requireAdmin } from '../middleware/authMiddleware.js';
 import {
   createGroupHandler,
   createUserHandler,
@@ -16,6 +17,7 @@ import {
 // User account and group access routes.
 const router = express.Router();
 
+router.use(requireAdmin);
 router.get('/', listUsers);
 router.post('/', createUserHandler);
 router.get('/groups', listGroups);

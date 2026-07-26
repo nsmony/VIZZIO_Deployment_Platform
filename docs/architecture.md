@@ -28,8 +28,13 @@
 ## Deployment Flow
 
 1. Admin copies large package files onto the server and registers the server file path on a deployment version.
-2. Backend stores metadata and issues secure download tokens.
+2. Backend validates the package, stores metadata, and later issues scoped
+   download-manager tokens.
 3. Launcher authenticates the user and requests available deployments.
-4. Launcher requests the signed backend URL; backend validates access and redirects internally to Nginx.
-5. Launcher downloads build files from Nginx using resumable parallel streams.
-6. User installs a version and can open the deployment folder.
+4. Launcher creates a download session and requests the tokenized backend file
+   URL.
+5. Backend validates the token and access. It either streams byte ranges
+   directly or returns an internal `X-Accel-Redirect` for Nginx.
+6. Launcher downloads resumable parallel ranges, verifies SHA-256, and extracts
+   the package.
+7. User can launch or uninstall the installed version.

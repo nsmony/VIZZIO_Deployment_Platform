@@ -27,7 +27,7 @@ Each report includes the signed-in user identity, launcher version, machine and
 OS details, the deployment/version when available, the user-facing error
 message, request metadata, and the tail of the local launcher log.
 
-Admins can review reports in the web panel at `Logs > Launcher Reports`.
+Admins can review reports from **Launcher Reports** in the sidebar.
 
 Endpoint:
 

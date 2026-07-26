@@ -30,14 +30,16 @@ This guide defines the standard operating procedure for publishing a new deploym
 
 ### Step 1: Log in to Admin Panel
 
-Authenticate as admin and navigate to Deployments.
+Authenticate as an administrator and open **Deployments**.
 
 ### Step 2: Select or Create Deployment
 
 - Use existing deployment, or
 - Create a new deployment with a unique name.
 
-### Step 3: Add Version
+### Step 3: Register Version
+
+Open **Versions**, choose the deployment, and select **+ Register Version**.
 
 When adding a version, choose one package source:
 
@@ -99,7 +101,9 @@ whole package file.
 
 ### Step 5: Grant Access
 
-Grant deployment access to the intended groups.
+Open **Users & Permissions**, find or create the intended group, select
+**Manage**, choose the deployment under **Deployment Access**, and save the
+group.
 
 ### Step 6: Functional Verification
 

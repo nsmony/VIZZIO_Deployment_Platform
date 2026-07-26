@@ -48,6 +48,21 @@ export function getValidToken() {
   return token;
 }
 
+export function isAdminToken(token) {
+  const payload = getJwtPayload(token);
+  return String(payload?.role || '').toLowerCase() === 'admin';
+}
+
+export function getValidAdminToken() {
+  const token = getValidToken();
+  if (!token || !isAdminToken(token)) {
+    if (token) clearStoredSession();
+    return null;
+  }
+
+  return token;
+}
+
 export function isAuthenticated() {
   return Boolean(getValidToken());
 }

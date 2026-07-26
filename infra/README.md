@@ -20,7 +20,13 @@ This directory contains starter configuration for the VIZZIO Deployment Platform
 DOWNLOAD_DELIVERY_MODE=nginx
 DOWNLOAD_ROOT=/var/www/vizzio/builds
 DOWNLOAD_ACCEL_PREFIX=/_vizzio_downloads
+PACKAGE_ROOT=/var/www/vizzio/builds
 ```
 
-- Admins should copy/drop large packages onto the server under `DOWNLOAD_ROOT`, then register the full server file path in Version Management.
+- Server-path registration only accepts sources inside `PACKAGE_ROOT`, while
+  Nginx acceleration only applies to files inside `DOWNLOAD_ROOT`. Keeping both
+  variables pointed at the same private package directory is the simplest
+  supported layout.
+- Admins should copy/drop large packages into that shared private directory,
+  then register the full server path in Version Management.
 - Do not expose `/_vizzio_downloads/` directly; it must remain `internal`.

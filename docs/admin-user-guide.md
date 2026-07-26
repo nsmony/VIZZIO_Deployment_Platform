@@ -2,263 +2,380 @@
 
 ## 1. Purpose
 
-This guide explains how platform administrators operate the VIZZIO Deployment Platform Admin Web Panel for user, group, deployment, and version lifecycle management.
+This guide explains how platform administrators use the VIZZIO Deployment
+Platform Admin Web Panel to manage users, groups, deployment access, deployment
+families, versions, notifications, logs, launcher reports, and platform
+settings.
 
 ## 2. Access and Login
 
 1. Open the Admin Web Panel URL.
-2. Enter admin username and password.
-3. Submit the form.
+2. Enter an administrator username or email address.
+3. Enter the password.
+4. Select **Sign In**.
 
 Expected behavior:
 
 - Invalid credentials return an authentication error.
-- Excessive failed login attempts may trigger temporary rate limiting.
-- Expired session tokens require re-login.
+- Disabled managed accounts cannot sign in.
+- Repeated failed attempts from the same client can cause temporary rate
+  limiting.
+- An invalid or expired session returns the administrator to the login page.
 
 ## 3. Admin Navigation
 
-Typical sections:
+The sidebar contains:
 
-- Dashboard
-- Users
-- Groups
-- Deployments
-- Notifications
-- Download Logs
-- Launcher Reports
-- Settings
+- **Overview**
+- **Deployments**
+- **Versions**
+- **Users & Permissions**
+- **Download Logs**
+- **Launcher Reports**
+- **Settings**
+- **Help & Docs**
+
+Groups are managed inside **Users & Permissions**. Notifications are available
+from the notification bell in the top navigation. A full Notifications page
+also exists at `/notifications`, although the current sidebar and bell menu do
+not link to it.
 
 ## 4. Dashboard Overview
 
-Use Dashboard as the daily starting point. It shows:
+Use **Overview** as the daily starting point. It shows:
 
-- Real deployment, version, stable-release, and group counts
-- Quick actions for creating deployments, registering versions, managing access,
-  and reviewing launcher reports
-- Needs Attention items for deployments without versions, deployments without a
-  released version, and groups without deployment access
+- Deployment, version, released stable-version, and group counts
+- The number of active users
+- Quick actions for creating deployments, registering versions, managing
+  access, and reviewing launcher reports
+- **Needs Attention** items for deployments without versions, deployments
+  without a released version, and groups without deployment access
+- Recent deployment, version, and group activity
 
-Use Needs Attention as a setup checklist before asking launcher users to test.
+Use **Needs Attention** as a setup checklist before asking launcher users to
+test.
 
 ## 5. User Management
 
+Open **Users & Permissions** to search and filter users, manage accounts, and
+assign group-based deployment access. The user list is paginated at 25 users per
+page.
+
 ### 5.1 Create User
 
-1. Go to Users.
-2. Select Create User.
-3. Enter username and password.
-4. Save.
+1. Go to **Users & Permissions**.
+2. Select **New User**.
+3. Enter the user's name, username, and email address.
+4. Select the role: **Admin** or **User**.
+5. Select the initial status: **Active** or **Inactive**.
+6. Optionally select one or more groups.
+7. Enter a temporary password, or leave **Temporary Password** blank to
+   generate one.
+8. Select **Save User**.
+9. Copy the temporary credentials when they are displayed. The password is
+   shown in this dialog after creation.
 
 Validation rules:
 
-- Username must be unique.
-- Username format and length must match platform policy.
-- Password must meet minimum length.
+- Name, username, and email are required in the Admin Web Panel.
+- Username must contain 3-64 letters, numbers, or underscores.
+- Username must be unique, ignoring letter case.
+- Email must be unique, ignoring letter case.
+- A manually entered password must contain at least 8 characters.
+- If no password is entered, the platform generates a temporary password.
 
-### 5.2 Edit User
+Implementation note: the API can derive a missing username from the part of the
+email address before `@`, replacing unsupported characters with underscores.
+The Admin Web Panel normally does not use this fallback because its username
+field is required.
 
-1. Open the target user record.
-2. Update username.
-3. Save changes.
+Users can authenticate with either their username or email address.
 
-### 5.3 Disable User
+### 5.2 View Access
 
-1. Open the target user record.
-2. Select Disable.
-3. Confirm action.
+1. Open the user's actions menu.
+2. Select **View Access**.
 
-Result:
+The dialog shows the username, email, role, status, assigned groups, and
+deployments inherited from those groups.
 
-- Disabled users cannot authenticate in launcher.
+### 5.3 Edit User
 
-### 5.4 Reset User Password
+1. Open the user's actions menu.
+2. Select **Edit**.
+3. Update the name, username, email, role, status, or group assignments.
+4. Select **Save User**.
 
-1. Open the target user record.
-2. Select Reset Password.
-3. Enter a new admin-defined password.
-4. Save.
+The same username and email uniqueness rules used during creation also apply to
+edits. Passwords are changed through **Reset Password**, not the edit form.
 
-## 6. Group Management
+### 5.4 Disable User
+
+1. Open the user's actions menu.
+2. Select **Disable**.
+3. Confirm the action.
+
+Disabled users cannot authenticate. The current interface does not provide a
+separate re-enable action; an administrator can open **Edit**, change
+**Status** to **Active**, and save the user.
+
+### 5.5 Reset User Password
+
+1. Open the user's actions menu.
+2. Select **Reset Password**.
+3. Enter a new password of at least 8 characters.
+4. Select **Reset Password**.
+5. Copy the credentials shown after the reset.
+
+### 5.6 Delete User
+
+1. Open the user's actions menu.
+2. Select **Delete**.
+3. Confirm the permanent deletion.
+
+Deleting a user cannot be undone from the Admin Web Panel. Prefer disabling an
+account when its history may still be needed.
+
+## 6. Group and Deployment Access Management
+
+Groups and their deployment grants are managed together in **Users &
+Permissions**. Users inherit access to all deployments selected for their
+groups.
 
 ### 6.1 Create Group
 
-1. Go to Groups.
-2. Select Create Group.
+1. Go to **Users & Permissions**.
+2. Select **New Group** or **Create Group**.
 3. Enter a unique group name.
-4. Save.
+4. Expand **Members** and select any users to add.
+5. Expand **Deployment Access** and select any deployments to grant.
+6. Select **Save Group**.
 
-### 6.2 Manage Membership
+Group names are required and unique.
 
-1. Open group details.
-2. Add users to group or remove users from group.
-3. Save changes.
+### 6.2 Manage Membership and Deployment Access
 
-## 7. Deployment Access Control
+1. Find the group under **Group Access**.
+2. Select **Manage**.
+3. Add or remove users under **Members**.
+4. Grant or revoke deployments under **Deployment Access**.
+5. Select **Save Group**.
 
-### 7.1 Grant Deployment Access to Group
+Saving applies the membership changes and then adds or removes deployment
+grants as needed. Granting an existing mapping returns a conflict at API level;
+revoking a mapping that does not exist returns not found. The checkbox-based
+interface normally avoids both conditions.
 
-1. Open a group.
-2. Select Grant Deployment Access.
-3. Choose a deployment.
-4. Confirm.
+There is currently no group deletion action in the Admin Web Panel.
 
-Behavior:
+## 7. Deployment Management
 
-- Granting access that already exists should return a conflict response.
+### 7.1 Create Deployment
 
-### 7.2 Revoke Deployment Access from Group
+1. Go to **Deployments**.
+2. Select **+ New Deployment**.
+3. Enter a unique deployment name.
+4. Optionally enter a logo URL and description.
+5. Select **Create Deployment**.
 
-1. Open a group.
-2. Find granted deployment.
-3. Revoke access.
+Deployment names are required and unique, ignoring letter case.
 
-Behavior:
+### 7.2 View or Edit Deployment
 
-- Revoking a non-existing mapping should return not found.
+1. Find the deployment in grid or list view.
+2. Select **View** to review its metadata and versions, or select
+   **Edit**.
+3. Update the name, logo URL, or description.
+4. Save the deployment.
 
-## 8. Deployment Management
+The page supports search, status and channel filters, sorting, grid/list views,
+and pagination.
 
-### 8.1 Create Deployment
+### 7.3 Archive, Restore, or Delete Deployment
 
-1. Go to Deployments.
-2. Select Create Deployment.
-3. Enter deployment name.
-4. Save.
+Open the deployment's additional-actions menu and choose the required action:
 
-Rules:
+- **Archive deployment** changes every non-deleted version in that deployment
+  to **Archived**. A deployment without versions cannot be archived.
+- **Restore draft** changes archived versions in that deployment back to
+  **Draft**.
+- **Delete deployment** asks for confirmation and removes the deployment and
+  its associated version records from the platform database.
 
-- Deployment names must be unique.
+Package files are not documented as being removed by these actions. Use
+deployment-level lifecycle actions only when the whole package family should
+change state.
 
-### 8.2 Rename Deployment
+## 8. Version Management
 
-1. Open deployment details.
-2. Edit deployment name.
-3. Save.
+### 8.1 Register Version
 
-### 8.3 Archive, Restore, or Delete Deployment
+1. Go to **Versions**.
+2. Select the target deployment.
+3. Select **+ Register Version**.
+4. Enter the version number.
+5. Choose **Stable** or **Beta**.
+6. Choose one package source:
+   - **Server staging folder**
+   - **Server archive path**
+   - **Upload archive**
+7. For **Server staging folder**, enter the path and select **Prepare folder**.
+   For **Server archive path**, enter the path and select **Validate archive**.
+   For an upload, select a local ZIP or 7z archive; it is uploaded when the
+   version is registered.
+8. Select the initial status: **Draft**, **Released**, or **Archived**.
+9. Optionally enter a description.
+10. Review the detected file, batch-script, size, and checksum metadata.
+11. Select **Register version**.
 
-Deployment lifecycle actions apply to the whole deployment family.
+The version number is required and must be unique within its deployment.
 
-- Archive deployment: archives every non-deleted version under that deployment.
-- Restore deployment: restores archived versions under that deployment back to draft.
-- Delete deployment: removes the deployment record and its associated version records.
+### 8.2 Package Requirements
 
-Use deployment-level actions only when the whole product/module/client package
-family should change state.
+- Archives must be ZIP or 7z files.
+- The package must contain a launch `.bat` file either at the archive root or
+  inside its only top-level folder.
+- A server path must exist and be inside the backend's configured package root.
+- A server archive path must point to a file.
+- A server staging-folder path must point to a non-empty directory containing a
+  launch batch script.
+- ZIP archives are inspected directly.
+- Reading or creating 7z archives requires `7z` or `7za` on the backend server.
 
-## 9. Version Management
+For large Unreal deployments, prefer **Server staging folder** on the backend
+PC. When 7-Zip is available, the backend creates a generated 7z archive.
+Without 7-Zip, it creates a ZIP when the staging folder is within the built-in
+ZIP size limit.
 
-### 9.1 Add Version
+### 8.3 Manage a Version
 
-Create a version using one package source:
+The version table provides these actions:
 
-- Uploaded archive
-- Existing server archive path
-- Server staging folder path to be archived
+- Select the channel control to switch between **Stable** and **Beta**.
+- Select the status control to choose **Draft**, **Released**, or **Archived**.
+- Select **Release** to make a non-released version released.
+- Select **Archive** to hide a non-archived version.
+- Select **Restore draft** to return an archived version to draft.
+- Select **View details** to review metadata and edit the description, channel,
+  or status.
+- Select **Delete** and confirm to remove the version record from active use.
 
-Every source must include a launch batch script either at the archive root or
-inside the only top-level folder. ZIP archives are inspected directly; 7z
-archives require `7z` or `7za` on the backend server for validation.
+Only **Released** versions are visible to authorized launcher users. Draft,
+archived, and deleted versions are hidden. Deleting a version does not delete
+its package file from the server.
 
-For large Unreal deployments, prefer Server staging folder on the backend PC.
-When 7-Zip is available, the backend turns staging folders into generated `.7z`
-packages so 50-60 GiB deployments are supported.
+## 9. Notifications, Logs, and Monitoring
 
-1. Open a deployment.
-2. Select Add Version.
-3. Set version number.
-4. Select package source and provide path/file.
-5. Choose channel and status.
-6. Save.
+### 9.1 Notifications
 
-### 9.2 Channel and Status
-
-- Channel: Stable or Beta
-- Initial status: Draft, Released, or Archived
-
-Effects:
-
-- Released versions are visible to authorized launcher users.
-- Archived versions are hidden from launcher users.
-- Version-level archive, restore, or delete actions affect only the selected
-  version of the selected deployment.
-
-## 10. Notifications, Logs, and Monitoring
-
-### 10.1 Notifications
-
-Notifications are generated for active admin users when:
+Notifications are created for active managed administrators when:
 
 - A deployment is created, archived, restored, or deleted
 - A version is registered, updated, released, archived, restored, or deleted
 - A launcher user requests a download
 - The launcher submits an error report
 
-Use the notification bell for quick triage. Use the Notifications page to filter
-all, unread, and read notifications, mark notifications as read, mark all as
-read, or delete resolved notifications.
+Use the notification bell for quick triage. From the full Notifications page,
+filter **All**, **Unread**, or **Read** notifications, mark individual or all
+notifications as read, and delete resolved notifications.
 
-### 10.2 Download Logs
+### 9.2 Download Logs
 
-Use Download Logs or related activity pages to verify:
+Go to **Download Logs** to:
 
-- Which user downloaded which version
-- Time of download session creation or activity
-- Success/failure signals for troubleshooting
+- View download time, user, username, deployment, version, channel, and IP
+  address
+- Filter the list by deployment
+- Export the current deployment scope as a CSV file
 
-### 10.3 Launcher Reports
+### 9.3 Launcher Reports
 
-Use Launcher Reports to review launcher-side download, install, prerequisite,
-update, and launch failures submitted by signed-in users.
+Go to **Launcher Reports** to review failures submitted by signed-in launcher
+users. Reports can be filtered by deployment and by:
 
-## 11. Settings and Maintenance Mode
+- **Download / Install**
+- **Deployment Launch**
+- **Launcher Update**
 
-If enabled in the platform:
+Select **View** to inspect the report time, user, launcher version, machine,
+operating system, deployment/version context, and diagnostic details.
 
-- Maintenance mode restricts non-admin operations.
-- Use before major migration or package maintenance windows.
+## 10. Settings and Maintenance Mode
 
-## 12. Admin Best Practices
+The **Settings** page contains four tabs:
+
+- **General**: view the Admin Web Panel version and edit the product name and
+  support email.
+- **Server**: view API/download URLs and run **Test Connection** to check the
+  database URL, token secrets, package root, upload/download storage, backend
+  port, and 7-Zip readiness.
+- **Security**: view the signed-in username and role, or sign out. The displayed
+  **Change Password** action is not implemented yet; reset an administrator's
+  password from **Users & Permissions** instead.
+- **Maintenance**: enable maintenance mode, set its message, open Download Logs
+  for export, reset settings to their defaults, and save maintenance settings.
+
+Maintenance mode blocks non-admin download-manager listing, session, and file
+streaming operations. Administrators remain able to use the system. Enter a
+maintenance message before saving if launcher users need a specific
+explanation.
+
+## 11. Admin Best Practices
 
 - Use group-based access rather than user-by-user exception mappings.
 - Keep deployment names and version numbers consistent.
-- Archive obsolete versions instead of deleting active records.
-- Validate a release with a real launcher test account after access grant.
+- Keep new versions in **Draft** until their package and access have been
+  tested.
+- Archive obsolete versions instead of deleting records when history matters.
+- Validate a release with a real active launcher test account after granting
+  group access.
 - Review notifications, download logs, and launcher reports after releases.
+- Copy generated or reset credentials before closing the credentials dialog.
 
-## 13. Common Admin Issues
+## 12. Common Admin Issues
 
-### 13.1 User cannot see deployment
-
-Check:
-
-- User is enabled
-- User belongs to at least one group
-- Group has deployment grant
-- Target version is marked Released
-
-### 13.2 Version add fails from server path
+### 12.1 User cannot sign in
 
 Check:
 
-- Path exists on server
-- Path is within allowed package root
-- Archive or staging folder contains a launch `.bat` at the root or inside the
-  only top-level folder
+- The username or email and password are correct
+- The account status is **Active**
+- A temporary rate-limit cooldown is not in effect
+- Maintenance mode is not blocking the user's launcher operation after login
 
-### 13.3 Repeated login failures
-
-Check:
-
-- Correct credentials
-- Account status
-- Temporary rate-limit cooldown
-
-### 13.4 Notifications are empty
+### 12.2 User cannot see deployment
 
 Check:
 
-- A real notification-producing event has happened
-- Signed-in admin is an active managed user with Admin role
-- Backend database is reachable
+- The user is active
+- The user belongs to at least one group
+- At least one of those groups has access to the deployment
+- The target version is **Released**
+
+### 12.3 Version registration or validation fails
+
+Check:
+
+- The source path exists on the backend server
+- The source is within the configured package root
+- The selected source type matches a file, folder, or upload
+- The archive is ZIP or 7z
+- The package contains a launch `.bat` at its root or inside its only top-level
+  folder
+- 7-Zip is available when reading or creating a 7z package
+- The version number is not already registered for that deployment
+
+### 12.4 Notifications are empty
+
+Check:
+
+- A notification-producing event has occurred
+- The signed-in account is an active managed user with the **Admin** role
+- The backend database is reachable
+
+### 12.5 Server readiness shows warnings or offline
+
+Open **Settings > Server**, select **Test Connection**, and review each check.
+Correct required database or package-root failures before publishing packages.
+Treat a missing 7-Zip check as a warning unless the workflow requires 7z
+inspection or large staging-folder packaging.

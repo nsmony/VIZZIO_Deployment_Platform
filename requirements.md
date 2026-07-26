@@ -1,5 +1,11 @@
 # Requirements Document
 
+> Status: product acceptance criteria. This file describes required behavior,
+> not a claim that every criterion is currently implemented. See
+> `docs/full-requirements-audit-2026-07-23.md` and
+> `docs/implementation-verification.md` for dated implementation evidence, and
+> verify the current source before sign-off.
+
 ## Introduction
 
 VIZZIO Deployment Platform is a Steam-style software distribution system for delivering large Unreal Engine builds to authorized users. It consists of two products:

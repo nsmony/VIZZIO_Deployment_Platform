@@ -2,12 +2,22 @@
 
 This document records the current launcher download-manager implementation status versus requirements, based on code review plus executable checks.
 
+Revalidated on 2026-07-27. The current backend suites contain 17 passing tests,
+including Admin authorization middleware coverage; the launcher suite contains
+14 passing tests.
+
 ## Verification Run
 
 - Launcher build: `dotnet build .\launcher\Launcher.csproj -p:Configuration=Debug` (pass)
-- Backend package/download-manager tests: `node --test .\test\downloadManagerService.test.js` (12/12 pass)
-- Backend Prisma schema validation: `npx prisma validate` (pass)
-- Frontend admin panel build: `npm run build` (pass)
+- Backend authorization and package/download-manager tests:
+  `node --test backend\test\authMiddleware.test.js backend\test\downloadManagerService.test.js`
+  (17/17 pass)
+- Launcher policy tests:
+  `dotnet test launcher\Launcher.Tests\Launcher.Tests.csproj -p:Configuration=Debug`
+  (14/14 pass)
+- Backend Prisma schema validation from `backend`:
+  `npx.cmd prisma validate` (pass)
+- Frontend admin panel build from `frontend`: `npm.cmd run build` (pass)
 
 ## Requirement Coverage Snapshot
 

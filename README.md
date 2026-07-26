@@ -33,10 +33,9 @@ This document is the primary project reference for architecture, flows, setup, o
 graph TD
     A[Admin Web Panel\nReact + Vite] -->|REST /api| B[Backend API\nNode.js + Express]
     L[Windows Launcher\n.NET 8 WPF] -->|REST /api| B
-    B -->|ORM| D[(PostgreSQL)]
-    B -->|Prisma| D
-    L -->|Range file download| F[Nginx or Node Delivery]
-    F -->|Token validation| B
+    B -->|Prisma ORM| D[(PostgreSQL)]
+    L -->|Tokenized range request| B
+    B -->|Node stream or X-Accel-Redirect| F[Nginx or Node Delivery]
     F --> S[(Package Storage)]
     B --> S
 ```
@@ -221,7 +220,7 @@ VIZZIO_Deployment_Platform/
 
 ## 7. Frontend Architecture
 
-- React SPA with protected admin routes
+- React SPA with authentication-gated portal routes
 - Token-aware auth handling with expiry checks
 - Central API client with auth headers and session cleanup on unauthorized responses
 - Admin modules for users, groups, deployments, versions, settings, and logs
@@ -250,19 +249,23 @@ VIZZIO_Deployment_Platform/
 - GroupDeploymentAccess
 - DownloadSession
 - DownloadLog
-- Settings
+- File-backed admin settings
 
 ### 9.2 Access Rules
 
 - A user can only see released versions of deployments granted through one or more of the user groups
 - Archived versions are hidden from launcher users
-- Admin actions are protected by admin JWT
+- Deployment/version write handlers and admin reporting/settings endpoints
+  enforce the Admin role.
+- The frontend portal guard requires an unexpired JWT with the Admin role.
+- `/api/users` applies reusable Admin-role middleware to all user and group
+  management routes.
 - Download files require valid, short-lived scoped tokens
 
 ## 10. Security Model
 
 - Password hashing with bcrypt (cost factor 12+)
-- JWT-based authentication for admin and launcher users
+- Shared JWT-based authentication for admin and launcher users
 - Download token with bounded lifetime and file/session scope
 - Login rate limiting middleware for brute-force reduction
 - Server-side path validation to avoid traversal and out-of-root access
@@ -280,9 +283,9 @@ sequenceDiagram
     U->>L: Start download
     L->>B: Create session request
     B-->>L: Session + file metadata + token
-    L->>F: Parallel HTTP range requests with token
-    F->>B: Validate token/session
-    B-->>F: Authorized
+    L->>B: Parallel HTTP range requests with token
+    B->>B: Validate token, session, access, and path
+    B-->>F: Stream directly or authorize internal redirect
     F-->>L: Streamed chunks
     L->>L: Merge chunks and validate SHA-256
     L->>L: Extract archive to install root
@@ -303,14 +306,27 @@ sequenceDiagram
 
 ```env
 PORT=4000
+NODE_ENV=production
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/vizzio
-JWT_SECRET=change-me
-DOWNLOAD_MANAGER_SECRET=change-me-too
+JWT_SECRET=replace-with-a-long-random-secret
+DOWNLOAD_SECRET=replace-with-a-different-long-random-secret
+DOWNLOAD_MANAGER_SECRET=replace-with-a-third-long-random-secret
 PACKAGE_ROOT=C:\VIZZIO\packages
 DOWNLOAD_DELIVERY_MODE=node
 DOWNLOAD_ROOT=/srv/vizzio/packages
 DOWNLOAD_ACCEL_PREFIX=/_vizzio_downloads
+PACKAGE_UPLOAD_MAX_BYTES=85899345920
+LAUNCHER_ERROR_REPORT_ROOT=C:\VIZZIO\launcher-error-reports
+LAUNCHER_LATEST_VERSION=0.1.0
+LAUNCHER_DOWNLOAD_URL=
+LAUNCHER_RELEASE_NOTES=
+LAUNCHER_UPDATE_REQUIRED=false
+ENABLE_DEMO_USERS=false
 ```
+
+For Nginx delivery, every registered or uploaded package that should use
+`X-Accel-Redirect` must resolve inside `DOWNLOAD_ROOT`. The simplest production
+layout is to make `PACKAGE_ROOT` and `DOWNLOAD_ROOT` the same directory.
 
 ### 12.2 Frontend Environment (example)
 
@@ -346,6 +362,9 @@ npm run prisma:migrate
 npm run dev
 ```
 
+If Windows PowerShell blocks `npm.ps1` under its execution policy, use
+`npm.cmd` and `npx.cmd` for the same commands.
+
 For an existing hosted database, apply committed migrations before starting or
 restarting the backend:
 
@@ -362,6 +381,9 @@ cd frontend
 npm install
 npm run dev
 ```
+
+If Windows PowerShell blocks `npm.ps1`, run the equivalent commands with
+`npm.cmd`.
 
 Production build:
 
@@ -439,8 +461,12 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
 
 ### 16.2 Backend Notes
 
-- Backend includes test coverage (example: download manager service tests)
-- Add or maintain npm test scripts to strengthen CI automation
+- The backend has Node test files but currently has no `npm test` script.
+- Run the existing suite from the repository root with:
+
+```powershell
+node --test backend\test\downloadManagerService.test.js
+```
 
 ## 17. Known Risks and Mitigations
 
@@ -452,6 +478,10 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
   - Mitigation: upfront and in-flight free-space checks
 - Multi-instance operational confusion with stale local ports
   - Mitigation: enforce single active backend instance in development and scripted health checks
+- Authorization regression risk
+  - Mitigation: reusable Admin-role middleware protects user/group routes,
+    frontend routing validates the token role, and middleware regression tests
+    assert HTTP 403 behavior.
 
 ## 18. Troubleshooting Guide
 
@@ -496,6 +526,7 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
 - docs/launcher-error-reporting.md: launcher diagnostic upload behavior
 - docs/implementation-verification.md: current implementation check results and requirement coverage snapshot
 - docs/full-requirements-audit-2026-07-23.md: broad cross-stack requirement audit and sign-off gaps
+- docs/code-documentation-audit-2026-07-27.md: latest code/documentation alignment check and remaining code gaps
 - backend/README.md: backend-local development specifics
 - frontend/README.md: frontend-local development specifics
 - launcher/README.md: launcher-local development specifics

@@ -4,15 +4,30 @@ Node.js + Express backend for the VIZZIO Deployment Platform.
 
 ## Setup
 
-1. cd backend
-2. npm install
-3. npm run dev
+```powershell
+cd backend
+Copy-Item .env.example .env
+npm install
+npm run prisma:generate
+npm run prisma:migrate
+npm run dev
+```
+
+Replace all example database credentials and token secrets before exposing the
+backend. Set `ENABLE_DEMO_USERS=false` outside local demo use.
+
+If Windows PowerShell blocks `npm.ps1` or `npx.ps1`, use `npm.cmd` and
+`npx.cmd`.
 
 ## Notes
 
 - Uses PostgreSQL for persistent storage.
 - Uses JWT authentication for API access.
-- Nginx is expected to serve large file delivery externally.
+- Node can stream packages directly. Nginx accelerated delivery is optional and
+  enabled with `DOWNLOAD_DELIVERY_MODE=nginx`.
+- In Nginx mode, downloadable package files must be inside `DOWNLOAD_ROOT`; use
+  the same directory for `PACKAGE_ROOT` and `DOWNLOAD_ROOT`, or ensure all
+  registered/uploaded artifacts resolve below both roots.
 - Admin package uploads stream to disk under `storage/downloads`; set `PACKAGE_UPLOAD_MAX_BYTES` to cap upload size. Use a large cap, such as 80 GiB, for Unreal-scale deployments.
 - ZIP and 7z package sources must contain a launch `.bat` at the archive root
   or inside the only top-level folder. ZIP validation is built in; 7z validation
@@ -24,3 +39,8 @@ Node.js + Express backend for the VIZZIO Deployment Platform.
   notifications for deployment/version lifecycle changes, launcher download
   requests, and launcher error reports. Notification write failures are logged
   in development and do not block the triggering action.
+- Existing backend tests can be run from the repository root with
+  `node --test backend\test\authMiddleware.test.js backend\test\downloadManagerService.test.js`.
+  There is currently no `npm test` script.
+- All `/api/users` user and group routes require the Admin role through
+  `requireAdmin` middleware after JWT authentication.
