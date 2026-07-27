@@ -8,6 +8,8 @@
   --success: #10b981;
   --warning: #f59e0b;
   --danger: #ef4444;
+  --font-ui: 'Segoe UI', Arial, sans-serif;
+  --font-mono: Consolas, 'Courier New', monospace;
 }
 
 * {
@@ -16,10 +18,20 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-ui);
+}
+
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   background: var(--bg);
   color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .app-layout {

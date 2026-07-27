@@ -84,6 +84,8 @@ namespace Launcher
         private static readonly Brush Beta = BrushFrom("#0369A1");
         private static readonly Brush WarningSoft = BrushFrom("#FEF3C7");
         private static readonly Brush Warning = BrushFrom("#92400E");
+        private static readonly FontFamily UiFont = new("Segoe UI");
+        private static readonly FontFamily CodeFont = new("Consolas");
 
         public DownloadManagerWindow()
         {
@@ -95,6 +97,8 @@ namespace Launcher
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             WindowState = WindowState.Maximized;
             Background = PageBackground;
+            FontFamily = UiFont;
+            FontSize = 13;
             SizeChanged += (_, _) => ScheduleResponsiveLayout();
             Closing += (_, _) =>
             {
@@ -1698,6 +1702,8 @@ namespace Launcher
                 ResizeMode = ResizeMode.CanResize,
                 AllowsTransparency = true,
                 Background = Brushes.Transparent,
+                FontFamily = UiFont,
+                FontSize = 13,
                 ShowInTaskbar = false,
             };
 
@@ -1792,7 +1798,7 @@ namespace Launcher
                 BorderBrush = UiBorder,
                 Background = PageBackground,
                 Foreground = Text,
-                FontFamily = new FontFamily("Consolas"),
+                FontFamily = CodeFont,
                 FontSize = 11,
                 TextWrapping = TextWrapping.NoWrap,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,

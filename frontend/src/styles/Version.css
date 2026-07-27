@@ -106,6 +106,7 @@
 
 .version-path {
   display: block;
+  font-family: var(--font-mono);
   max-width: 280px;
   overflow: hidden;
   color: var(--text-muted);
@@ -138,7 +139,7 @@
   max-width: 280px;
   overflow: hidden;
   color: #475569;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -176,6 +177,10 @@
 .status-archived {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.version-checksum-field input {
+  font-family: var(--font-mono);
 }
 
 .status-paused {
@@ -359,7 +364,7 @@
 }
 
 .version-mono {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 

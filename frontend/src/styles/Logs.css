@@ -290,6 +290,7 @@
 }
 
 .report-log-tail {
+  font-family: var(--font-mono);
   margin: 0;
   max-height: 420px;
   overflow: auto;
