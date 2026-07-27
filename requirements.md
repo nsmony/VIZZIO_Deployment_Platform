@@ -78,7 +78,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 6. THE API SHALL store all User passwords hashed with bcrypt using a minimum cost factor of 12.
 7. IF a User account is created or a password is reset with a password shorter than 8 characters, THEN THE API SHALL return an error response, THE Admin_Web_Panel SHALL display a message stating the minimum password length requirement, and the account or password SHALL NOT be modified.
 8. IF an Admin attempts to set a username that is already in use by another account (on creation or edit), THEN THE API SHALL return an HTTP 409 response and THE Admin_Web_Panel SHALL display a message stating the username is already taken.
-9. THE Admin_Web_Panel SHALL display a paginated list of all User accounts showing username and enabled/disabled status, with a page size of 25 records per page.
+9. THE Admin_Web_Panel SHALL display a paginated list of all User accounts showing username and enabled/disabled status, with a page size of 6 records per page.
 
 ---
 
@@ -132,6 +132,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 9. WHEN an Admin changes a User's group membership or changes a User Group's Deployment access, THE API SHALL reflect the resulting Deployment visibility in subsequent requests from affected Users within 5 seconds.
 10. WHEN an Admin navigates to a User Group detail view, THE Admin_Web_Panel SHALL display the Users in that group and the Deployments granted to that group.
 11. WHEN an Admin navigates to a User detail view, THE Admin_Web_Panel SHALL display the User's group memberships and the Deployments inherited through those groups.
+12. THE Admin_Web_Panel SHALL allow an Admin to delete a User Group after confirmation; deleting the group SHALL remove its membership and deployment-access mappings without deleting the associated User accounts or Deployments.
 
 ---
 
@@ -161,7 +162,7 @@ The system runs on a single Ubuntu 22.04 LTS server and is deployable to AWS, Di
 #### Acceptance Criteria
 
 1. WHEN a User requests the deployment list, THE API SHALL require a valid JWT and SHALL return only the Deployments granted to at least one User Group that contains that User; THE Launcher SHALL display the returned Deployments.
-2. THE Launcher SHALL display all Released Versions of each accessible Deployment, grouped by channel: Stable versions listed separately from Beta versions.
+2. THE Launcher SHALL display each accessible Deployment once with all of its Released Versions grouped beneath it; every Version SHALL retain its Stable or Beta channel indicator, and channel filters SHALL remain available.
 3. THE Launcher SHALL NOT display Archived Versions to the User.
 4. WHEN a Version becomes Archived after the deployment list has been loaded, THE Launcher SHALL remove it from the display on the next API refresh.
 5. THE Launcher SHALL poll the API for deployment list updates every 5 minutes while the User is authenticated.

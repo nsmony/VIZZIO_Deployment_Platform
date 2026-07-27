@@ -224,14 +224,22 @@ VIZZIO_Deployment_Platform/
 - Token-aware auth handling with expiry checks
 - Central API client with auth headers and session cleanup on unauthorized responses
 - Admin modules for users, groups, deployments, versions, settings, and logs
+- Six-row user pagination and four-card group pagination with shared
+  user/email/group search
+- Confirmed group deletion that cascades membership and deployment-access
+  mappings without deleting users or deployments
 - Dashboard overview with real deployment/version/group counts, quick actions, and
   setup attention items for missing versions or group access
 - Notification bell and Notifications page backed by persisted notification
-  records with read/delete controls
+  records with read, individual delete, and user-scoped clear-all controls
 
 ## 8. Launcher Architecture
 
 - WPF desktop UX for Login, Library, Installed, Download, and Settings
+- Deployment-first package catalog that groups all released versions under one
+  deployment while preserving Stable/Beta/Installed filters and per-version
+  actions
+- Branded maintenance-mode dialog for non-admin users blocked by HTTP 503
 - Parallel chunked downloader with persisted resume state
 - Session token storage in Windows Credential Manager
 - Disk-space checks using archive size plus extracted install-size estimates

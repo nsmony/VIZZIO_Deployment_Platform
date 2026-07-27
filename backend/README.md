@@ -39,6 +39,9 @@ If Windows PowerShell blocks `npm.ps1` or `npx.ps1`, use `npm.cmd` and
   notifications for deployment/version lifecycle changes, launcher download
   requests, and launcher error reports. Notification write failures are logged
   in development and do not block the triggering action.
+- Notification routes support per-item deletion and user-scoped clear-all.
+- Deleting a group cascades its membership and deployment-access rows through
+  database relations; user accounts and deployments remain intact.
 - Existing backend tests can be run from the repository root with
   `node --test backend\test\authMiddleware.test.js backend\test\downloadManagerService.test.js`.
   There is currently no `npm test` script.

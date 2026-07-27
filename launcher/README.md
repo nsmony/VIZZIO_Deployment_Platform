@@ -21,6 +21,18 @@ Run launcher resilience policy tests:
 dotnet test launcher\Launcher.Tests\Launcher.Tests.csproj
 ```
 
+## Package Catalog
+
+The library renders each accessible deployment once and lists all of its
+released versions inside that deployment card. Stable, Beta, and Installed
+filters operate on the versions while preserving the deployment grouping.
+Users can install multiple versions of the same deployment side by side and
+launch, open, or uninstall each installed version independently.
+
+When maintenance mode blocks a non-admin launcher request, the launcher shows a
+branded maintenance dialog containing the administrator-configured message
+instead of displaying a raw inline API error.
+
 ## Self-Contained Publish
 
 ```powershell

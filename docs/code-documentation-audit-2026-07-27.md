@@ -29,6 +29,15 @@ documentation, and were not rewritten.
   criteria, target design, or planning history rather than current runtime
   verification.
 - Example database credentials were replaced with placeholders.
+- User-management documentation now matches the six-user page size, shared
+  user/email/group search, and four-group Group Access pagination.
+- Group-management documentation now covers confirmed deletion and accurately
+  states that membership/access mappings cascade while users and deployments
+  remain.
+- Notification documentation now distinguishes dropdown **Clear all** from
+  individual deletion on the full Notifications page.
+- Launcher documentation now reflects the deployment-first catalog, side-by-
+  side version actions, and branded maintenance-mode dialog.
 
 ## Executable Verification
 
@@ -81,3 +90,16 @@ route middleware as well.
   API integration tests beyond the middleware unit coverage.
 - Installer upgrade preservation and full hosted Nginx delivery still need
   environment-level smoke tests.
+
+## Documentation Boundaries
+
+- `design.md` remains an explicitly labeled original target design. Its
+  `/api/admin/*` and proposed launcher endpoint tables are intentionally
+  historical and are not the runtime API reference.
+- `requirements.md` is acceptance criteria rather than implementation proof.
+  Product behavior changed during this review: user pages now contain 6 rows,
+  groups can be deleted with relational cleanup, and the launcher catalog is
+  grouped by deployment rather than separated into channel sections. Those
+  criteria were updated to match the approved behavior.
+- Uploaded Markdown under `backend/storage/downloads` remains package content
+  and is not maintained as project documentation.

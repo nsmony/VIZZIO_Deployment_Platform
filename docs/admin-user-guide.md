@@ -58,8 +58,9 @@ test.
 ## 5. User Management
 
 Open **Users & Permissions** to search and filter users, manage accounts, and
-assign group-based deployment access. The user list is paginated at 25 users per
-page.
+assign group-based deployment access. The user list is paginated at 6 users per
+page. The shared search matches user names, usernames, email addresses, group
+names, and group membership.
 
 ### 5.1 Create User
 
@@ -153,6 +154,9 @@ groups.
 
 Group names are required and unique.
 
+The **Group Access** catalog is paginated at 4 groups per page. Member and
+deployment lists inside each group card are independently scrollable.
+
 ### 6.2 Manage Membership and Deployment Access
 
 1. Find the group under **Group Access**.
@@ -166,7 +170,15 @@ grants as needed. Granting an existing mapping returns a conflict at API level;
 revoking a mapping that does not exist returns not found. The checkbox-based
 interface normally avoids both conditions.
 
-There is currently no group deletion action in the Admin Web Panel.
+### 6.3 Delete Group
+
+1. Find the group under **Group Access**.
+2. Select **Manage**.
+3. Select **Delete Group**.
+4. Review and confirm the warning.
+
+Deleting a group removes its user-membership rows and deployment-access grants.
+It does not delete the associated user accounts or deployments.
 
 ## 7. Deployment Management
 
@@ -275,9 +287,14 @@ Notifications are created for active managed administrators when:
 - A launcher user requests a download
 - The launcher submits an error report
 
-Use the notification bell for quick triage. From the full Notifications page,
-filter **All**, **Unread**, or **Read** notifications, mark individual or all
-notifications as read, and delete resolved notifications.
+Use the notification bell for quick triage. Its menu supports **Mark all read**,
+deleting individual notifications, and **Clear all**. Clear all requires
+confirmation and permanently removes every notification belonging to the
+signed-in administrator.
+
+From the full Notifications page, filter **All**, **Unread**, or **Read**
+notifications, mark individual or all notifications as read, and delete
+resolved notifications individually.
 
 ### 9.2 Download Logs
 

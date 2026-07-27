@@ -103,7 +103,7 @@ IP-based rate limiting for admin login is enforced at the Express middleware lay
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/admin/users` | Paginated user list (page, pageSize=25) |
+| GET | `/api/admin/users` | Paginated user list (target page size now 6) |
 | POST | `/api/admin/users` | Create user |
 | GET | `/api/admin/users/:id` | Get user detail + accessible deployments |
 | PUT | `/api/admin/users/:id` | Edit username |
@@ -434,9 +434,9 @@ CREATE INDEX ON admin_login_attempts (ip_address, attempted_at);
 
 ---
 
-### Property 9: User list pagination returns correct pages of exactly 25 records
+### Property 9: User list pagination returns correct pages of exactly 6 records
 
-*For any* set of N users, the paginated list endpoint SHALL return ⌈N/25⌉ pages where each page except the last contains exactly 25 records, and the last page contains N mod 25 (or 25 if N is a multiple of 25) records.
+*For any* set of N users, the user interface SHALL return ⌈N/6⌉ pages where each page except the last contains exactly 6 records, and the last page contains N mod 6 (or 6 if N is a multiple of 6) records.
 
 **Validates: Requirements 2.9**
 
@@ -482,9 +482,9 @@ CREATE INDEX ON admin_login_attempts (ip_address, attempted_at);
 
 ---
 
-### Property 15: Released versions appear for authorized users; grouped by channel
+### Property 15: Released versions appear for authorized users; grouped by deployment
 
-*For any* released version of a deployment, the Launcher deployment list endpoint SHALL include that version in the response for any user who has been granted access to the parent deployment, and the response SHALL group versions by channel (`stable` / `beta`).
+*For any* released version of a deployment, the Launcher deployment list endpoint SHALL include that version in the response for any user who has been granted access to the parent deployment. The Launcher SHALL render the parent deployment once, list its released versions beneath it, preserve each version's `stable` / `beta` channel indicator, and support channel filtering.
 
 **Validates: Requirements 4.7, 4.8, 7.2**
 
