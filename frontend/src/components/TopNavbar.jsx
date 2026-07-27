@@ -168,9 +168,9 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
     <header className="top-navbar">
       <div className="top-navbar-left">
         <button className="top-menu-button" onClick={onMenuToggle} aria-label="Toggle sidebar" aria-expanded={sidebarOpen}>
-          <span />
-          <span />
-          <span />
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
         </button>
         <div className="top-page-title">{title}</div>
       </div>

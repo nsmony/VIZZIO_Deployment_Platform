@@ -509,6 +509,7 @@
 }
 
 .menu-trigger {
+  position: relative;
   width: 40px;
   height: 40px;
   display: grid;
@@ -524,13 +525,17 @@
 }
 
 .menu-trigger::before {
-  content: '•••';
-  display: block;
-  color: currentColor;
-  font-size: 12px;
-  line-height: 1;
-  letter-spacing: 2px;
-  transform: translate(1px, -1px);
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 18px;
+  background:
+    radial-gradient(circle at 2.5px 2px, currentColor 1.2px, transparent 1.4px),
+    radial-gradient(circle at 2.5px 9px, currentColor 1.2px, transparent 1.4px),
+    radial-gradient(circle at 2.5px 16px, currentColor 1.2px, transparent 1.4px);
+  transform: translate(-50%, calc(-50% + 1px));
 }
 
 .menu-trigger:hover,
@@ -624,7 +629,7 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;

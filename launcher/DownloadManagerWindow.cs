@@ -172,6 +172,11 @@ namespace Launcher
                     message.Text = $"Too many sign-in attempts. Try again in {Math.Ceiling(delay.TotalSeconds)} seconds.";
                     await Task.Delay(delay);
                 }
+                catch (LauncherApiException ex) when (ex.StatusCode == HttpStatusCode.ServiceUnavailable)
+                {
+                    message.Text = string.Empty;
+                    ShowMaintenanceDialog(ex.Message);
+                }
                 catch (Exception ex)
                 {
                     message.Foreground = Warning;
@@ -182,6 +187,151 @@ namespace Launcher
                     button.IsEnabled = true;
                 }
             };
+        }
+
+        private void ShowMaintenanceDialog(string? maintenanceMessage)
+        {
+            var dialog = new Window
+            {
+                Title = "Maintenance mode",
+                Width = 480,
+                Height = 310,
+                MinWidth = 480,
+                MinHeight = 310,
+                MaxWidth = 480,
+                MaxHeight = 310,
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ShowInTaskbar = false,
+                FontFamily = UiFont,
+            };
+
+            var layout = new Grid();
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var header = new Grid { Margin = new Thickness(24, 22, 20, 18) };
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.Children.Add(new Border
+            {
+                Width = 46,
+                Height = 46,
+                CornerRadius = new CornerRadius(12),
+                Background = WarningSoft,
+                Child = CreateCatalogIcon("maintenance", Warning, 23),
+            });
+            var heading = new StackPanel
+            {
+                Margin = new Thickness(13, 1, 12, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            heading.Children.Add(new TextBlock
+            {
+                Text = "Temporarily unavailable",
+                Foreground = Text,
+                FontSize = 20,
+                FontWeight = FontWeights.SemiBold,
+            });
+            heading.Children.Add(new TextBlock
+            {
+                Text = "VIZZIO Launcher maintenance",
+                Foreground = Muted,
+                FontSize = 12,
+                Margin = new Thickness(0, 4, 0, 0),
+            });
+            Grid.SetColumn(heading, 1);
+            header.Children.Add(heading);
+            var closeIcon = new Button
+            {
+                Content = "×",
+                Width = 34,
+                Height = 34,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = Muted,
+                FontSize = 22,
+                FontWeight = FontWeights.Normal,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Template = CreateRoundedButtonTemplate(8),
+            };
+            closeIcon.Click += (_, _) => dialog.Close();
+            Grid.SetColumn(closeIcon, 2);
+            header.Children.Add(closeIcon);
+            layout.Children.Add(header);
+
+            var messagePanel = new StackPanel { Margin = new Thickness(24, 0, 24, 18) };
+            messagePanel.Children.Add(new Border
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Background = WarningSoft,
+                CornerRadius = new CornerRadius(12),
+                Padding = new Thickness(10, 5, 10, 5),
+                Child = new TextBlock
+                {
+                    Text = "MAINTENANCE IN PROGRESS",
+                    Foreground = Warning,
+                    FontSize = 10,
+                    FontWeight = FontWeights.Bold,
+                },
+            });
+            messagePanel.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(maintenanceMessage)
+                    ? "The system is currently under maintenance. Please try again later."
+                    : maintenanceMessage.Trim(),
+                Foreground = Text,
+                FontSize = 14,
+                LineHeight = 22,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 14, 0, 0),
+            });
+            messagePanel.Children.Add(new TextBlock
+            {
+                Text = "Your account and installed packages are not affected.",
+                Foreground = Muted,
+                FontSize = 12,
+                Margin = new Thickness(0, 10, 0, 0),
+            });
+            Grid.SetRow(messagePanel, 1);
+            layout.Children.Add(messagePanel);
+
+            var footer = new Grid
+            {
+                Background = PageBackground,
+                Margin = new Thickness(1, 0, 1, 1),
+            };
+            var closeButton = CreatePrimaryButton("Got it", 104);
+            closeButton.Margin = new Thickness(0, 14, 20, 14);
+            closeButton.HorizontalAlignment = HorizontalAlignment.Right;
+            closeButton.Click += (_, _) => dialog.Close();
+            footer.Children.Add(closeButton);
+            Grid.SetRow(footer, 2);
+            layout.Children.Add(footer);
+
+            dialog.Content = new Border
+            {
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(16),
+                ClipToBounds = true,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius = 28,
+                    ShadowDepth = 10,
+                    Opacity = 0.22,
+                    Color = BrushFrom("#0F172A").Color,
+                },
+                Child = layout,
+            };
+            dialog.ShowDialog();
         }
 
         private async Task LoadItemsAsync()
@@ -985,22 +1135,47 @@ namespace Launcher
             panel.Children.Add(brand);
 
             var footer = new StackPanel { Margin = new Thickness(0, 18, 0, 0) };
+            var accountRow = new Grid();
+            accountRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            accountRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            accountRow.Children.Add(new Border
+            {
+                Width = 34,
+                Height = 34,
+                Background = PrimarySoft,
+                CornerRadius = new CornerRadius(17),
+                Child = CreateCatalogIcon("account", Primary, 21),
+            });
+            var accountCopy = new StackPanel
+            {
+                Margin = new Thickness(10, 0, 8, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            accountCopy.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(_settings.Username) ? "Signed in" : _settings.Username,
+                Foreground = Text,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            Grid.SetColumn(accountCopy, 1);
+            accountRow.Children.Add(accountCopy);
             footer.Children.Add(new Border
             {
-                Background = PageBackground,
+                Background = Surface,
                 BorderBrush = UiBorder,
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(10),
-                Child = new TextBlock
-                {
-                    Text = string.IsNullOrWhiteSpace(_settings.Username) ? "Signed in" : $"Signed in as {_settings.Username}",
-                    Foreground = Muted,
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 9, 10, 9),
+                Child = accountRow,
             });
             var signOut = CreateSecondaryButton("Sign out", 200);
             signOut.Margin = new Thickness(0, 10, 0, 0);
+            signOut.Width = double.NaN;
+            signOut.Height = 54;
+            signOut.HorizontalAlignment = HorizontalAlignment.Stretch;
+            SetButtonIcon(signOut, "signout", Muted);
             signOut.Click += (_, _) => SignOut();
             footer.Children.Add(signOut);
             DockPanel.SetDock(footer, Dock.Bottom);
@@ -1401,38 +1576,22 @@ namespace Launcher
                 return;
             }
 
-            if (_activeFilter == "All")
-            {
-                AddChannelGroup("Stable", visible);
-                AddChannelGroup("Beta", visible);
-                return;
-            }
+            var deploymentGroups = visible
+                .GroupBy(GetDeploymentGroupKey)
+                .Select(group => group.ToList())
+                .ToList();
 
-            foreach (var item in visible)
+            foreach (var deploymentVersions in deploymentGroups)
             {
-                _cardsPanel.Children.Add(CreatePackageCard(item));
+                _cardsPanel.Children.Add(CreateDeploymentCard(deploymentVersions));
             }
         }
 
-        private void AddChannelGroup(string channel, List<DownloadItem> items)
+        private static string GetDeploymentGroupKey(DownloadItem item)
         {
-            var group = items.Where(item => string.Equals(NormalizeChannel(item.ReleaseType), channel, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (group.Count == 0) return;
-
-            _cardsPanel.Children.Add(new TextBlock
-            {
-                Text = channel,
-                Width = GetPortalContentWidth(),
-                Foreground = Text,
-                FontSize = 20,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, _cardsPanel.Children.Count == 0 ? 0 : 14, 0, 12),
-            });
-
-            foreach (var item in group)
-            {
-                _cardsPanel.Children.Add(CreatePackageCard(item));
-            }
+            return string.IsNullOrWhiteSpace(item.DeploymentId)
+                ? $"upload:{item.DeploymentName}"
+                : item.DeploymentId;
         }
 
         private Border CreateToolbar()
@@ -1450,7 +1609,24 @@ namespace Launcher
             var filters = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             foreach (var filter in new[] { "All", "Stable", "Beta", "Installed" })
             {
-                var button = filter == _activeFilter ? CreatePrimaryButton(filter, 92) : CreateSecondaryButton(filter, 92);
+                var filterWidth = filter switch
+                {
+                    "Stable" => 108,
+                    "Beta" => 104,
+                    "Installed" => 120,
+                    _ => 92,
+                };
+                var button = filter == _activeFilter
+                    ? CreatePrimaryButton(filter, filterWidth)
+                    : CreateSecondaryButton(filter, filterWidth);
+                if (filter != "All")
+                {
+                    var iconName = filter == "Stable" ? "stable" : filter == "Beta" ? "beta" : "installed";
+                    var iconColor = filter == _activeFilter
+                        ? Brushes.White
+                        : filter == "Installed" ? Success : filter == "Stable" ? Primary : Muted;
+                    SetButtonIcon(button, iconName, iconColor);
+                }
                 button.Click += (_, _) =>
                 {
                     _activeFilter = filter;
@@ -1466,7 +1642,7 @@ namespace Launcher
                 searchShell.Width = Math.Min(350, GetPortalContentWidth());
                 searchShell.HorizontalAlignment = HorizontalAlignment.Left;
                 searchShell.Margin = new Thickness(0, 0, 0, 12);
-                filters.Width = Math.Min(408, GetPortalContentWidth());
+                filters.Width = Math.Min(464, GetPortalContentWidth());
                 filters.HorizontalAlignment = HorizontalAlignment.Left;
                 compact.Children.Add(searchShell);
                 compact.Children.Add(filters);
@@ -1541,6 +1717,470 @@ namespace Launcher
             };
             canvas.Children.Add(handle);
             return canvas;
+        }
+
+        private Border CreateDeploymentCard(List<DownloadItem> versions)
+        {
+            var representative = versions[0];
+            var installedCount = versions.Count(IsInstalled);
+            var deploymentDescription = versions
+                .Select(item => item.DeploymentDescription ?? item.Description)
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+
+            var card = new StackPanel();
+            var header = new Grid();
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var initial = string.IsNullOrWhiteSpace(representative.DeploymentName)
+                ? "?"
+                : representative.DeploymentName[..1].ToUpperInvariant();
+            header.Children.Add(new Border
+            {
+                Width = 48,
+                Height = 48,
+                CornerRadius = new CornerRadius(10),
+                Background = PrimarySoft,
+                Child = new TextBlock
+                {
+                    Text = initial,
+                    Foreground = Primary,
+                    FontSize = 19,
+                    FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            });
+
+            var heading = new StackPanel { Margin = new Thickness(14, 1, 14, 0) };
+            heading.Children.Add(new TextBlock
+            {
+                Text = representative.DeploymentName,
+                Foreground = Text,
+                FontSize = 21,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            heading.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(deploymentDescription) ? "No deployment description provided." : deploymentDescription,
+                Foreground = Muted,
+                FontSize = 13,
+                Margin = new Thickness(0, 5, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            Grid.SetColumn(heading, 1);
+            header.Children.Add(heading);
+
+            var summary = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            summary.Children.Add(CreateIconSummaryMetric(versions.Count.ToString(), "Versions", "versions", PrimarySoft, Primary));
+            var installedMetric = CreateIconSummaryMetric(installedCount.ToString(), "Installed", "installed", SuccessSoft, Success);
+            installedMetric.Margin = new Thickness(18, 0, 0, 0);
+            summary.Children.Add(installedMetric);
+            Grid.SetColumn(summary, 2);
+            header.Children.Add(summary);
+            card.Children.Add(new Border
+            {
+                Padding = new Thickness(22, 20, 22, 18),
+                Background = Surface,
+                CornerRadius = new CornerRadius(12, 12, 0, 0),
+                Child = header,
+            });
+
+            card.Children.Add(new Border
+            {
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(0, 1, 0, 1),
+                Margin = new Thickness(18, 0, 18, 0),
+                Padding = new Thickness(4, 8, 4, 8),
+                Child = new TextBlock
+                {
+                    Text = "VERSIONS",
+                    Foreground = Muted,
+                    FontSize = 10,
+                    FontWeight = FontWeights.Bold,
+                },
+            });
+
+            for (var index = 0; index < versions.Count; index++)
+            {
+                card.Children.Add(CreateDeploymentVersionRow(versions[index], index == 0));
+            }
+
+            var footer = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(22, 12, 22, 14),
+            };
+            footer.Children.Add(CreateCatalogIcon("details", Muted, 14));
+            footer.Children.Add(new TextBlock
+            {
+                Text = $"Versions are packages under the same deployment: {representative.DeploymentName}",
+                Foreground = Muted,
+                FontSize = 11,
+                Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            card.Children.Add(footer);
+
+            return new Border
+            {
+                Width = Math.Max(280, GetPortalContentWidth() - 20),
+                Margin = new Thickness(0, 0, 20, 18),
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                ClipToBounds = true,
+                Child = card,
+            };
+        }
+
+        private static Border CreateDeploymentSummaryMetric(string value, string label, Brush background, Brush foreground)
+        {
+            var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            content.Children.Add(new Border
+            {
+                Width = 34,
+                Height = 34,
+                CornerRadius = new CornerRadius(9),
+                Background = background,
+                Child = new TextBlock
+                {
+                    Text = label == "Installed" ? "✓" : "◫",
+                    Foreground = foreground,
+                    FontSize = 15,
+                    FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                },
+            });
+            var copy = new StackPanel { Margin = new Thickness(9, 0, 0, 0), MinWidth = 58 };
+            copy.Children.Add(new TextBlock { Text = value, Foreground = Text, FontSize = 17, FontWeight = FontWeights.SemiBold });
+            copy.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+            content.Children.Add(copy);
+            return new Border { Child = content };
+        }
+
+        private static Border CreateIconSummaryMetric(string value, string label, string iconName, Brush background, Brush foreground)
+        {
+            var content = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            content.Children.Add(new Border
+            {
+                Width = 34,
+                Height = 34,
+                CornerRadius = new CornerRadius(9),
+                Background = background,
+                Child = CreateCatalogIcon(iconName, foreground, 19),
+            });
+            var copy = new StackPanel { Margin = new Thickness(9, 0, 0, 0), MinWidth = 58 };
+            copy.Children.Add(new TextBlock { Text = value, Foreground = Text, FontSize = 17, FontWeight = FontWeights.SemiBold });
+            copy.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+            content.Children.Add(copy);
+            return new Border { Child = content };
+        }
+
+        private Border CreateDeploymentVersionRow(DownloadItem item, bool isLatest)
+        {
+            var installed = IsInstalled(item);
+            var running = IsRunning(item);
+            var channel = NormalizeChannel(item.ReleaseType);
+            var activeDownload = ReferenceEquals(item, _activeDownloadItem);
+            var queuedDownload = _queuedDownloadKeys.Contains(GetDownloadKey(item));
+
+            var row = new Grid { MinHeight = 88 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            row.Children.Add(new Border
+            {
+                Width = 46,
+                Height = 46,
+                Margin = new Thickness(0, 0, 14, 0),
+                CornerRadius = new CornerRadius(10),
+                Background = PrimarySoft,
+                Child = CreatePackageGlyph(Primary),
+            });
+
+            var information = new StackPanel { Margin = new Thickness(0, 0, 22, 0) };
+            var title = new StackPanel();
+            var badges = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            badges.Children.Add(CreateIconPill(
+                channel,
+                channel == "Beta" ? "beta" : "stable",
+                channel == "Beta" ? BetaSoft : PrimarySoft,
+                channel == "Beta" ? Beta : Primary));
+            if (installed)
+            {
+                var installedPill = CreateIconPill(running ? "Running" : "Installed", "installed", SuccessSoft, Success);
+                installedPill.Margin = new Thickness(7, 0, 0, 0);
+                badges.Children.Add(installedPill);
+            }
+            var versionHeading = new StackPanel { Orientation = Orientation.Horizontal };
+            versionHeading.Children.Add(new TextBlock
+            {
+                Text = item.VersionNumber,
+                Foreground = Text,
+                FontSize = 17,
+                FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            title.Children.Add(versionHeading);
+            information.Children.Add(title);
+
+            var versionDescription = item.VersionDescription ?? item.Description;
+            information.Children.Add(new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(versionDescription) ? "No version description provided." : versionDescription,
+                Foreground = Muted,
+                FontSize = 12,
+                Margin = new Thickness(0, 7, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+
+            var installSizeLabel = item.InstallSize is > 0
+                ? $"Install {FormatBytes(item.InstallSize.Value)}"
+                : "Install size unknown";
+            information.Children.Add(new TextBlock
+            {
+                Text = $"Archive {FormatBytes(item.Size ?? 0)}   \u2022   {installSizeLabel}   \u2022   Released {FormatReleaseDate(item.ReleasedAt)}",
+                Foreground = Muted,
+                FontSize = 12,
+                Margin = new Thickness(0, 7, 0, 0),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            Grid.SetColumn(information, 1);
+            row.Children.Add(information);
+
+            var actions = new WrapPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+            };
+            var buttonText = installed ? (running ? "Stop" : "Launch") : activeDownload ? "Downloading" : queuedDownload ? "Queued" : "Download";
+            var selectButton = CreatePrimaryButton(buttonText, installed ? 106 : 134);
+            SetButtonIcon(selectButton, running ? "stop" : installed ? "launch" : "download", Brushes.White);
+            selectButton.IsEnabled = installed || !activeDownload;
+            selectButton.Click += (_, _) =>
+            {
+                _selectedItem = item;
+                if (installed)
+                {
+                    if (running) StopDeployment(item);
+                    else LaunchDeployment(item);
+                }
+                else if (_isDownloadActive)
+                {
+                    QueueDownload(item);
+                    SelectSection("Download");
+                }
+                else
+                {
+                    SelectSection("Download");
+                    _ = StartDownloadAsync(item, deletePartialsOnCancel: true);
+                }
+            };
+            actions.Children.Add(selectButton);
+
+            if (installed)
+            {
+                var folderButton = CreateSecondaryButton("Open Folder", 128);
+                folderButton.Padding = new Thickness(13, 0, 13, 0);
+                SetButtonIcon(folderButton, "folder", Muted);
+                folderButton.Click += (_, _) =>
+                {
+                    _selectedItem = item;
+                    OpenInstallFolder(item);
+                    RenderCards();
+                };
+                actions.Children.Add(folderButton);
+            }
+
+            var secondaryAction = CreateSecondaryButton(installed ? "Uninstall" : "Details", installed ? 112 : 96);
+            secondaryAction.Padding = new Thickness(13, 0, 13, 0);
+            secondaryAction.Margin = new Thickness(0);
+            SetButtonIcon(secondaryAction, installed ? "delete" : "details", installed ? BrushFrom("#DC2626") : Muted);
+            if (installed)
+            {
+                secondaryAction.Foreground = BrushFrom("#B91C1C");
+                secondaryAction.BorderBrush = BrushFrom("#FECACA");
+            }
+            secondaryAction.Click += (_, _) =>
+            {
+                _selectedItem = item;
+                if (installed)
+                {
+                    if (IsRunning(item))
+                    {
+                        _status.Text = "Stop the running deployment before uninstalling it.";
+                    }
+                    else
+                    {
+                        UninstallVersion(item);
+                    }
+                }
+                else
+                {
+                    ShowItemDetails(item);
+                }
+                RenderCards();
+            };
+            actions.Children.Add(secondaryAction);
+            Grid.SetColumn(actions, 2);
+            row.Children.Add(actions);
+
+            var shell = new Grid();
+            shell.Children.Add(row);
+            shell.Children.Add(badges);
+            if (isLatest)
+            {
+                shell.Children.Add(new Border
+                {
+                    Margin = new Thickness(-5, -21, 0, 0),
+                    Padding = new Thickness(8, 4, 8, 4),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Background = Primary,
+                    CornerRadius = new CornerRadius(5, 0, 5, 0),
+                    Child = new TextBlock
+                    {
+                        Text = "LATEST",
+                        Foreground = Brushes.White,
+                        FontSize = 9,
+                        FontWeight = FontWeights.SemiBold,
+                    },
+                });
+            }
+
+            return new Border
+            {
+                Margin = new Thickness(18, 0, 18, 0),
+                Padding = new Thickness(4, 20, 4, 20),
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = shell,
+            };
+        }
+
+        private static Border CreateIconPill(string text, string iconName, Brush background, Brush foreground)
+        {
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            content.Children.Add(CreateCatalogIcon(iconName, foreground, 13));
+            content.Children.Add(new TextBlock
+            {
+                Text = text,
+                Foreground = foreground,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(5, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            return new Border
+            {
+                Background = background,
+                CornerRadius = new CornerRadius(7),
+                Padding = new Thickness(8, 5, 8, 5),
+                Child = content,
+            };
+        }
+
+        private static void SetButtonIcon(Button button, string iconName, Brush iconColor)
+        {
+            var label = button.Content?.ToString() ?? string.Empty;
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            content.Children.Add(CreateCatalogIcon(iconName, iconColor, 15));
+            content.Children.Add(new TextBlock
+            {
+                Text = label,
+                Foreground = button.Foreground,
+                FontWeight = button.FontWeight,
+                Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            button.Content = content;
+        }
+
+        private static Viewbox CreateCatalogIcon(string iconName, Brush stroke, double size)
+        {
+            var canvas = new Canvas { Width = 24, Height = 24 };
+            var geometries = iconName switch
+            {
+                "stable" => new[] { "M12 3.5L14.6 8.7L20.3 9.5L16.2 13.5L17.2 19.2L12 16.5L6.8 19.2L7.8 13.5L3.7 9.5L9.4 8.7Z" },
+                "beta" => new[] { "M9 3H15", "M10 3V9L5.5 17.4C4.8 18.8 5.8 20.5 7.4 20.5H16.6C18.2 20.5 19.2 18.8 18.5 17.4L14 9V3", "M7.8 15H16.2" },
+                "installed" => new[] { "M12 3.5A8.5 8.5 0 1 1 12 20.5A8.5 8.5 0 1 1 12 3.5", "M8 12L10.8 14.8L16.5 9" },
+                "versions" => new[] { "M12 3L16 5.2L12 7.5L8 5.2Z", "M8 5.2V9.8L12 12L16 9.8V5.2", "M5 10L9 12.2L5 14.5L1 12.2Z", "M1 12.2V16.8L5 19L9 16.8V12.2", "M19 10L23 12.2L19 14.5L15 12.2Z", "M15 12.2V16.8L19 19L23 16.8V12.2" },
+                "launch" => new[] { "M8 5L19 12L8 19Z" },
+                "stop" => new[] { "M7 7H17V17H7Z" },
+                "folder" => new[] { "M3 7H10L12 9H21V19H3Z" },
+                "delete" => new[] { "M5 7H19", "M9 7V4H15V7", "M7 7L8 20H16L17 7", "M10 11V16", "M14 11V16" },
+                "download" => new[] { "M12 4V15", "M8 11L12 15L16 11", "M5 18V20H19V18" },
+                "details" => new[] { "M12 3.5A8.5 8.5 0 1 1 12 20.5A8.5 8.5 0 1 1 12 3.5", "M12 10V16", "M12 7.2V7.3" },
+                "account" => new[] { "M12 4A4 4 0 1 1 12 12A4 4 0 1 1 12 4", "M5 21C5.5 16.8 8 15 12 15C16 15 18.5 16.8 19 21" },
+                "chevron-down" => new[] { "M7 9L12 14L17 9" },
+                "signout" => new[] { "M10 5H5V19H10", "M13 8L17 12L13 16", "M8 12H17" },
+                "maintenance" => new[] { "M14.5 5.5A4.5 4.5 0 0 0 8.7 11.3L3.5 16.5L7.5 20.5L12.7 15.3A4.5 4.5 0 0 0 18.5 9.5L15.5 12.5L12 12L11.5 8.5Z", "M5 6L8 3L10.5 5.5L7.5 8.5Z" },
+                _ => Array.Empty<string>(),
+            };
+            foreach (var geometry in geometries)
+            {
+                canvas.Children.Add(new ShapePath
+                {
+                    Data = Geometry.Parse(geometry),
+                    Stroke = stroke,
+                    StrokeThickness = 1.8,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Fill = Brushes.Transparent,
+                });
+            }
+            return new Viewbox { Width = size, Height = size, Child = canvas, Stretch = Stretch.Uniform };
+        }
+
+        private static string FormatReleaseDate(string? value)
+        {
+            return DateTimeOffset.TryParse(value, out var date)
+                ? date.ToLocalTime().ToString("dd MMM yyyy")
+                : "Unknown";
+        }
+
+        private static UIElement CreatePackageGlyph(Brush stroke)
+        {
+            var canvas = new Canvas { Width = 24, Height = 24 };
+            foreach (var geometry in new[] { "M4 7L12 3L20 7L12 11L4 7", "M4 7V17L12 21L20 17V7", "M12 11V21" })
+            {
+                canvas.Children.Add(new ShapePath
+                {
+                    Data = Geometry.Parse(geometry),
+                    Stroke = stroke,
+                    StrokeThickness = 1.8,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Fill = Brushes.Transparent,
+                });
+            }
+
+            return new Viewbox { Width = 22, Height = 22, Child = canvas };
         }
 
         private Border CreatePackageCard(DownloadItem item)
@@ -3633,12 +4273,65 @@ namespace Launcher
 
         private static Button CreatePrimaryButton(string text, double width)
         {
-            return new Button { Content = text, Width = width, Height = 38, Margin = new Thickness(0, 0, 10, 0), Background = Primary, Foreground = Brushes.White, BorderBrush = Primary, FontWeight = FontWeights.Bold };
+            return new Button
+            {
+                Content = text,
+                Width = width,
+                Height = 38,
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(12, 0, 12, 0),
+                Background = Primary,
+                Foreground = Brushes.White,
+                BorderBrush = Primary,
+                FontWeight = FontWeights.Bold,
+                Template = CreateRoundedButtonTemplate(7),
+            };
         }
 
         private static Button CreateSecondaryButton(string text, double width)
         {
-            return new Button { Content = text, Width = width, Height = 38, Margin = new Thickness(0, 0, 10, 0), Background = Surface, Foreground = Text, BorderBrush = UiBorder, FontWeight = FontWeights.Bold };
+            return new Button
+            {
+                Content = text,
+                Width = width,
+                Height = 38,
+                Margin = new Thickness(0, 0, 10, 0),
+                Padding = new Thickness(12, 0, 12, 0),
+                Background = Surface,
+                Foreground = Text,
+                BorderBrush = UiBorder,
+                FontWeight = FontWeights.Bold,
+                Template = CreateRoundedButtonTemplate(7),
+            };
+        }
+
+        private static ControlTemplate CreateRoundedButtonTemplate(double radius)
+        {
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding(nameof(Control.Background))
+            {
+                RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent),
+            });
+            border.SetBinding(Border.BorderBrushProperty, new System.Windows.Data.Binding(nameof(Control.BorderBrush))
+            {
+                RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent),
+            });
+            border.SetBinding(Border.BorderThicknessProperty, new System.Windows.Data.Binding(nameof(Control.BorderThickness))
+            {
+                RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent),
+            });
+            border.SetBinding(Border.PaddingProperty, new System.Windows.Data.Binding(nameof(Control.Padding))
+            {
+                RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent),
+            });
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(radius));
+
+            var presenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            presenter.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            border.AppendChild(presenter);
+
+            return new ControlTemplate(typeof(Button)) { VisualTree = border };
         }
 
         private static Border CreatePill(string text, Brush background, Brush foreground)

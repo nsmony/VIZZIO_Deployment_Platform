@@ -8,6 +8,7 @@ import {
   uploadPackage,
   validateDeploymentPackage,
 } from '../../api';
+import { useSearchParams } from 'react-router-dom';
 import '../../styles/Deployment.css';
 import '../../styles/Version.css';
 
@@ -48,6 +49,10 @@ function getPackageSourceHint(sourceType) {
 }
 
 export default function Version() {
+  const [searchParams] = useSearchParams();
+  const requestedDeploymentId = searchParams.get('deploymentId') || '';
+  const shouldOpenRegistration = searchParams.get('register') === '1';
+
   // Store deployments and the currently selected deployment.
   const [deployments, setDeployments] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -80,7 +85,10 @@ export default function Version() {
     try {
       const result = await fetchDeployments(token);
       const items = result.deployments || [];
-      const selectedDeploymentId = preferredId || selectedId || items[0]?.id || '';
+      const requestedId = preferredId || selectedId;
+      const selectedDeploymentId = items.some((item) => item.id === requestedId)
+        ? requestedId
+        : items[0]?.id || '';
       let deploymentsWithDetails = items;
 
       if (selectedDeploymentId) {
@@ -103,7 +111,8 @@ export default function Version() {
   }
 
   useEffect(() => {
-    loadDeployments();
+    loadDeployments(requestedDeploymentId);
+    if (shouldOpenRegistration) setShowForm(true);
   }, []);
 
   // Register a version after upload or package validation is complete.

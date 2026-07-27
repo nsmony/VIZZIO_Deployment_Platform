@@ -30,6 +30,9 @@ namespace Launcher
     {
         // These display fields are flattened by the backend so the launcher does
         // not need to understand the full deployment/version database shape.
+        [JsonPropertyName("deploymentId")]
+        public string? DeploymentId { get; set; }
+
         [JsonPropertyName("deploymentName")]
         public string DeploymentName { get; set; } = "";
 
@@ -62,6 +65,9 @@ namespace Launcher
 
         [JsonPropertyName("installSize")]
         public long? InstallSize { get; set; }
+
+        [JsonPropertyName("releasedAt")]
+        public string? ReleasedAt { get; set; }
 
         // SHA-256 from the registered package. The download manager verifies it
         // after writing the final file to disk.

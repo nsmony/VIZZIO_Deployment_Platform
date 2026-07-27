@@ -8,6 +8,7 @@ import {
   restoreDeployment,
   updateDeployment,
 } from '../../api';
+import { useNavigate } from 'react-router-dom';
 import DeploymentCard from '../../components/deployment/DeploymentCard';
 import DeploymentStatCard from '../../components/deployment/DeploymentStatCard';
 import FilterToolbar from '../../components/deployment/FilterToolbar';
@@ -18,6 +19,7 @@ const emptyForm = { name: '', description: '', logoUrl: '' };
 const pageSizeOptions = [6, 9, 12];
 
 export default function Deployment() {
+  const navigate = useNavigate();
   // Main page data and form state.
   const [deployments, setDeployments] = useState([]);
   const [form, setForm] = useState(emptyForm);
@@ -289,21 +291,43 @@ export default function Deployment() {
       {showForm && (
         <form className="deployment-create-card" onSubmit={handleSave}>
           <div className="form-heading">
-            <h2>{editingDeployment ? 'Edit deployment' : 'New deployment'}</h2>
-            <p>{editingDeployment ? 'Update product details shown in the deployment catalog.' : 'Create a deployment shell, then register versions from Version Management.'}</p>
+            <span className="deployment-form-heading-icon"><DetailIcon name={editingDeployment ? 'edit' : 'package'} /></span>
+            <div>
+              <h2>{editingDeployment ? 'Edit deployment' : 'New deployment'}</h2>
+              <p>{editingDeployment ? 'Update product details shown in the deployment catalog.' : 'Create a deployment shell, then register versions from Version Management.'}</p>
+            </div>
           </div>
-          <label>
-            Name
-            <input name="name" value={form.name} onChange={updateField} placeholder="Digital Twin" required />
+          <label className="deployment-form-field">
+            <span className="deployment-field-title">Name <em>Required</em></span>
+            <small>The name administrators and launcher users will see.</small>
+            <span className="deployment-input-shell">
+              <DetailIcon name="text" />
+              <input name="name" value={form.name} onChange={updateField} placeholder="Digital Twin" required />
+            </span>
           </label>
-          <label>
-            Logo URL <span>(optional)</span>
-            <input name="logoUrl" value={form.logoUrl} onChange={updateField} placeholder="https://..." />
+          <label className="deployment-form-field">
+            <span className="deployment-field-title">Logo URL <em className="optional">Optional</em></span>
+            <small>Link to a square logo image in SVG, PNG, or JPG format.</small>
+            <span className="deployment-input-shell">
+              <DetailIcon name="link" />
+              <input name="logoUrl" value={form.logoUrl} onChange={updateField} placeholder="https://..." />
+            </span>
           </label>
-          <label className="deployment-description-field">
-            Description shown in deployment cards <span>(optional)</span>
-            <textarea name="description" value={form.description} onChange={updateField} placeholder="Type a short description, then save the deployment" rows="3" />
+          <label className="deployment-description-field deployment-form-field">
+            <span className="deployment-field-title">Description shown in deployment cards <em className="optional">Optional</em></span>
+            <small>This short description appears beneath the deployment name.</small>
+            <span className="deployment-input-shell textarea">
+              <DetailIcon name="message" />
+              <textarea name="description" value={form.description} onChange={updateField} placeholder="Type a concise description" rows="3" />
+            </span>
           </label>
+          <aside className="deployment-form-note">
+            <span><DetailIcon name="info" /></span>
+            <div>
+              <strong>About this information</strong>
+              <p>These details help administrators identify and organize deployments across the platform.</p>
+            </div>
+          </aside>
           <div className="deployment-form-actions">
             <button className="secondary-btn" type="button" onClick={closeForm}>Cancel</button>
             <button className="primary-btn" type="submit" disabled={saving}>
@@ -378,41 +402,81 @@ export default function Deployment() {
               <p className="deployment-muted">Loading deployment details...</p>
             ) : (
               <>
-                <header>
-                  <div>
-                    <h2>{detailDeployment.name}</h2>
-                    <p>{detailDeployment.description || 'No description provided.'}</p>
+                <header className="deployment-detail-header">
+                  <div className="deployment-detail-identity">
+                    <div className="deployment-detail-logo">
+                      {detailDeployment.logoUrl
+                        ? <img src={detailDeployment.logoUrl} alt="" />
+                        : detailDeployment.name.slice(0, 1).toUpperCase()}
+                    </div>
+                    <div>
+                      <div className="deployment-detail-title">
+                        <h2>{detailDeployment.name}</h2>
+                        <StatusBadge status={detailDeployment.displayStatus} />
+                      </div>
+                      <p>{detailDeployment.description || 'No description provided.'}</p>
+                    </div>
                   </div>
-                  <StatusBadge status={detailDeployment.displayStatus} />
+                  <button className="deployment-detail-close" type="button" onClick={() => setDetailDeployment(null)} aria-label="Close deployment details" />
                 </header>
                 <dl className="deployment-detail-grid">
-                  <div><dt>Versions</dt><dd>{detailDeployment.versionCount}</dd></div>
-                  <div><dt>Released</dt><dd>{detailDeployment.releasedCount}</dd></div>
-                  <div><dt>Created</dt><dd>{detailDeployment.createdLabel}</dd></div>
+                  <div>
+                    <span className="deployment-detail-metric-icon blue"><DetailIcon name="versions" /></span>
+                    <span><dt>Versions</dt><dd>{detailDeployment.versionCount}</dd></span>
+                  </div>
+                  <div>
+                    <span className="deployment-detail-metric-icon green"><DetailIcon name="released" /></span>
+                    <span><dt>Released</dt><dd>{detailDeployment.releasedCount}</dd></span>
+                  </div>
+                  <div>
+                    <span className="deployment-detail-metric-icon purple"><DetailIcon name="created" /></span>
+                    <span><dt>Created</dt><dd>{detailDeployment.createdLabel}</dd></span>
+                  </div>
                 </dl>
-                <div className="deployment-version-list">
-                  <h3>Versions</h3>
+                <section className="deployment-version-section">
+                  <div className="deployment-version-heading">
+                    <div>
+                      <h3>Versions</h3>
+                      <p>Registered package releases for this deployment.</p>
+                    </div>
+                  </div>
                   {detailDeployment.displayStatus === 'Archived' && (
                     <p className="deployment-muted">This deployment is archived. Restore it from deployment actions to move archived versions back to draft.</p>
                   )}
                   {detailDeployment.versions.length === 0 ? (
-                    <p className="deployment-muted">No versions registered.</p>
+                    <div className="deployment-version-empty">
+                      <span><DetailIcon name="package" /></span>
+                      <strong>No versions yet</strong>
+                      <p>This deployment doesn&apos;t have any registered package versions.</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const deploymentId = detailDeployment.id;
+                          setDetailDeployment(null);
+                          navigate(`/version?deploymentId=${encodeURIComponent(deploymentId)}&register=1`);
+                        }}
+                      >
+                        Register a version to get started
+                      </button>
+                    </div>
                   ) : (
-                    detailDeployment.versions.map((version) => (
-                      <div key={version.id}>
-                        <div>
-                          <strong>{version.versionNumber}</strong>
-                          {version.description && <p>{version.description}</p>}
+                    <div className="deployment-version-list">
+                      {detailDeployment.versions.map((version) => (
+                        <div key={version.id}>
+                          <div>
+                            <strong>{version.versionNumber}</strong>
+                            {version.description && <p>{version.description}</p>}
+                          </div>
+                          <span>{version.releaseType}</span>
+                          <span>{version.status}</span>
                         </div>
-                        <span>{version.releaseType}</span>
-                        <span>{version.status}</span>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
-                </div>
-                <footer>
+                </section>
+                <footer className="deployment-detail-footer">
                   <button className="secondary-btn" type="button" onClick={() => setDetailDeployment(null)}>Close</button>
-                  <button className="primary-btn" type="button" onClick={() => openEditForm(detailDeployment)}>Edit deployment</button>
+                  <button className="primary-btn" type="button" onClick={() => { const item = detailDeployment; setDetailDeployment(null); openEditForm(item); }}>Edit deployment</button>
                 </footer>
               </>
             )}
@@ -420,6 +484,26 @@ export default function Deployment() {
         </div>
       )}
     </main>
+  );
+}
+
+function DetailIcon({ name }) {
+  const paths = {
+    versions: 'M5 5h14v14H5V5Zm4 4h6v6H9V9Z',
+    released: 'M7 4v3m10-3v3M5 9h14v10H5V9Zm4 4h6',
+    created: 'M7 4v3m10-3v3M5 9h14v10H5V9Zm4 4h2m2 0h2m-6 3h2',
+    package: 'M4 7 12 3l8 4-8 4-8-4Zm0 0v10l8 4 8-4V7m-8 4v10',
+    edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z',
+    text: 'M5 6h14M12 6v12m-4 0h8',
+    link: 'M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1',
+    message: 'M4 5h16v12H8l-4 4V5Zm4 4h8m-8 4h5',
+    info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-10v6m0-10h.01',
+  };
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d={paths[name] || paths.package} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
