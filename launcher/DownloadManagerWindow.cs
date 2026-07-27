@@ -2498,7 +2498,6 @@ namespace Launcher
                 Child = root,
             };
             dialog.ShowDialog();
-            _status.Text = $"{item.DeploymentName} {item.VersionNumber} selected.";
         }
 
         private static Grid CreateDetailRow(string label, string value, Brush? valueBrush = null)
