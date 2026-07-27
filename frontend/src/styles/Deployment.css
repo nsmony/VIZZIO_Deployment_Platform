@@ -152,7 +152,7 @@
   place-items: center;
   border-radius: 9px;
   color: #50627c;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .deployment-view-toggle svg {
@@ -315,7 +315,7 @@
   margin: 0 0 8px;
   color: #1e293b;
   font-size: 20px;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.3;
   letter-spacing: 0;
 }
@@ -881,6 +881,148 @@
   font-size: 21px;
 }
 
+/* Compact deployment catalog treatment: keep the information density of the
+   reference layout without sacrificing the existing responsive behavior. */
+.deployment-page {
+  gap: 18px;
+  padding: 24px 28px 32px;
+}
+
+.deployment-toolbar {
+  gap: 12px;
+}
+
+.deployment-search-control,
+.deployment-toolbar select,
+.deployment-new-button {
+  min-height: 44px;
+}
+
+.deployment-view-toggle button {
+  width: 38px;
+  height: 34px;
+}
+
+.deployment-new-button {
+  padding: 0 16px;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18);
+}
+
+.deployment-kpi-grid {
+  gap: 14px;
+}
+
+.deployment-stat-card {
+  gap: 14px;
+  min-height: 104px;
+  padding: 18px;
+  border-radius: 12px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.045);
+}
+
+.deployment-stat-icon {
+  width: 48px;
+  height: 48px;
+  flex-basis: 48px;
+  border-radius: 12px;
+}
+
+.deployment-stat-icon svg {
+  width: 23px;
+  height: 23px;
+}
+
+.deployment-stat-card p,
+.deployment-stat-card span {
+  font-size: 12px;
+}
+
+.deployment-stat-card strong {
+  margin: 5px 0;
+  font-size: 24px;
+}
+
+.deployment-card-grid,
+.deployment-loading {
+  gap: 16px;
+}
+
+.deployment-card {
+  gap: 16px;
+  padding: 18px;
+  border-radius: 12px;
+}
+
+.deployment-card-top {
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 14px;
+}
+
+.deployment-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 18px;
+}
+
+.deployment-card-copy h3 {
+  margin-bottom: 5px;
+  font-size: 17px;
+  font-weight: 400;
+}
+
+.deployment-card-copy p {
+  font-size: 12px;
+}
+
+.deployment-status-badge {
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.deployment-status-badge::before {
+  width: 6px;
+  height: 6px;
+}
+
+.deployment-card-stats {
+  padding-top: 15px;
+}
+
+.deployment-card-stats div {
+  padding-right: 12px;
+  padding-left: 12px;
+}
+
+.deployment-card-stats dt {
+  margin-bottom: 5px;
+  font-size: 11px;
+}
+
+.deployment-card-stats dd {
+  font-size: 13px;
+}
+
+.deployment-card-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 38px;
+  gap: 8px;
+}
+
+.deployment-card-actions .secondary-btn,
+.deployment-card-actions .icon-more-btn {
+  min-height: 38px;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.icon-more-btn {
+  width: 38px;
+  height: 38px;
+}
+
 @media (max-width: 1180px) {
   .deployment-toolbar {
     grid-template-columns: 1fr 1fr;
@@ -891,6 +1033,17 @@
    viewport width. Container queries therefore keep this page responsive at
    browser zoom levels where viewport media queries alone fire too late. */
 @container (max-width: 1180px) {
+  .deployment-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .deployment-card-grid,
+  .deployment-loading {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 980px) {
   .deployment-toolbar {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
