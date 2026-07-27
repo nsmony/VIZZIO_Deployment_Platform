@@ -332,6 +332,18 @@ export async function fetchDownloadLogs(token, deploymentId) {
   return request(`/admin/download-logs${query ? `?${query}` : ''}`, token);
 }
 
+export async function clearAllNotifications(token) {
+  return request('/notifications/all', token, {
+    method: 'DELETE',
+  });
+}
+
+export async function deleteGroup(token, groupId) {
+  return request(`/users/groups/${encodeURIComponent(groupId)}`, token, {
+    method: 'DELETE',
+  });
+}
+
 export async function fetchLauncherErrorReports(token, filters = {}) {
   const params = new URLSearchParams();
   if (filters.deployment) params.set('deployment', filters.deployment);

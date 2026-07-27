@@ -8,6 +8,7 @@ import {
 } from '../services/userService.js';
 import {
   createGroup,
+  deleteGroupById,
   grantDeploymentAccessByGroupId,
   getGroups,
   revokeDeploymentAccessByGroupId,
@@ -87,6 +88,14 @@ export async function updateGroupHandler(req, res) {
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
+}
+
+export async function deleteGroupHandler(req, res) {
+  const group = await deleteGroupById(req.params.id);
+  if (!group) {
+    return res.status(404).json({ error: 'Group not found.' });
+  }
+  res.json({ group });
 }
 
 export async function grantGroupDeploymentAccessHandler(req, res) {

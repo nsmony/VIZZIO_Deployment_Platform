@@ -1,4 +1,5 @@
 import {
+  clearAllNotifications,
   deleteNotification,
   getUnreadNotificationCount,
   listNotifications,
@@ -46,6 +47,15 @@ export async function deleteNotificationHandler(req, res) {
     const notification = await deleteNotification(req.user, req.params.id);
     if (!notification) return res.status(404).json({ error: 'Notification not found.' });
     res.json({ notification, unreadCount: await getUnreadNotificationCount(req.user) });
+  } catch (error) {
+    sendNotificationError(res, error);
+  }
+}
+
+export async function clearAllNotificationsHandler(req, res) {
+  try {
+    const deletedCount = await clearAllNotifications(req.user);
+    res.json({ deletedCount, notifications: [], unreadCount: 0 });
   } catch (error) {
     sendNotificationError(res, error);
   }

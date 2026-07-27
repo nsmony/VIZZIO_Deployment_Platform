@@ -77,6 +77,16 @@ export async function updateGroup(id, updates) {
   });
 }
 
+export async function deleteGroup(id) {
+  const group = await findGroupById(id);
+  if (!group) return null;
+
+  return prisma.userGroup.delete({
+    where: { id },
+    include: groupInclude,
+  });
+}
+
 export async function addGroupDeploymentAccess(id, deploymentId) {
   await prisma.groupDeploymentAccess.create({
     data: {

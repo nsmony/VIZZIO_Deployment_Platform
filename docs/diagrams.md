@@ -6,8 +6,8 @@ This document centralizes project diagrams for architecture and flow reviews.
 
 ```mermaid
 graph TD
-    A[Admin Web Panel\nReact + Vite] -->|REST /api| B[Backend API\nNode.js + Express]
-    L[Windows Launcher\n.NET 8 WPF] -->|REST /api| B
+    A["Admin Web Panel<br/>React + Vite"] -->|REST /api| B["Backend API<br/>Node.js + Express"]
+    L["Windows Launcher<br/>.NET 8 WPF"] -->|REST /api| B
     B -->|Prisma| D[(PostgreSQL)]
     L -->|Tokenized range request| B
     B -->|Node stream or X-Accel-Redirect| F[Nginx or Node Delivery]
@@ -20,7 +20,7 @@ graph TD
 ```mermaid
 flowchart LR
     A1[Admin logs in] --> A2[Create deployment]
-    A2 --> A3[Add version\nupload archive or register server archive or prepare staging folder]
+    A2 --> A3["Add version<br/>upload archive or register server archive or prepare staging folder"]
     A3 --> A4[Set channel and release state]
     A4 --> A5[Grant group access]
 

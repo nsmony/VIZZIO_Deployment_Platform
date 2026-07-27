@@ -31,8 +31,8 @@ This document is the primary project reference for architecture, flows, setup, o
 
 ```mermaid
 graph TD
-    A[Admin Web Panel\nReact + Vite] -->|REST /api| B[Backend API\nNode.js + Express]
-    L[Windows Launcher\n.NET 8 WPF] -->|REST /api| B
+    A["Admin Web Panel<br/>React + Vite"] -->|REST /api| B["Backend API<br/>Node.js + Express"]
+    L["Windows Launcher<br/>.NET 8 WPF"] -->|REST /api| B
     B -->|Prisma ORM| D[(PostgreSQL)]
     L -->|Tokenized range request| B
     B -->|Node stream or X-Accel-Redirect| F[Nginx or Node Delivery]
@@ -58,14 +58,14 @@ graph TD
 ```mermaid
 flowchart LR
     A1[Admin logs in] --> A2[Create deployment]
-    A2 --> A3[Add version\n(upload archive OR register server archive OR prepare staging folder)]
-    A3 --> A4[Mark version state\nDraft, Released, or Archived]
+    A2 --> A3["Add version<br/>(upload archive OR register server archive OR prepare staging folder)"]
+    A3 --> A4["Mark version state<br/>Draft, Released, or Archived"]
     A4 --> A5[Grant group access]
 
     U1[Launcher user logs in] --> U2[Launcher fetches accessible items]
     U2 --> U3{User starts download?}
     U3 -->|Yes| U4[Create download session + token]
-    U4 --> U5[Parallel range download\nwith resume state]
+    U4 --> U5["Parallel range download<br/>with resume state"]
     U5 --> U6[SHA-256 verify]
     U6 --> U7[Extract install folder]
     U7 --> U8[Mark Installed]

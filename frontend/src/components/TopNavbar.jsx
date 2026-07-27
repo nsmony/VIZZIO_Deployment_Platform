@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  clearAllNotifications,
   deleteNotification,
   fetchNotifications,
   fetchUnreadNotificationCount,
@@ -158,6 +159,22 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
     }
   }
 
+  async function handleClearAll() {
+    if (notifications.length === 0) return;
+    if (!window.confirm('Clear all notifications? This cannot be undone.')) return;
+
+    const token = localStorage.getItem('vizzio_token');
+    if (!token) return;
+    setNotificationError('');
+    try {
+      await clearAllNotifications(token);
+      setNotifications([]);
+      setUnreadCount(0);
+    } catch (error) {
+      setNotificationError(error.message || 'Could not clear notifications.');
+    }
+  }
+
   function handleSettingsClick() {
     setNotificationsOpen(false);
     if (profileOpen) onProfileClick?.();
@@ -193,9 +210,19 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
                   <strong>Notifications</strong>
                   <p>{unreadCount} unread</p>
                 </div>
-                <button type="button" onClick={handleReadAll} disabled={unreadCount === 0}>
-                  Mark all read
-                </button>
+                <div className="notification-header-actions">
+                  <button type="button" onClick={handleReadAll} disabled={unreadCount === 0}>
+                    Mark all read
+                  </button>
+                  <button
+                    type="button"
+                    className="clear-all"
+                    onClick={handleClearAll}
+                    disabled={notifications.length === 0}
+                  >
+                    Clear all
+                  </button>
+                </div>
               </header>
               {loadingNotifications ? (
                 <div className="notification-state">Loading notifications...</div>
@@ -224,7 +251,7 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
                         tabIndex={0}
                         onClick={(event) => handleDelete(event, notification.id)}
                       >
-                        x
+                        ×
                       </span>
                     </button>
                   ))}

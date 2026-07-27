@@ -1,6 +1,7 @@
 import {
   addGroup,
   addGroupDeploymentAccess,
+  deleteGroup,
   findGroupById,
   findGroups,
   removeGroupDeploymentAccess,
@@ -61,6 +62,11 @@ export async function updateGroupById(id, updates) {
 
   const updatedGroup = await updateGroup(id, nextUpdates);
   return toPublicGroup(updatedGroup);
+}
+
+export async function deleteGroupById(id) {
+  const deletedGroup = await deleteGroup(id);
+  return deletedGroup ? toPublicGroup(deletedGroup) : null;
 }
 
 export async function grantDeploymentAccessByGroupId(id, deploymentId) {

@@ -162,6 +162,24 @@
   cursor: not-allowed;
 }
 
+.notification-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notification-dropdown header .clear-all {
+  color: #dc2626;
+}
+
+.notification-dropdown header .clear-all:hover:not(:disabled) {
+  color: #b91c1c;
+}
+
+.notification-dropdown header .clear-all:disabled {
+  color: #cbd5e1;
+}
+
 .notification-list {
   max-height: 360px;
   overflow-y: auto;
@@ -227,9 +245,10 @@
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #94a3b8;
-  font-size: 17px;
-  font-weight: 800;
+  color: #a5b1c2;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .notification-delete:hover {

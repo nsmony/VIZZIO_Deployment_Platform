@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createGroup,
   createUser,
+  deleteGroup,
   deleteUser,
   disableUser,
   fetchDeployments,
@@ -31,7 +32,8 @@ const emptyGroupForm = {
   memberIds: [],
 };
 
-const pageSize = 25;
+const pageSize = 6;
+const groupPageSize = 4;
 
 export default function Users() {
   // Main lists used by this page.
@@ -44,6 +46,7 @@ export default function Users() {
   const [filterRole, setFilterRole] = useState('All Users');
   const [filterGroup, setFilterGroup] = useState('All Groups');
   const [page, setPage] = useState(1);
+  const [groupPage, setGroupPage] = useState(1);
 
   // Form state for user and group modals.
   const [form, setForm] = useState(emptyForm);
@@ -100,8 +103,39 @@ export default function Users() {
     });
   }, [users, search, filterRole, filterGroup]);
 
+  const filteredGroups = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return groups.filter((group) => {
+      if (filterGroup !== 'All Groups' && group.name !== filterGroup) return false;
+      if (!normalizedSearch) return true;
+      if (group.name.toLowerCase().includes(normalizedSearch)) return true;
+
+      return users.some((user) =>
+        (user.groups || []).includes(group.name) &&
+        (
+          user.name.toLowerCase().includes(normalizedSearch) ||
+          String(user.username || '').toLowerCase().includes(normalizedSearch) ||
+          user.email.toLowerCase().includes(normalizedSearch)
+        )
+      );
+    });
+  }, [groups, users, search, filterGroup]);
+
   const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
   const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
+  const visibleUserPages = useMemo(() => {
+    const start = Math.max(1, Math.min(page - 2, pageCount - 4));
+    const end = Math.min(pageCount, start + 4);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [page, pageCount]);
+  const groupPageCount = Math.max(1, Math.ceil(filteredGroups.length / groupPageSize));
+  const pagedGroups = filteredGroups.slice((groupPage - 1) * groupPageSize, groupPage * groupPageSize);
+  const visibleGroupPages = useMemo(() => {
+    const start = Math.max(1, Math.min(groupPage - 2, groupPageCount - 4));
+    const end = Math.min(groupPageCount, start + 4);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  }, [groupPage, groupPageCount]);
 
   const filteredUserGroups = useMemo(() => {
     const normalizedSearch = userGroupSearch.trim().toLowerCase();
@@ -133,12 +167,17 @@ export default function Users() {
   // Reset to page one when filters change.
   useEffect(() => {
     setPage(1);
+    setGroupPage(1);
   }, [search, filterRole, filterGroup]);
 
   // Keep the current page inside the available page count.
   useEffect(() => {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
+
+  useEffect(() => {
+    if (groupPage > groupPageCount) setGroupPage(groupPageCount);
+  }, [groupPage, groupPageCount]);
 
   useEffect(() => {
     if (openUserMenuId === null) return undefined;
@@ -496,6 +535,31 @@ export default function Users() {
     }
   }
 
+  async function handleDeleteGroup() {
+    if (!editingGroup) return;
+
+    const memberCount = countUsersInGroup(users, editingGroup.name);
+    const confirmed = window.confirm(
+      `Delete ${editingGroup.name}? This removes the group from ${memberCount} ${memberCount === 1 ? 'user' : 'users'} and revokes its deployment access. User accounts and deployments will not be deleted.`
+    );
+    if (!confirmed) return;
+
+    setIsSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      await deleteGroup(token, editingGroup.id);
+      await loadData();
+      closeGroupForm();
+      setMessage(`${editingGroup.name} group was deleted.`);
+    } catch (deleteError) {
+      setError(deleteError.message);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   // Copy the temporary credentials from the modal.
   async function copyCredentials() {
     if (!credentials) return;
@@ -561,7 +625,7 @@ export default function Users() {
           <div className="search-input">
             <input
               type="text"
-              placeholder="Search users..."
+              placeholder="Search users, emails, or groups..."
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -681,15 +745,45 @@ export default function Users() {
             </tbody>
           </table>
         )}
+        {!isLoading && filteredUsers.length > pageSize && (
+          <nav className="users-pagination" aria-label="User list pages">
+            <span className="users-pagination-summary">
+              Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredUsers.length)} of {filteredUsers.length} users
+            </span>
+            <div className="users-pagination-tabs">
+              <button
+                type="button"
+                className="users-page-arrow"
+                disabled={page === 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                aria-label="Previous user page"
+              >
+                ‹
+              </button>
+              {visibleUserPages.map((pageNumber) => (
+                <button
+                  type="button"
+                  key={pageNumber}
+                  className={`users-page-tab${page === pageNumber ? ' active' : ''}`}
+                  onClick={() => setPage(pageNumber)}
+                  aria-current={page === pageNumber ? 'page' : undefined}
+                >
+                  {pageNumber}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="users-page-arrow"
+                disabled={page === pageCount}
+                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                aria-label="Next user page"
+              >
+                ›
+              </button>
+            </div>
+          </nav>
+        )}
       </section>
-
-      {filteredUsers.length > pageSize && (
-        <div className="users-pagination">
-          <button className="secondary-btn" type="button" disabled={page === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-          <span>Page {page} of {pageCount}</span>
-          <button className="secondary-btn" type="button" disabled={page === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))}>Next</button>
-        </div>
-      )}
 
       <section className="groups-panel">
         <div className="section-heading">
@@ -701,40 +795,94 @@ export default function Users() {
         </div>
 
         <div className="group-grid">
-          {groups.map((group) => (
-            <article className="group-card" key={group.id}>
-              <div className="group-card-header">
-                <div>
-                  <h4>{group.name}</h4>
-                  <p>{countUsersInGroup(users, group.name)} users</p>
+          {pagedGroups.map((group) => {
+            const members = users.filter((user) => (user.groups || []).includes(group.name));
+            const hasAccess = (group.deploymentIds || []).length > 0;
+            return (
+              <article className="group-card" key={group.id}>
+                <div className="group-card-header">
+                  <div className="group-card-identity">
+                    <span className="group-avatar">{group.name.charAt(0).toUpperCase()}</span>
+                    <div>
+                      <h4>{group.name}</h4>
+                      <p>{members.length} {members.length === 1 ? 'user' : 'users'}</p>
+                    </div>
+                  </div>
+                  <button className="group-manage-btn" onClick={() => openEditGroupForm(group)}>Manage</button>
                 </div>
-                <button className="icon-btn" onClick={() => openEditGroupForm(group)}>Manage</button>
-              </div>
-              <div className="member-list">
-                {users
-                  .filter((user) => (user.groups || []).includes(group.name))
-                  .slice(0, 4)
-                  .map((user) => (
+
+                <div className="group-card-section">
+                  <span className="group-card-label">Members</span>
+                  <div className="member-list">
+                    {members.map((user) => (
                     <span key={user.id} className="member-pill">{user.name}</span>
                   ))}
-                {countUsersInGroup(users, group.name) > 4 && (
-                  <span className="member-pill muted">+{countUsersInGroup(users, group.name) - 4}</span>
-                )}
-              </div>
-              <div className="access-list">
-                {(group.deploymentIds || []).length > 0 ? (
-                  group.deploymentIds.map((deploymentId) => (
+                    {members.length === 0 && <span className="muted-text">No members assigned</span>}
+                  </div>
+                </div>
+
+                <div className="group-card-section access-section">
+                  <span className="group-card-label">Deployment access</span>
+                  <div className="access-list">
+                    {hasAccess ? group.deploymentIds.map((deploymentId) => (
                     <span key={deploymentId} className="access-pill">
                       {deploymentById[deploymentId]?.name || deploymentId}
                     </span>
-                  ))
-                ) : (
-                  <span className="muted-text">No deployment access</span>
-                )}
-              </div>
-            </article>
-          ))}
+                    )) : <span className="muted-text">No deployments assigned</span>}
+                  </div>
+                </div>
+
+                <div className={`group-access-status ${hasAccess ? 'granted' : 'empty'}`}>
+                  <span aria-hidden="true">{hasAccess ? '✓' : '○'}</span>
+                  {hasAccess ? 'Has deployment access' : 'No deployment access'}
+                </div>
+              </article>
+            );
+          })}
+          {filteredGroups.length === 0 && (
+            <div className="groups-empty">
+              No groups match “{search.trim()}”.
+            </div>
+          )}
         </div>
+        {filteredGroups.length > groupPageSize && (
+          <nav className="users-pagination groups-pagination" aria-label="Group access pages">
+            <span className="users-pagination-summary">
+              Showing {(groupPage - 1) * groupPageSize + 1}–{Math.min(groupPage * groupPageSize, filteredGroups.length)} of {filteredGroups.length} groups
+            </span>
+            <div className="users-pagination-tabs">
+              <button
+                type="button"
+                className="users-page-arrow"
+                disabled={groupPage === 1}
+                onClick={() => setGroupPage((current) => Math.max(1, current - 1))}
+                aria-label="Previous group page"
+              >
+                ‹
+              </button>
+              {visibleGroupPages.map((pageNumber) => (
+                <button
+                  type="button"
+                  key={pageNumber}
+                  className={`users-page-tab${groupPage === pageNumber ? ' active' : ''}`}
+                  onClick={() => setGroupPage(pageNumber)}
+                  aria-current={groupPage === pageNumber ? 'page' : undefined}
+                >
+                  {pageNumber}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="users-page-arrow"
+                disabled={groupPage === groupPageCount}
+                onClick={() => setGroupPage((current) => Math.min(groupPageCount, current + 1))}
+                aria-label="Next group page"
+              >
+                ›
+              </button>
+            </div>
+          </nav>
+        )}
       </section>
 
       {isFormOpen && (
@@ -1084,7 +1232,12 @@ export default function Users() {
               </div>
             </details>
 
-            <div className="modal-actions">
+            <div className="modal-actions group-modal-actions">
+              {editingGroup && (
+                <button type="button" className="danger-btn" onClick={handleDeleteGroup} disabled={isSaving}>
+                  Delete Group
+                </button>
+              )}
               <button type="button" className="secondary-btn" onClick={closeGroupForm}>Cancel</button>
               <button type="submit" className="primary-btn" disabled={isSaving}>
                 {isSaving ? 'Saving...' : 'Save Group'}

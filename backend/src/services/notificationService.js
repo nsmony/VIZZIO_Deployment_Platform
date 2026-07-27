@@ -77,6 +77,12 @@ export async function deleteNotification(user, notificationId) {
   return serializeNotification(notification);
 }
 
+export async function clearAllNotifications(user) {
+  const userId = await resolveUserId(user);
+  const result = await prisma.notification.deleteMany({ where: { userId } });
+  return result.count;
+}
+
 async function resolveUserId(user) {
   if (isUuid(user?.userId)) {
     const existingUser = await prisma.user.findUnique({ where: { id: user.userId } });
