@@ -1670,11 +1670,12 @@ namespace Launcher
             var installSize = item.InstallSize is > 0 ? FormatBytes(item.InstallSize.Value) : "Unknown";
             var checksum = string.IsNullOrWhiteSpace(item.Checksum) ? "Not available" : item.Checksum;
             var availability = item.Available ? "Available" : "Missing from server";
+            var channel = NormalizeChannel(item.ReleaseType);
 
             var details =
                 $"Deployment: {item.DeploymentName}\n" +
                 $"Version: {item.VersionNumber}\n" +
-                $"Channel: {NormalizeChannel(item.ReleaseType)}\n" +
+                $"Channel: {channel}\n" +
                 $"Status: {availability}\n" +
                 $"File: {item.FileName}\n" +
                 $"Download size: {downloadSize}\n" +
@@ -1683,8 +1684,239 @@ namespace Launcher
                 $"Deployment description:\n{deploymentDescription}\n\n" +
                 $"Checksum:\n{checksum}";
 
-            MessageBox.Show(details, "Package Details", MessageBoxButton.OK, MessageBoxImage.Information);
+            var dialog = new Window
+            {
+                Title = "Package Details",
+                Owner = this,
+                Width = 550,
+                Height = 630,
+                MinWidth = 460,
+                MinHeight = 520,
+                MaxHeight = Math.Max(520, SystemParameters.WorkArea.Height - 48),
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.CanResize,
+                AllowsTransparency = true,
+                Background = Brushes.Transparent,
+                ShowInTaskbar = false,
+            };
+
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            var header = new Grid { Margin = new Thickness(22, 20, 18, 16) };
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var packageIcon = new Border
+            {
+                Width = 44,
+                Height = 44,
+                CornerRadius = new CornerRadius(10),
+                Background = Primary,
+                Child = CreateDetailPackageIcon(),
+            };
+            header.Children.Add(packageIcon);
+
+            var headerCopy = new StackPanel { Margin = new Thickness(12, 1, 12, 0) };
+            headerCopy.Children.Add(new TextBlock { Text = "Package Details", Foreground = Text, FontSize = 18, FontWeight = FontWeights.SemiBold });
+            headerCopy.Children.Add(new TextBlock { Text = "View detailed information about this package", Foreground = Muted, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) });
+            Grid.SetColumn(headerCopy, 1);
+            header.Children.Add(headerCopy);
+
+            var closeIcon = new Button
+            {
+                Content = "×",
+                Width = 34,
+                Height = 34,
+                Background = Brushes.Transparent,
+                BorderBrush = Brushes.Transparent,
+                Foreground = Muted,
+                FontSize = 22,
+                FontWeight = FontWeights.Normal,
+                ToolTip = "Close",
+            };
+            closeIcon.Click += (_, _) => dialog.Close();
+            Grid.SetColumn(closeIcon, 2);
+            header.Children.Add(closeIcon);
+            header.MouseLeftButtonDown += (_, eventArgs) =>
+            {
+                if (eventArgs.ChangedButton == System.Windows.Input.MouseButton.Left)
+                {
+                    try { dialog.DragMove(); } catch (InvalidOperationException) { }
+                }
+            };
+            root.Children.Add(header);
+
+            var content = new StackPanel { Margin = new Thickness(22, 4, 22, 20) };
+            var titleRow = new DockPanel { Margin = new Thickness(0, 0, 0, 16) };
+            var channelPill = CreatePill(channel, channel == "Beta" ? BetaSoft : SuccessSoft, channel == "Beta" ? Beta : Success);
+            DockPanel.SetDock(channelPill, Dock.Right);
+            titleRow.Children.Add(channelPill);
+            titleRow.Children.Add(new TextBlock
+            {
+                Text = item.DeploymentName,
+                Foreground = Text,
+                FontSize = 21,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            content.Children.Add(titleRow);
+
+            content.Children.Add(CreateDetailRow("Deployment", item.DeploymentName));
+            content.Children.Add(CreateDetailRow("Version", item.VersionNumber));
+            content.Children.Add(CreateDetailRow("Channel", channel));
+            content.Children.Add(CreateDetailRow("Status", item.Available ? "●  Available" : "●  Missing from server", item.Available ? Success : BrushFrom("#B91C1C")));
+            content.Children.Add(CreateDetailRow("File", string.IsNullOrWhiteSpace(item.FileName) ? "Not available" : item.FileName));
+            content.Children.Add(CreateDetailRow("Download size", downloadSize));
+            content.Children.Add(CreateDetailRow("Install size", installSize));
+            content.Children.Add(CreateDetailDivider());
+            content.Children.Add(CreateDetailDescription("Version description", versionDescription));
+            content.Children.Add(CreateDetailDescription("Deployment description", deploymentDescription));
+            content.Children.Add(CreateDetailDivider());
+            content.Children.Add(new TextBlock { Text = "Checksum (SHA256)", Foreground = Muted, FontSize = 12, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) });
+
+            var checksumGrid = new Grid();
+            checksumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            checksumGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var checksumBox = new TextBox
+            {
+                Text = checksum,
+                IsReadOnly = true,
+                Height = 42,
+                Padding = new Thickness(11, 10, 11, 8),
+                BorderBrush = UiBorder,
+                Background = PageBackground,
+                Foreground = Text,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 11,
+                TextWrapping = TextWrapping.NoWrap,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                VerticalContentAlignment = VerticalAlignment.Center,
+            };
+            checksumGrid.Children.Add(checksumBox);
+            var copyChecksum = CreateSecondaryButton("Copy", 70);
+            copyChecksum.Height = 42;
+            copyChecksum.Margin = new Thickness(8, 0, 0, 0);
+            copyChecksum.IsEnabled = checksum != "Not available";
+            copyChecksum.Click += (_, _) =>
+            {
+                Clipboard.SetText(checksum);
+                copyChecksum.Content = "Copied";
+            };
+            Grid.SetColumn(copyChecksum, 1);
+            checksumGrid.Children.Add(copyChecksum);
+            content.Children.Add(checksumGrid);
+
+            var scroll = new ScrollViewer
+            {
+                Content = content,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            };
+            Grid.SetRow(scroll, 1);
+            root.Children.Add(scroll);
+
+            var footer = new Grid
+            {
+                Margin = new Thickness(22, 14, 12, 18),
+            };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var closeButton = CreateSecondaryButton("Close", 92);
+            closeButton.HorizontalAlignment = HorizontalAlignment.Left;
+            closeButton.Click += (_, _) => dialog.Close();
+            footer.Children.Add(closeButton);
+            var copyAll = CreatePrimaryButton("Copy all info", 132);
+            copyAll.Click += (_, _) =>
+            {
+                Clipboard.SetText(details);
+                copyAll.Content = "Copied";
+            };
+            Grid.SetColumn(copyAll, 1);
+            footer.Children.Add(copyAll);
+            Grid.SetRow(footer, 2);
+            root.Children.Add(footer);
+
+            dialog.Content = new Border
+            {
+                Background = Surface,
+                BorderBrush = UiBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(14),
+                Child = root,
+            };
+            dialog.ShowDialog();
             _status.Text = $"{item.DeploymentName} {item.VersionNumber} selected.";
+        }
+
+        private static Grid CreateDetailRow(string label, string value, Brush? valueBrush = null)
+        {
+            var row = new Grid { MinHeight = 34 };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.Children.Add(new TextBlock
+            {
+                Text = label,
+                Foreground = Muted,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            var valueBlock = new TextBlock
+            {
+                Text = value,
+                Foreground = valueBrush ?? Text,
+                FontSize = 12,
+                FontWeight = FontWeights.Medium,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(valueBlock, 1);
+            row.Children.Add(valueBlock);
+            return row;
+        }
+
+        private static StackPanel CreateDetailDescription(string label, string value)
+        {
+            var section = new StackPanel { Margin = new Thickness(0, 0, 0, 13) };
+            section.Children.Add(new TextBlock { Text = label, Foreground = Muted, FontSize = 12, FontWeight = FontWeights.SemiBold });
+            section.Children.Add(new TextBlock { Text = value, Foreground = Text, FontSize = 12, Margin = new Thickness(0, 5, 0, 0), TextWrapping = TextWrapping.Wrap, LineHeight = 18 });
+            return section;
+        }
+
+        private static Border CreateDetailDivider()
+        {
+            return new Border
+            {
+                Height = 1,
+                Margin = new Thickness(0, 12, 0, 16),
+                Background = UiBorder,
+            };
+        }
+
+        private static UIElement CreateDetailPackageIcon()
+        {
+            var canvas = new Canvas { Width = 24, Height = 24 };
+            foreach (var geometry in new[] { "M4 7L12 3L20 7L12 11L4 7", "M4 7V17L12 21L20 17V7", "M12 11V21" })
+            {
+                canvas.Children.Add(new ShapePath
+                {
+                    Data = Geometry.Parse(geometry),
+                    Stroke = Brushes.White,
+                    StrokeThickness = 1.8,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Fill = Brushes.Transparent,
+                });
+            }
+
+            return new Viewbox { Width = 22, Height = 22, Child = canvas };
         }
 
         private Border CreateQueuedDownloadsPanel()
