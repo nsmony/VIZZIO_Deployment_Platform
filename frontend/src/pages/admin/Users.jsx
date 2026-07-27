@@ -140,6 +140,27 @@ export default function Users() {
     if (page > pageCount) setPage(pageCount);
   }, [page, pageCount]);
 
+  useEffect(() => {
+    if (openUserMenuId === null) return undefined;
+
+    function closeMenuOnOutsideClick(event) {
+      if (!event.target.closest?.('.row-menu')) {
+        setOpenUserMenuId(null);
+      }
+    }
+
+    function closeMenuOnEscape(event) {
+      if (event.key === 'Escape') setOpenUserMenuId(null);
+    }
+
+    document.addEventListener('pointerdown', closeMenuOnOutsideClick);
+    document.addEventListener('keydown', closeMenuOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenuOnOutsideClick);
+      document.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, [openUserMenuId]);
+
   // Fetch all data this page needs in one load.
   async function loadData() {
     setIsLoading(true);

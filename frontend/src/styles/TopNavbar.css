@@ -1,4 +1,7 @@
 .top-navbar {
+  position: relative;
+  z-index: 450;
+  isolation: isolate;
   min-height: 76px;
   display: flex;
   align-items: center;

@@ -68,6 +68,8 @@ namespace Launcher
         private Button _pauseButton = null!;
         private string _activeFilter = "All";
         private string _activeSection = "Library";
+        private bool _cardLayoutRefreshPending;
+        private bool _compactToolbar;
 
         private static readonly Brush PageBackground = BrushFrom("#F8FAFC");
         private static readonly Brush Surface = Brushes.White;
@@ -90,7 +92,10 @@ namespace Launcher
             Height = 760;
             MinWidth = 940;
             MinHeight = 640;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            WindowState = WindowState.Maximized;
             Background = PageBackground;
+            SizeChanged += (_, _) => ScheduleResponsiveLayout();
             Closing += (_, _) =>
             {
                 PersistDownloadState();
@@ -221,6 +226,7 @@ namespace Launcher
             page.Children.Add(_contentHost);
             shell.Children.Add(page);
             Content = shell;
+            _compactToolbar = ShouldUseCompactToolbar();
 
             _startButton.Click += async (_, _) => await StartDownloadAsync();
             _pauseButton.Click += async (_, _) => await TogglePauseAsync();
@@ -1175,6 +1181,7 @@ namespace Launcher
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(0, 6, 0, 0),
             };
+            _cardsPanel.Loaded += (_, _) => ScheduleResponsiveLayout();
 
             var scroller = new ScrollViewer
             {
@@ -1426,7 +1433,6 @@ namespace Launcher
 
         private Border CreateToolbar()
         {
-            var toolbar = new DockPanel { Margin = new Thickness(0, 0, 0, 18), LastChildFill = false };
             if (_searchBox.Parent is Panel previousParent)
             {
                 previousParent.Children.Remove(_searchBox);
@@ -1437,10 +1443,7 @@ namespace Launcher
             }
 
             var searchShell = CreateSearchBoxShell();
-            DockPanel.SetDock(searchShell, Dock.Left);
-            toolbar.Children.Add(searchShell);
-
-            var filters = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var filters = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             foreach (var filter in new[] { "All", "Stable", "Beta", "Installed" })
             {
                 var button = filter == _activeFilter ? CreatePrimaryButton(filter, 92) : CreateSecondaryButton(filter, 92);
@@ -1451,8 +1454,32 @@ namespace Launcher
                 };
                 filters.Children.Add(button);
             }
-            DockPanel.SetDock(filters, Dock.Right);
-            toolbar.Children.Add(filters);
+
+            Panel toolbar;
+            if (_compactToolbar)
+            {
+                var compact = new StackPanel { Margin = new Thickness(0, 0, 0, 18) };
+                searchShell.Width = Math.Min(350, GetPortalContentWidth());
+                searchShell.HorizontalAlignment = HorizontalAlignment.Left;
+                searchShell.Margin = new Thickness(0, 0, 0, 12);
+                filters.Width = Math.Min(408, GetPortalContentWidth());
+                filters.HorizontalAlignment = HorizontalAlignment.Left;
+                compact.Children.Add(searchShell);
+                compact.Children.Add(filters);
+                toolbar = compact;
+            }
+            else
+            {
+                var wide = new Grid { Margin = new Thickness(0, 0, 0, 18) };
+                wide.ColumnDefinitions.Add(new ColumnDefinition());
+                wide.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                searchShell.HorizontalAlignment = HorizontalAlignment.Left;
+                Grid.SetColumn(searchShell, 0);
+                Grid.SetColumn(filters, 1);
+                wide.Children.Add(searchShell);
+                wide.Children.Add(filters);
+                toolbar = wide;
+            }
 
             return new Border
             {
@@ -1620,7 +1647,7 @@ namespace Launcher
 
             return new Border
             {
-                Width = 330,
+                Width = GetResponsiveCardWidth(),
                 Margin = new Thickness(0, 0, 20, 20),
                 Padding = new Thickness(22),
                 Background = Surface,
@@ -1913,10 +1940,53 @@ namespace Launcher
 
         private double GetPortalContentWidth()
         {
-            var sidebarWidth = 260;
-            var pageHorizontalMargin = 56;
-            var scrollbarAllowance = 24;
-            return Math.Max(680, ActualWidth - sidebarWidth - pageHorizontalMargin - scrollbarAllowance);
+            const double scrollbarAllowance = 24;
+            var measuredWidth = _contentHost is not null && _contentHost.ActualWidth > 0
+                ? _contentHost.ActualWidth
+                : ActualWidth - 260 - 56;
+            return Math.Max(280, measuredWidth - scrollbarAllowance);
+        }
+
+        private double GetResponsiveCardWidth()
+        {
+            const double cardGap = 20;
+            const double preferredCardWidth = 350;
+            var availableWidth = GetPortalContentWidth();
+            var columns = Math.Clamp((int)Math.Floor(availableWidth / preferredCardWidth), 1, 3);
+            return Math.Max(280, (availableWidth - (columns * cardGap)) / columns);
+        }
+
+        private bool ShouldUseCompactToolbar()
+        {
+            return GetPortalContentWidth() < 820;
+        }
+
+        private void ScheduleResponsiveLayout()
+        {
+            if (_contentHost is null || _cardsPanel is null || !_cardsPanel.IsLoaded || _cardLayoutRefreshPending)
+            {
+                return;
+            }
+
+            _cardLayoutRefreshPending = true;
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                _cardLayoutRefreshPending = false;
+                if (_contentHost is null || _cardsPanel is null || !_cardsPanel.IsLoaded)
+                {
+                    return;
+                }
+
+                var compactToolbar = ShouldUseCompactToolbar();
+                if (compactToolbar != _compactToolbar)
+                {
+                    _compactToolbar = compactToolbar;
+                    RenderPortalPage();
+                    return;
+                }
+
+                RenderCards();
+            }));
         }
 
         private string GetInstallFolder(DownloadItem item)

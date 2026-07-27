@@ -4,7 +4,12 @@ import { fetchAdminSettings, fetchSystemReadiness, resetAdminSettings, saveAdmin
 import { clearStoredSession, getValidToken } from '../../hooks/useAuth.js';
 import '../../styles/UtilityPages.css';
 
-const tabs = ['General', 'Server', 'Security', 'Maintenance'];
+const tabs = [
+  { name: 'General', icon: 'general' },
+  { name: 'Server', icon: 'server' },
+  { name: 'Security', icon: 'security' },
+  { name: 'Maintenance', icon: 'maintenance' },
+];
 
 const defaultSettings = {
   appName: 'VIZZIO Deployment Platform',
@@ -64,9 +69,7 @@ export default function Settings() {
       const nextReadiness = data.readiness || null;
       setReadiness(nextReadiness);
       setServerStatus(formatReadinessStatus(nextReadiness?.status));
-      setMessage(nextReadiness?.status === 'ready'
-        ? 'Server prerequisites are ready.'
-        : 'Review the server prerequisite checks below.');
+      setMessage(getReadinessMessage(nextReadiness));
     } catch (error) {
       setServerStatus('Offline');
       setReadiness(null);
@@ -108,6 +111,15 @@ export default function Settings() {
     }
   }
 
+  async function copySettingValue(value, label) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setMessage(`${label} copied to clipboard.`);
+    } catch {
+      setMessage(`Unable to copy ${label.toLowerCase()}.`);
+    }
+  }
+
   return (
     <main className="settings-page">
       <p className="settings-page-description">Manage system configuration and administrator preferences.</p>
@@ -115,23 +127,26 @@ export default function Settings() {
       <nav className="settings-tabs" aria-label="Settings sections">
         {tabs.map((tab) => (
           <button
-            className={activeTab === tab ? 'active' : ''}
+            className={activeTab === tab.name ? 'active' : ''}
             type="button"
-            key={tab}
+            key={tab.name}
             onClick={() => {
-              setActiveTab(tab);
+              setActiveTab(tab.name);
               setMessage('');
             }}
           >
-            {tab}
+            <SettingsIcon name={tab.icon} />
+            <span>{tab.name}</span>
           </button>
         ))}
       </nav>
 
       <section className="settings-workspace">
         {activeTab === 'General' && (
-          <SettingsPanel title="General" description="Configure basic admin portal preferences.">
-            <SettingsRow title="Application Version" description="Current version of the admin portal" value={`v${appPackage.version}`} />
+          <SettingsPanel icon="general" tone="blue" title="General" description="Configure basic admin portal preferences.">
+            <SettingsRow title="Application Version" description="Current version of the admin portal">
+              <span className="settings-value-chip">v{appPackage.version}</span>
+            </SettingsRow>
             <SettingsRow title="Product Name" description="Label shown in the web admin shell">
               <input
                 className="settings-text-input"
@@ -148,23 +163,33 @@ export default function Settings() {
                 onChange={(event) => setSettings({ ...settings, supportEmail: event.target.value })}
               />
             </SettingsRow>
-            <SettingsRow title="Save settings">
+            <SettingsRow title="Save changes" description="Apply the general settings above." action>
               <button className="settings-primary-button" type="button" onClick={handleSaveSettings} disabled={loading}>
-                Save Settings
+                Save Changes
               </button>
             </SettingsRow>
           </SettingsPanel>
         )}
 
         {activeTab === 'Server' && (
-          <SettingsPanel title="Server" description="Review hosted backend prerequisites and frontend connection details.">
-            <SettingsRow title="API URL" description={apiBase} />
-            <SettingsRow title="Download URL" description={downloadBase} />
-            <SettingsRow title="Server Status">
+          <SettingsPanel icon="server" tone="green" title="Server" description="Review hosted backend prerequisites and frontend connection details.">
+            <SettingsRow title="API URL" description="Backend API endpoint">
+              <div className="settings-copy-field">
+                <span>{apiBase}</span>
+                <button type="button" onClick={() => copySettingValue(apiBase, 'API URL')} aria-label="Copy API URL">Copy</button>
+              </div>
+            </SettingsRow>
+            <SettingsRow title="Download URL" description="Download service endpoint">
+              <div className="settings-copy-field">
+                <span>{downloadBase}</span>
+                <button type="button" onClick={() => copySettingValue(downloadBase, 'Download URL')} aria-label="Copy download URL">Copy</button>
+              </div>
+            </SettingsRow>
+            <SettingsRow title="Server Status" description="Current connection and prerequisite status">
               <span className={`settings-badge ${serverStatus.toLowerCase()}`}>{serverStatus}</span>
             </SettingsRow>
-            <SettingsRow title="Test server availability">
-              <button className="settings-primary-button" type="button" onClick={handleTestConnection}>
+            <SettingsRow title="Test connection" description="Run the backend prerequisite checks." action>
+              <button className="settings-secondary-button settings-server-button" type="button" onClick={handleTestConnection}>
                 Test Connection
               </button>
             </SettingsRow>
@@ -185,15 +210,22 @@ export default function Settings() {
         )}
 
         {activeTab === 'Security' && (
-          <SettingsPanel title="Security" description="Manage administrator identity and session actions.">
-            <SettingsRow title="Administrator" description="Current signed-in account" value={username} />
-            <SettingsRow title="Role" description="Current access level" value={role} />
-            <SettingsRow title="Password">
-              <button className="settings-secondary-button" type="button" onClick={() => setMessage('Password changes are not configured yet.')}>
-                Change Password
-              </button>
+          <SettingsPanel icon="security" tone="purple" title="Security" description="Manage administrator identity and session actions.">
+            <SettingsRow title="Administrator" description="Current signed-in account">
+              <span className="settings-identity-value">{username}</span>
             </SettingsRow>
-            <SettingsRow title="Session">
+            <SettingsRow title="Role" description="Current access level">
+              <span className="settings-role-chip">{role}</span>
+            </SettingsRow>
+            <SettingsRow title="Password" description="Password for this administrator account">
+              <div className="settings-inline-actions">
+                <span className="settings-password-mask" aria-label="Password hidden">••••••••</span>
+                <button className="settings-secondary-button" type="button" onClick={() => setMessage('Password changes are not configured yet.')}>
+                  Change Password
+                </button>
+              </div>
+            </SettingsRow>
+            <SettingsRow title="Session" description="Manage your active administrator session">
               <button className="settings-danger-button" type="button" onClick={handleSignOut}>
                 Sign Out
               </button>
@@ -202,7 +234,7 @@ export default function Settings() {
         )}
 
         {activeTab === 'Maintenance' && (
-          <SettingsPanel title="Maintenance" description="Control maintenance mode and system actions.">
+          <SettingsPanel icon="maintenance" tone="orange" title="Maintenance" description="Control maintenance mode and system actions.">
             <SettingsRow title="Enable Maintenance Mode" description="Prevent non-admin users from using the system.">
               <label className="settings-switch">
                 <input
@@ -228,12 +260,12 @@ export default function Settings() {
               </button>
             </SettingsRow>
             <SettingsRow title="Reset Settings" description="Restore admin settings to their defaults">
-              <button className="settings-secondary-button" type="button" onClick={handleResetSettings}>
+              <button className="settings-danger-button settings-danger-outline" type="button" onClick={handleResetSettings}>
                 Reset
               </button>
             </SettingsRow>
-            <SettingsRow title="Save maintenance settings">
-              <button className="settings-primary-button" type="button" onClick={handleSaveSettings} disabled={loading}>
+            <SettingsRow title="Save maintenance settings" description="Apply maintenance mode and message changes." action>
+              <button className="settings-primary-button settings-maintenance-button" type="button" onClick={handleSaveSettings} disabled={loading}>
                 Save Maintenance Settings
               </button>
             </SettingsRow>
@@ -246,21 +278,24 @@ export default function Settings() {
   );
 }
 
-function SettingsPanel({ title, description, children }) {
+function SettingsPanel({ title, description, icon, tone, children }) {
   return (
     <>
-      <div className="settings-panel-header">
-        <h3>{title}</h3>
-        <p>{description}</p>
+      <div className={`settings-panel-header ${tone}`}>
+        <div className="settings-panel-icon"><SettingsIcon name={icon} /></div>
+        <div>
+          <h3>{title}</h3>
+          <p>{description}</p>
+        </div>
       </div>
       <div className="settings-rows">{children}</div>
     </>
   );
 }
 
-function SettingsRow({ title, description, value, children }) {
+function SettingsRow({ title, description, value, children, action = false }) {
   return (
-    <div className="settings-row">
+    <div className={`settings-row${action ? ' settings-action-row' : ''}`}>
       <div>
         <h4>{title}</h4>
         {description && <p>{description}</p>}
@@ -272,11 +307,48 @@ function SettingsRow({ title, description, value, children }) {
   );
 }
 
+function SettingsIcon({ name }) {
+  const paths = {
+    general: 'M4 7h10M18 7h2M4 17h2M10 17h10M8 14v6M16 4v6',
+    server: 'M7 18h10a4 4 0 0 0 .7-7.94A6 6 0 0 0 6.2 8.4 4.8 4.8 0 0 0 7 18Z',
+    security: 'M12 3 5 6v5c0 4.6 2.8 8 7 10 4.2-2 7-5.4 7-10V6l-7-3Zm0 5v8m-3-4h6',
+    maintenance: 'm14.5 6.5 3-3 3 3-3 3m-11 5-3 3 3 3 3-3M9 8l7 7M5 4l15 15',
+  };
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d={paths[name] || paths.general} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function formatReadinessStatus(status) {
   if (status === 'ready') return 'Online';
   if (status === 'ready-with-warnings') return 'Warnings';
   if (status === 'not-ready') return 'Offline';
   return 'Checking';
+}
+
+function getReadinessMessage(readiness) {
+  if (readiness?.status === 'ready') {
+    return 'Server prerequisites are ready.';
+  }
+
+  const checks = readiness?.checks || [];
+  const errorCount = checks.filter((check) => check.status === 'error').length;
+  const warningCount = checks.filter((check) => check.status === 'warning').length;
+
+  if (errorCount && warningCount) {
+    return `Review the checks above: ${errorCount} error${errorCount === 1 ? '' : 's'} and ${warningCount} warning${warningCount === 1 ? '' : 's'}.`;
+  }
+  if (errorCount) {
+    return `Review the checks above: ${errorCount} error${errorCount === 1 ? '' : 's'}.`;
+  }
+  if (warningCount) {
+    return `Review the checks above: ${warningCount} warning${warningCount === 1 ? '' : 's'}.`;
+  }
+
+  return 'Review the server prerequisite checks above.';
 }
 
 function formatCheckStatus(status) {

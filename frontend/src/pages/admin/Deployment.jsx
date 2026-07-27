@@ -64,6 +64,27 @@ export default function Deployment() {
     setPage(1);
   }, [search, statusFilter, channelFilter, sortMode, pageSize]);
 
+  useEffect(() => {
+    if (openMenuId === null) return undefined;
+
+    function closeMenuOnOutsideClick(event) {
+      if (!event.target.closest?.('.deployment-more')) {
+        setOpenMenuId(null);
+      }
+    }
+
+    function closeMenuOnEscape(event) {
+      if (event.key === 'Escape') setOpenMenuId(null);
+    }
+
+    document.addEventListener('pointerdown', closeMenuOnOutsideClick);
+    document.addEventListener('keydown', closeMenuOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeMenuOnOutsideClick);
+      document.removeEventListener('keydown', closeMenuOnEscape);
+    };
+  }, [openMenuId]);
+
   // Calculate summary numbers from the loaded deployments.
   const kpis = useMemo(() => {
     const totalVersions = deployments.reduce((sum, deployment) => sum + deployment.versionCount, 0);

@@ -44,6 +44,7 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [notificationError, setNotificationError] = useState('');
   const notificationRef = useRef(null);
+  const profileRef = useRef(null);
 
   useEffect(() => {
     loadUnreadCount();
@@ -59,6 +60,27 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!profileOpen) return undefined;
+
+    function closeProfileOnOutsideClick(event) {
+      if (!profileRef.current?.contains(event.target)) {
+        onProfileClick?.();
+      }
+    }
+
+    function closeProfileOnEscape(event) {
+      if (event.key === 'Escape') onProfileClick?.();
+    }
+
+    document.addEventListener('pointerdown', closeProfileOnOutsideClick);
+    document.addEventListener('keydown', closeProfileOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeProfileOnOutsideClick);
+      document.removeEventListener('keydown', closeProfileOnEscape);
+    };
+  }, [profileOpen, onProfileClick]);
 
   async function loadUnreadCount() {
     const token = localStorage.getItem('vizzio_token');
@@ -219,7 +241,7 @@ export default function TopNavbar({ title, onMenuToggle, sidebarOpen = true, use
         >
           <HeaderIcon type="settings" />
         </button>
-        <div className="top-profile">
+        <div className="top-profile" ref={profileRef}>
           <button className="top-profile-button" onClick={onProfileClick} aria-label="Open profile menu" aria-expanded={profileOpen}>
             {profileImage ? <img src={profileImage} alt="" /> : initials}
           </button>

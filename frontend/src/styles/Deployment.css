@@ -8,7 +8,9 @@
 
 .deployment-page {
   display: grid;
+  width: 100%;
   gap: 24px;
+  container-type: inline-size;
 }
 
 .deployment-hero,
@@ -882,6 +884,49 @@
 @media (max-width: 1180px) {
   .deployment-toolbar {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* The admin sidebar reduces the page's usable width without reducing the
+   viewport width. Container queries therefore keep this page responsive at
+   browser zoom levels where viewport media queries alone fire too late. */
+@container (max-width: 1180px) {
+  .deployment-toolbar {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .deployment-search-control,
+  .deployment-toolbar select:nth-of-type(3) {
+    grid-column: span 2;
+  }
+
+  .deployment-kpi-grid,
+  .deployment-card-grid,
+  .deployment-loading {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (max-width: 720px) {
+  .deployment-toolbar,
+  .deployment-kpi-grid,
+  .deployment-card-grid,
+  .deployment-loading {
+    grid-template-columns: 1fr;
+  }
+
+  .deployment-search-control,
+  .deployment-toolbar select:nth-of-type(3) {
+    grid-column: auto;
+  }
+
+  .deployment-view-toggle,
+  .deployment-new-button {
+    width: 100%;
+  }
+
+  .deployment-view-toggle button {
+    flex: 1;
   }
 }
 

@@ -386,7 +386,7 @@
   box-shadow: 0 12px 24px rgba(37, 99, 235, 0.18);
 }
 
-@media (max-width: 700px) {
+@container (max-width: 700px) {
   .version-filter {
     width: 100%;
     min-width: 0;

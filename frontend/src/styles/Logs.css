@@ -7,6 +7,7 @@
 }
 
 .logs-page {
+  width: 100%;
   padding: 32px;
   max-width: 1200px;
   margin: 0 auto;
@@ -302,7 +303,7 @@
   line-height: 1.5;
 }
 
-@media (max-width: 880px) {
+@container (max-width: 880px) {
   .logs-settings {
     grid-template-columns: 1fr;
   }
