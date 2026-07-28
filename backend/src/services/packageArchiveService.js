@@ -14,13 +14,14 @@ const ZIP_VERSION_NEEDED = 20;
 const ZIP_METHOD_STORE = 0;
 
 let crcTable;
+const archiveCreationJobs = new Map();
 
 export function getPackageRoot() {
   return path.resolve(process.env.PACKAGE_ROOT || DEFAULT_PACKAGE_ROOT);
 }
 
 // Inspect a staged folder, server archive, or uploaded package.
-export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, skipChecksum = false }) {
+export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, skipChecksum = false, onProgress }) {
   const rawPackagePath = String(packagePath || '').trim();
   if (!rawPackagePath) throw new Error('Package source path is required.');
   const normalizedSourceType = String(sourceType || '').trim();
@@ -49,6 +50,11 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
 
   if (stat.isDirectory() || normalizedSourceType === 'stagingFolder') {
     if (!stat.isDirectory()) throw new Error('Server staging folder path must point to a directory.');
+    onProgress?.({
+      phase: 'scanning',
+      percent: null,
+      detail: 'Scanning package files and checking the launch script.',
+    });
     const batchScriptName = await findLaunchBatchScript(resolvedPath);
     if (!batchScriptName) throw new Error('Server staging folder must contain a launch batch script.');
 
@@ -70,6 +76,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       deploymentName,
       versionNumber,
       deploymentId,
+      onProgress,
     });
     const archiveStat = await fs.promises.stat(archivePath);
     return {
@@ -78,14 +85,21 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       fileName: path.basename(archivePath),
       fileType: inferFileType(archivePath),
       packageSize: BigInt(archiveStat.size),
-      checksum: skipChecksum ? null : knownChecksum || await sha256File(archivePath),
+      checksum: skipChecksum ? null : knownChecksum || await sha256File(archivePath, onProgress),
       batchScriptName,
     };
   }
 
   if (!stat.isFile()) throw new Error('Package source path must point to a file or staging folder.');
   ensureSupportedArchive(resolvedPath);
-  const batchScriptName = await findTopLevelBatchScriptInArchive(resolvedPath);
+  onProgress?.({
+    phase: 'validatingArchive',
+    percent: null,
+    detail: 'Checking the archive structure and launch script.',
+  });
+  // A validated package supplies this value during registration, avoiding a
+  // second full archive listing for large 7z files.
+  const batchScriptName = knownBatchScriptName || await findTopLevelBatchScriptInArchive(resolvedPath);
   if (!batchScriptName) {
     throw new Error('Deployment package archive must contain a launch batch script at the archive root or inside one top-level folder.');
   }
@@ -96,7 +110,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
     fileName: path.basename(resolvedPath),
     fileType: inferFileType(resolvedPath),
     packageSize: BigInt(stat.size),
-    checksum: skipChecksum ? null : knownChecksum || await sha256File(resolvedPath),
+    checksum: skipChecksum ? null : knownChecksum || await sha256File(resolvedPath, onProgress),
     batchScriptName: knownBatchScriptName || batchScriptName,
   };
 }
@@ -115,11 +129,35 @@ export function inferFileType(filePath) {
   return types[extension] || 'application/octet-stream';
 }
 
-export async function sha256File(filePath) {
+export async function sha256File(filePath, onProgress) {
   const hash = crypto.createHash('sha256');
+  const totalBytes = (await fs.promises.stat(filePath)).size;
+  let processedBytes = 0;
+  let lastProgressAt = 0;
+  onProgress?.({
+    phase: 'checksum',
+    percent: 0,
+    detail: 'Calculating the SHA-256 checksum.',
+    processedBytes,
+    totalBytes,
+  });
   await new Promise((resolve, reject) => {
     fs.createReadStream(filePath)
-      .on('data', (chunk) => hash.update(chunk))
+      .on('data', (chunk) => {
+        hash.update(chunk);
+        processedBytes += chunk.length;
+        const now = Date.now();
+        if (now - lastProgressAt >= 250 || processedBytes === totalBytes) {
+          lastProgressAt = now;
+          onProgress?.({
+            phase: 'checksum',
+            percent: totalBytes ? Math.min(100, processedBytes / totalBytes * 100) : 100,
+            detail: 'Calculating the SHA-256 checksum.',
+            processedBytes,
+            totalBytes,
+          });
+        }
+      })
       .on('error', reject)
       .on('end', resolve);
   });
@@ -156,39 +194,63 @@ async function findLaunchBatchScript(folderPath) {
   return batch?.name || null;
 }
 
-async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName, versionNumber, deploymentId }) {
+async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName, versionNumber, deploymentId, onProgress }) {
   const outputDir = path.join(packageRoot, '_generated', sanitizePathPart(deploymentName || deploymentId || 'deployment'));
+  const outputRelativeToSource = path.relative(folderPath, outputDir);
+  const outputIsInsideSource = outputRelativeToSource === ''
+    || (!outputRelativeToSource.startsWith('..') && !path.isAbsolute(outputRelativeToSource));
+  if (outputIsInsideSource) {
+    throw new Error('Server staging folder cannot be the package root or contain the generated-package directory. Select the deployment subfolder instead.');
+  }
   await fs.promises.mkdir(outputDir, { recursive: true });
   const outputBase = path.join(outputDir, sanitizePathPart(versionNumber || 'version'));
+  const jobKey = process.platform === 'win32' ? outputBase.toLowerCase() : outputBase;
+  const activeJob = archiveCreationJobs.get(jobKey);
+  if (activeJob) return activeJob;
+
+  const job = createArchiveFromFolderOnce({ folderPath, outputBase, onProgress });
+  archiveCreationJobs.set(jobKey, job);
+  try {
+    return await job;
+  } finally {
+    if (archiveCreationJobs.get(jobKey) === job) {
+      archiveCreationJobs.delete(jobKey);
+    }
+  }
+}
+
+async function createArchiveFromFolderOnce({ folderPath, outputBase, onProgress }) {
   const sevenZipOutputPath = `${outputBase}.7z`;
   const sevenZipTempPath = `${sevenZipOutputPath}.${process.pid}.${Date.now()}.tmp`;
 
-  if (await fileExists(sevenZipOutputPath)) {
-    return sevenZipOutputPath;
+  try {
+    if (await trySevenZipArchive(folderPath, sevenZipTempPath, onProgress)) {
+      // Keep an older completed package until its replacement is ready, then
+      // replace it atomically from the caller's perspective.
+      await fs.promises.rm(sevenZipOutputPath, { force: true });
+      await fs.promises.rename(sevenZipTempPath, sevenZipOutputPath);
+      await fs.promises.rm(`${outputBase}.zip`, { force: true });
+      return sevenZipOutputPath;
+    }
+  } finally {
+    // Interrupted and failed jobs must not accumulate partial package files.
+    await fs.promises.rm(sevenZipTempPath, { force: true }).catch(() => {});
   }
-
-  if (await trySevenZipArchive(folderPath, sevenZipTempPath)) {
-    await fs.promises.rm(sevenZipOutputPath, { force: true });
-    await fs.promises.rename(sevenZipTempPath, sevenZipOutputPath);
-    return sevenZipOutputPath;
-  }
-
-  await fs.promises.rm(sevenZipTempPath, { force: true });
 
   const zipOutputPath = `${outputBase}.zip`;
   const zipTempPath = `${zipOutputPath}.${process.pid}.${Date.now()}.tmp`;
-  if (!await trySystemZip(folderPath, zipTempPath)) {
-    await fs.promises.rm(zipTempPath, { force: true });
-    await writeStoredZip(folderPath, zipTempPath);
+  try {
+    if (!await trySystemZip(folderPath, zipTempPath)) {
+      await fs.promises.rm(zipTempPath, { force: true });
+      await writeStoredZip(folderPath, zipTempPath, onProgress);
+    }
+    await fs.promises.rm(zipOutputPath, { force: true });
+    await fs.promises.rename(zipTempPath, zipOutputPath);
+    await fs.promises.rm(sevenZipOutputPath, { force: true });
+    return zipOutputPath;
+  } finally {
+    await fs.promises.rm(zipTempPath, { force: true }).catch(() => {});
   }
-  await fs.promises.rm(zipOutputPath, { force: true });
-  await fs.promises.rename(zipTempPath, zipOutputPath);
-  return zipOutputPath;
-}
-
-async function fileExists(filePath) {
-  const stat = await fs.promises.stat(filePath).catch(() => null);
-  return Boolean(stat?.isFile() && stat.size > 0);
 }
 
 async function readZipInstallSize(filePath) {
@@ -331,22 +393,42 @@ async function trySystemZip(folderPath, outputPath) {
   });
 }
 
-async function trySevenZipArchive(folderPath, outputPath) {
+async function trySevenZipArchive(folderPath, outputPath, onProgress) {
   for (const executable of SEVEN_ZIP_EXECUTABLES) {
-    const created = await runSevenZipArchive(executable, folderPath, outputPath);
+    const created = await runSevenZipArchive(executable, folderPath, outputPath, onProgress);
     if (created) return true;
   }
 
   return false;
 }
 
-function runSevenZipArchive(executable, folderPath, outputPath) {
+function runSevenZipArchive(executable, folderPath, outputPath, onProgress) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, ['a', '-t7z', '-mx=0', outputPath, '.'], {
+    onProgress?.({
+      phase: 'creatingArchive',
+      percent: 0,
+      detail: 'Scanning files before archive output begins.',
+    });
+    const child = spawn(executable, ['a', '-t7z', '-mx=0', '-mmt=on', '-bsp1', '-bb0', outputPath, '.'], {
       cwd: folderPath,
-      stdio: ['ignore', 'ignore', 'pipe'],
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     let errorOutput = '';
+    let lastPercent = -1;
+
+    child.stdout.on('data', (chunk) => {
+      const output = chunk.toString();
+      const matches = [...output.matchAll(/(\d{1,3})%/g)];
+      const percent = matches.length ? Number(matches.at(-1)[1]) : null;
+      if (percent !== null && percent !== lastPercent) {
+        lastPercent = percent;
+        onProgress?.({
+          phase: 'creatingArchive',
+          percent: Math.min(100, percent),
+          detail: percent > 0 ? 'Creating the package archive.' : 'Scanning package files.',
+        });
+      }
+    });
 
     child.stderr.on('data', (chunk) => {
       errorOutput += chunk.toString();
@@ -372,11 +454,18 @@ function runSevenZipArchive(executable, folderPath, outputPath) {
   });
 }
 
-async function writeStoredZip(folderPath, outputPath) {
+async function writeStoredZip(folderPath, outputPath, onProgress) {
+  onProgress?.({
+    phase: 'creatingArchive',
+    percent: 0,
+    detail: 'Scanning files for built-in ZIP packaging.',
+  });
   const files = await listFiles(folderPath);
   assertBuiltInZipCapacity(files);
   const centralDirectory = [];
   let offset = 0;
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  let processedBytes = 0;
 
   await usingResource(
     fs.createWriteStream(outputPath),
@@ -388,6 +477,14 @@ async function writeStoredZip(folderPath, outputPath) {
         const localHeader = createLocalFileHeader(nameBuffer, crc, data.length);
         await writeBuffer(output, localHeader);
         await writeBuffer(output, data);
+        processedBytes += data.length;
+        onProgress?.({
+          phase: 'creatingArchive',
+          percent: totalBytes ? Math.min(100, processedBytes / totalBytes * 100) : 100,
+          detail: 'Creating the package archive.',
+          processedBytes,
+          totalBytes,
+        });
         centralDirectory.push({ nameBuffer, crc, size: data.length, offset });
         offset += localHeader.length + data.length;
       }

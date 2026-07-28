@@ -228,19 +228,44 @@ change state.
 4. Enter the version number.
 5. Choose **Stable** or **Beta**.
 6. Choose one package source:
-   - **Server staging folder**
-   - **Server archive path**
-   - **Upload archive**
-7. For **Server staging folder**, enter the path and select **Prepare folder**.
-   For **Server archive path**, enter the path and select **Validate archive**.
-   For an upload, select a local ZIP or 7z archive; it is uploaded when the
-   version is registered.
+   - **Package server folder**
+   - **Register server archive**
+   - **Upload local archive**
+7. For **Package server folder**, prepare one deployment root containing the
+   component folders and one root-level launch batch file, enter its absolute
+   server path, enter the version number, and select
+   **Inspect & prepare package**.
+   For **Register server archive**, enter the existing ZIP/7z server path and
+   select **Validate server archive**. For **Upload local archive**, select a
+   prepared ZIP or 7z from the current computer, then select
+   **Upload & validate archive**. The page displays transfer percentage, bytes,
+   elapsed time, and estimated remaining time. The backend calculates SHA-256
+   while streaming the upload to disk, then checks its structure and launch
+   script. Server-folder preparation and
+   server-archive validation calculate the package checksum during this step.
 8. Select the initial status: **Draft**, **Released**, or **Archived**.
 9. Optionally enter a description.
 10. Review the detected file, batch-script, size, and checksum metadata.
 11. Select **Register version**.
 
 The version number is required and must be unique within its deployment.
+Selecting **Cancel** discards the complete registration draft, including the
+package path, selected upload, prepared archive metadata, checksum, validation
+state, and description. Switching deployments also starts with a clean draft.
+Navigating to another admin page does not cancel preparation or registration.
+The current draft and phase are retained for the browser session and restored
+when returning to **Versions**. If registration finishes while another page is
+open, the registered version appears when the Versions list reloads. Closing or
+refreshing the browser is not a supported way to monitor an active request.
+After a server package is prepared or validated, registration reuses its
+calculated checksum instead of reading the complete archive a second time.
+The page enables registration only after preparation returns a generated
+archive path, file name, nonzero size, launch script, and checksum. The backend
+also rejects direct registration of an unprepared staging folder, preventing
+packaging from unexpectedly starting during **Register version**.
+Local archive registration is enabled only after upload and validation return
+the stored file identifier, nonzero size, launch script, and checksum. Register
+does not upload the file a second time.
 
 ### 8.2 Package Requirements
 
@@ -251,6 +276,8 @@ The version number is required and must be unique within its deployment.
 - A server archive path must point to a file.
 - A server staging-folder path must point to a non-empty directory containing a
   launch batch script.
+- Select a deployment subfolder, not `PACKAGE_ROOT` itself; generated archives
+  are written under `PACKAGE_ROOT/_generated`.
 - ZIP archives are inspected directly.
 - Reading or creating 7z archives requires `7z` or `7za` on the backend server.
 
@@ -258,6 +285,28 @@ For large Unreal deployments, prefer **Server staging folder** on the backend
 PC. When 7-Zip is available, the backend creates a generated 7z archive.
 Without 7-Zip, it creates a ZIP when the staging folder is within the built-in
 ZIP size limit.
+
+Preparation always rebuilds the generated archive from the current staging
+folder and then calculates SHA-256. Duplicate preparation clicks or requests
+share one backend job. Large builds can still take several minutes depending on
+total bytes, file count, and disk speed. Remove runtime caches, logs, crash
+dumps, and temporary files before preparation. A failed job removes its partial
+temporary archive; select **Inspect & prepare package** again after correcting
+the reported error.
+
+Preparation runs as a background backend job. The Version form reports:
+
+- Current phase: scanning, archive creation, archive validation, or checksum
+- Phase percentage when 7-Zip or checksum processing can measure it
+- Elapsed time
+- Estimated remaining time after measurable progress begins
+- Processed and total bytes during checksum generation
+
+The scanning phase shows an indeterminate progress bar because 7-Zip must first
+discover the package files before it can calculate a meaningful percentage.
+Admins may navigate to other portal pages and return to the Version page; the
+page reconnects to the same job. Starting the same deployment/version/path
+again returns the active job instead of launching another archive process.
 
 ### 8.3 Manage a Version
 

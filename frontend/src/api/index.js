@@ -132,6 +132,18 @@ export async function validateDeploymentPackage(token, packageInfo) {
   });
 }
 
+export async function startPackagePreparation(token, packageInfo) {
+  return request('/deployment-versions/package-jobs', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(packageInfo),
+  });
+}
+
+export async function fetchPackagePreparation(token, jobId) {
+  return request(`/deployment-versions/package-jobs/${encodeURIComponent(jobId)}`, token);
+}
+
 export async function deleteDeploymentVersion(token, versionId) {
   return request(`/deployment-versions/${encodeURIComponent(versionId)}`, token, {
     method: 'DELETE',
@@ -164,23 +176,39 @@ export async function resetAdminSettings(token) {
   });
 }
 
-export async function uploadPackage(token, file, title) {
-  const response = await fetch(`${API_BASE}/deployments/uploads`, {
-    method: 'POST',
-    headers: {
-      Authorization: token ? `Bearer ${token}` : undefined,
-      'Content-Type': 'application/octet-stream',
-      'X-File-Name': encodeURIComponent(file.name),
-      'X-Package-Title': encodeURIComponent(title || file.name),
-    },
-    body: file,
-  });
+export function uploadPackage(token, file, title, onProgress) {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `${API_BASE}/deployments/uploads`);
+    if (token) request.setRequestHeader('Authorization', `Bearer ${token}`);
+    request.setRequestHeader('Content-Type', 'application/octet-stream');
+    request.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
+    request.setRequestHeader('X-Package-Title', encodeURIComponent(title || file.name));
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data.error || 'Upload failed');
-  }
-  return data;
+    request.upload.addEventListener('progress', (event) => {
+      onProgress?.({
+        loaded: event.loaded,
+        total: event.lengthComputable ? event.total : file.size,
+      });
+    });
+    request.addEventListener('load', () => {
+      let data = {};
+      try {
+        data = JSON.parse(request.responseText || '{}');
+      } catch {
+        data = {};
+      }
+      if (request.status >= 200 && request.status < 300) {
+        resolve(data);
+        return;
+      }
+      if (request.status === 401) clearStoredSession();
+      reject(new Error(data.error || `Upload failed with status ${request.status}`));
+    });
+    request.addEventListener('error', () => reject(new Error('Upload failed because the backend connection was interrupted.')));
+    request.addEventListener('abort', () => reject(new Error('Upload was cancelled.')));
+    request.send(file);
+  });
 }
 
 export async function requestDownloadToken(token, fileId) {

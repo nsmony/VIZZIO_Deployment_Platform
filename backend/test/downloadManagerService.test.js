@@ -9,6 +9,11 @@ import { signDownloadManagerToken, verifyDownloadManagerToken } from '../src/dow
 import { verifySha256 } from '../src/services/downloadIntegrityService.js';
 import { getPackageInstallSize, inspectPackageSource } from '../src/services/packageArchiveService.js';
 import { findTopLevelBatchScriptInArchive } from '../src/archiveValidation.js';
+import { validatePackage } from '../src/services/deploymentService.js';
+import {
+  getPackagePreparationJob,
+  startPackagePreparationJob,
+} from '../src/services/packagePreparationJobService.js';
 
 test('normal ranged download requests parse a byte range', () => {
   assert.deepEqual(parseRangeHeader('bytes=0-99', 1000), { start: 0, end: 99 });
@@ -188,6 +193,213 @@ test('server archive source rejects staging folder paths', async () => {
       }),
       /must point to a file/i
     );
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('staging preparation requires a version number', async () => {
+  await assert.rejects(
+    validatePackage({
+      packagePath: 'unused',
+      sourceType: 'stagingFolder',
+      versionNumber: '   ',
+    }),
+    /version number before preparing/i
+  );
+});
+
+test('staging validation returns a complete prepared package', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'validated-build');
+    await fs.mkdir(stagingFolder, { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    await fs.writeFile(path.join(stagingFolder, 'content.bin'), Buffer.alloc(4096, 3));
+
+    const result = await validatePackage({
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      versionNumber: 'v2.0.0',
+      deploymentName: 'Validated Build',
+      deploymentId: 'deployment-validated',
+    });
+
+    assert.equal(result.packageSource, 'generatedArchive');
+    assert.match(result.fileName, /^v2\.0\.0\.(zip|7z)$/);
+    assert.ok(Number(result.packageSize) > 0);
+    assert.match(result.checksum, /^[a-f0-9]{64}$/);
+    assert.equal(result.batchScriptName, 'launch.bat');
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('background preparation jobs report progress and coalesce duplicates', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'background-build');
+    await fs.mkdir(stagingFolder, { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    await fs.writeFile(path.join(stagingFolder, 'content.bin'), Buffer.alloc(2 * 1024 * 1024, 5));
+    const request = {
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      versionNumber: 'v3.0.0',
+      deploymentName: 'Background Build',
+      deploymentId: 'deployment-background',
+    };
+
+    const first = startPackagePreparationJob(request);
+    const duplicate = startPackagePreparationJob(request);
+    assert.equal(duplicate.id, first.id);
+
+    let job = first;
+    const deadline = Date.now() + 10000;
+    while (job.status === 'queued' || job.status === 'running') {
+      assert.ok(Date.now() < deadline, 'background preparation job timed out');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      job = getPackagePreparationJob(first.id);
+    }
+
+    assert.equal(job.status, 'completed');
+    assert.equal(job.phase, 'completed');
+    assert.equal(job.phasePercent, 100);
+    assert.match(job.package.checksum, /^[a-f0-9]{64}$/);
+    assert.ok(job.elapsedSeconds >= 0);
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('validated server archive metadata avoids inspecting the archive again', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const archivePath = path.join(tempRoot, 'already-validated.7z');
+    await fs.writeFile(archivePath, 'metadata fast path');
+    const checksum = crypto.createHash('sha256').update('metadata fast path').digest('hex');
+    const result = await inspectPackageSource({
+      packagePath: archivePath,
+      sourceType: 'serverArchive',
+      createArchive: true,
+      knownChecksum: checksum,
+      knownBatchScriptName: 'launch.bat',
+    });
+
+    assert.equal(result.checksum, checksum);
+    assert.equal(result.batchScriptName, 'launch.bat');
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('package root cannot be used as a staging folder', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    await fs.writeFile(path.join(tempRoot, 'launch.bat'), 'echo launch');
+    await assert.rejects(
+      inspectPackageSource({
+        packagePath: tempRoot,
+        sourceType: 'stagingFolder',
+        deploymentName: 'Unsafe Root',
+        versionNumber: 'v1.0.0',
+        deploymentId: 'deployment-root',
+        createArchive: true,
+      }),
+      /cannot be the package root/i
+    );
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('concurrent preparation requests share one generated archive job', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'shared-build');
+    await fs.mkdir(path.join(stagingFolder, 'client'), { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    await fs.writeFile(path.join(stagingFolder, 'client', 'app.bin'), Buffer.alloc(1024 * 1024, 7));
+
+    const request = {
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      deploymentName: 'Shared Build',
+      versionNumber: 'v1.0.0',
+      deploymentId: 'deployment-shared',
+      createArchive: true,
+    };
+    const [first, second] = await Promise.all([
+      inspectPackageSource(request),
+      inspectPackageSource(request),
+    ]);
+
+    assert.equal(first.packagePath, second.packagePath);
+    assert.equal(first.checksum, second.checksum);
+    assert.match(first.checksum, /^[a-f0-9]{64}$/);
+
+    const generatedFiles = await fs.readdir(path.dirname(first.packagePath));
+    assert.deepEqual(generatedFiles, [path.basename(first.packagePath)]);
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('preparing again rebuilds the archive when staging content changes', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'changing-build');
+    const contentPath = path.join(stagingFolder, 'content.txt');
+    await fs.mkdir(stagingFolder, { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    await fs.writeFile(contentPath, 'first build');
+
+    const request = {
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      deploymentName: 'Changing Build',
+      versionNumber: 'v1.0.0',
+      deploymentId: 'deployment-changing',
+      createArchive: true,
+    };
+    const first = await inspectPackageSource(request);
+    await fs.writeFile(contentPath, 'second build with updated content');
+    const second = await inspectPackageSource(request);
+
+    assert.equal(first.packagePath, second.packagePath);
+    assert.notEqual(first.checksum, second.checksum);
+    const generatedFiles = await fs.readdir(path.dirname(second.packagePath));
+    assert.deepEqual(generatedFiles, [path.basename(second.packagePath)]);
   } finally {
     if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
     else process.env.PACKAGE_ROOT = previousRoot;

@@ -40,10 +40,12 @@ Authenticate as an administrator and open **Deployments**.
 ### Step 3: Register Version
 
 Open **Versions**, choose the deployment, and select **+ Register Version**.
+Enter the version number before preparing a server folder because it is used
+for the generated archive name.
 
 When adding a version, choose one package source:
 
-- Upload archive from local machine
+- Upload and validate an archive from the local machine
 - Register existing server archive path
 - Register server staging folder path (system archives folder into package)
 
@@ -69,7 +71,12 @@ after extraction. 7z validation requires `7z` or `7za` on the backend server.
 
 For 50-60 GiB Unreal deployments, prefer the server staging-folder flow. With
 7-Zip installed on the backend PC, staging folders are converted into generated
-`.7z` packages instead of relying on small built-in ZIP packaging.
+`.7z` packages using store mode instead of relying on small built-in ZIP
+packaging. Remove runtime caches, logs, crash dumps, and temporary files from
+the staging folder before preparation; every included file must be scanned and
+written to the archive. Select the individual deployment folder, never
+`PACKAGE_ROOT` itself, because generated packages are written below
+`PACKAGE_ROOT/_generated`.
 
 Set:
 
@@ -92,12 +99,39 @@ Verify the newly added version includes:
 
 - Expected package artifact path/name
 - Size metadata
-- Checksum status after registration
+- Checksum calculated during preparation or validation
 - Correct channel and status
 
-Validation checks package shape and launch-script presence. For large archives,
-SHA-256 checksum generation is deferred to registration because it must read the
-whole package file.
+Validation checks package shape and launch-script presence. Server-folder
+preparation creates a fresh archive and calculates SHA-256. Existing
+server-archive validation also calculates SHA-256. Registration reuses that
+checksum and does not read the entire archive again. Registration rejects raw
+staging-folder paths and server archives that have not returned validation
+metadata. A successful preparation must display the generated file name,
+nonzero size, detected launch script, and SHA-256 checksum before
+**Register version** is available.
+
+For a local archive, select the file and run **Upload & validate archive**
+before registration. Upload progress is measured in the browser. The backend
+streams the file to disk and calculates SHA-256 in the same pass, then validates
+the archive layout and launch script. Registration reuses that stored package
+record and does not transfer the archive again.
+
+Only one preparation job runs for a deployment/version output at a time within
+the backend process. Duplicate requests wait for the same job. Packaging and
+checksum time still scale with package size, file count, and storage speed; this
+is expected for large builds and is not an instant metadata operation.
+
+Preparation is exposed as a background job. The admin page polls its authenticated
+status endpoint and displays scanning, archive creation, checksum, elapsed time,
+and ETA when a percentage is available. Navigating within the portal does not
+stop the job. Parallel archive creation is intentionally not used because
+multiple writers compete for the same source and destination disk and were
+observed to reduce throughput.
+
+If preparation fails or is interrupted, retry **Inspect & prepare package**.
+Failed jobs remove their temporary archive file, while an older completed
+archive remains available until a fresh replacement has completed.
 
 ### Step 5: Grant Access
 

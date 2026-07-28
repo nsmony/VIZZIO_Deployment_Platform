@@ -14,6 +14,10 @@ import {
 } from '../services/deploymentService.js';
 import { signDownloadToken } from '../downloadToken.js';
 import { findUploadedFile, listUploadedFiles, saveUploadedStream } from '../uploadStore.js';
+import {
+  getPackagePreparationJob,
+  startPackagePreparationJob,
+} from '../services/packagePreparationJobService.js';
 
 // HTTP handlers for deployments, versions, uploads, and download tokens.
 export async function listDeployments(req, res) {
@@ -161,6 +165,24 @@ export async function uploadPackage(req, res) {
   }
 }
 
+export function startPackagePreparationHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  try {
+    res.status(202).json({ job: startPackagePreparationJob(req.body) });
+  } catch (error) {
+    res.status(isPackageSourceError(error) ? 422 : 400).json({ error: error.message });
+  }
+}
+
+export function getPackagePreparationHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  const job = getPackagePreparationJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Package preparation job was not found or has expired.' });
+  res.json({ job });
+}
+
 export async function createDownloadToken(req, res) {
   const { fileId } = req.params;
   const userId = req.user?.userId;
@@ -197,7 +219,7 @@ function isDuplicateError(error) {
 }
 
 function isPackageSourceError(error) {
-  return /not found|must be inside|must point|must contain|requires 7z|could not be inspected|source path is required/i.test(error.message || '');
+  return /not found|must be inside|must point|must contain|cannot be the package root|requires 7z|could not be inspected|could not create|too large for built-in ZIP|source path is required|before preparing|before registering|did not produce/i.test(error.message || '');
 }
 
 function toPublicVersionError(error) {

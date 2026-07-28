@@ -93,6 +93,12 @@ export async function registerVersion(deploymentId, data, userId) {
   if (!packagePath) throw new Error('Package source path is required.');
   if (!RELEASE_TYPES.has(releaseType)) throw new Error('Release type must be stable or beta.');
   if (!VERSION_STATUSES.has(status)) throw new Error('Invalid version status.');
+  if (data.sourceType === 'stagingFolder') {
+    throw new Error('Prepare the server staging folder before registering the version.');
+  }
+  if (data.sourceType === 'serverArchive' && (!data.checksum || !data.batchScriptName)) {
+    throw new Error('Validate the server archive before registering the version.');
+  }
 
   const packageInfo = await inspectPackageSource({
     packagePath,
@@ -133,14 +139,33 @@ export async function registerVersion(deploymentId, data, userId) {
   }
 }
 
-export async function validatePackage(data) {
+export async function validatePackage(data, { onProgress } = {}) {
   const sourceType = String(data.sourceType || '');
-  const shouldPrepareArchive = sourceType === 'stagingFolder' && Boolean(data.versionNumber);
+  const versionNumber = String(data.versionNumber || '').trim();
+  if (sourceType === 'stagingFolder' && !versionNumber) {
+    throw new Error('Enter a version number before preparing the server folder.');
+  }
+  const shouldPrepareArchive = sourceType === 'stagingFolder';
   const packageInfo = await inspectPackageSource({
     ...data,
+    versionNumber,
     createArchive: shouldPrepareArchive,
-    skipChecksum: true,
+    // Preparation is the expensive package pass. Calculate the checksum here
+    // so registration can reuse it instead of reading a large archive again.
+    skipChecksum: false,
+    onProgress,
   });
+  if (sourceType === 'stagingFolder' && (
+    packageInfo.packageSource !== 'generatedArchive'
+    || !packageInfo.packagePath
+    || !packageInfo.fileName
+    || !packageInfo.batchScriptName
+    || !packageInfo.checksum
+    || !packageInfo.packageSize
+    || packageInfo.packageSize <= 0n
+  )) {
+    throw new Error('Package preparation did not produce a complete archive. Check the staging folder and try again.');
+  }
   return {
     packageSource: packageInfo.packageSource,
     packagePath: packageInfo.packagePath,
