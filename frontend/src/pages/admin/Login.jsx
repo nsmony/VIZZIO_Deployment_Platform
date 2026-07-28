@@ -2,6 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { login } from '../../api';
 import { clearStoredSession } from '../../hooks/useAuth';
+import vizzioLogo from '../../assets/vizziologo.png';
 import '../../styles/Login.css';
 
 function validateLoginFields(username, password) {
@@ -62,6 +63,7 @@ export default function Login() {
       <div className="login-container">
         <div className="login-box">
           <div className="login-header">
+            <img className="login-logo" src={vizzioLogo} alt="VIZZIO logo" />
             <h1>VIZZIO</h1>
             <p>Deployment Platform</p>
           </div>

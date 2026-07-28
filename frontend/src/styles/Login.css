@@ -3,7 +3,10 @@
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background:
+    radial-gradient(circle at 25% 30%, rgba(0, 102, 255, 0.58) 0%, transparent 34%),
+    radial-gradient(circle at 78% 75%, rgba(22, 71, 150, 0.32) 0%, transparent 38%),
+    linear-gradient(135deg, #071426 0%, #102a52 52%, #050b16 100%);
 }
 
 .login-container {
@@ -22,6 +25,16 @@
 .login-header {
   text-align: center;
   margin-bottom: 32px;
+}
+
+.login-logo {
+  width: 88px;
+  height: 88px;
+  display: block;
+  margin: 0 auto 16px;
+  border-radius: 20px;
+  object-fit: cover;
+  box-shadow: 0 8px 24px rgba(18, 78, 181, 0.2);
 }
 
 .login-header h1 {

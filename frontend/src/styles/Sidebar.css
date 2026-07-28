@@ -33,13 +33,9 @@
 .sidebar-logo {
   width: 42px;
   height: 42px;
-  display: grid;
-  place-items: center;
   border-radius: 12px;
-  background: #eaf2ff;
-  color: var(--primary);
-  font-size: 22px;
-  font-weight: 900;
+  object-fit: cover;
+  box-shadow: 0 4px 14px rgba(18, 78, 181, 0.18);
 }
 
 .sidebar-header h1 {

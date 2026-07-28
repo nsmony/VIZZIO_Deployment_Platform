@@ -1,4 +1,4 @@
-import { authenticateUser } from '../services/authService.js';
+import { authenticateUser, changeUserPassword } from '../services/authService.js';
 
 // Simple in-memory lockout to slow repeated failed logins.
 const FAILED_LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -30,6 +30,38 @@ export async function login(req, res) {
     res.json(result);
   } catch (error) {
     res.status(error.status || 500).json({ error: error.status ? error.message : 'Authentication failed' });
+  }
+}
+
+export async function changePassword(req, res) {
+  const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+  const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current password and new password are required.' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  }
+  if (newPassword.length > 128) {
+    return res.status(400).json({ error: 'New password must be 128 characters or fewer.' });
+  }
+  if (newPassword === currentPassword) {
+    return res.status(400).json({ error: 'New password must be different from the current password.' });
+  }
+
+  try {
+    const result = await changeUserPassword(req.user.userId, currentPassword, newPassword);
+    if (!result.changed) {
+      const error = result.reason === 'incorrect-password'
+        ? 'Current password is incorrect.'
+        : 'Administrator account could not be found.';
+      return res.status(400).json({ error });
+    }
+
+    return res.json({ message: 'Password changed successfully.' });
+  } catch {
+    return res.status(500).json({ error: 'Password could not be changed.' });
   }
 }
 

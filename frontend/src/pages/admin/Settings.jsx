@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import appPackage from '../../../package.json';
-import { fetchAdminSettings, fetchSystemReadiness, resetAdminSettings, saveAdminSettings } from '../../api/index.js';
+import { changeAdminPassword, fetchAdminSettings, fetchSystemReadiness, resetAdminSettings, saveAdminSettings } from '../../api/index.js';
 import { clearStoredSession, getValidToken } from '../../hooks/useAuth.js';
 import '../../styles/UtilityPages.css';
 
@@ -25,6 +25,14 @@ export default function Settings() {
   const [message, setMessage] = useState('');
   const [settings, setSettings] = useState(defaultSettings);
   const [loading, setLoading] = useState(true);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordError, setPasswordError] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const username = localStorage.getItem('vizzio_username') || 'Admin';
   const role = localStorage.getItem('vizzio_role') || 'Administrator';
@@ -108,6 +116,57 @@ export default function Settings() {
       setMessage('Admin settings saved successfully.');
     } catch (error) {
       setMessage(error.message || 'Unable to save admin settings.');
+    }
+  }
+
+  function closePasswordDialog() {
+    if (changingPassword) return;
+    setShowPasswordDialog(false);
+    setPasswordError('');
+    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  }
+
+  async function handleChangePassword(event) {
+    event.preventDefault();
+    const { currentPassword, newPassword, confirmPassword } = passwordForm;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError('Complete all password fields.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword.length > 128) {
+      setPasswordError('New password must be 128 characters or fewer.');
+      return;
+    }
+    if (newPassword === currentPassword) {
+      setPasswordError('New password must be different from the current password.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match.');
+      return;
+    }
+    if (!token) {
+      setPasswordError('Admin authentication is required.');
+      return;
+    }
+
+    setChangingPassword(true);
+    setPasswordError('');
+    try {
+      const response = await changeAdminPassword(token, currentPassword, newPassword);
+      closePasswordDialog();
+      setShowPasswordDialog(false);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setMessage(response.message || 'Password changed successfully.');
+    } catch (error) {
+      setPasswordError(error.message || 'Unable to change password.');
+    } finally {
+      setChangingPassword(false);
     }
   }
 
@@ -220,7 +279,14 @@ export default function Settings() {
             <SettingsRow title="Password" description="Password for this administrator account">
               <div className="settings-inline-actions">
                 <span className="settings-password-mask" aria-label="Password hidden">••••••••</span>
-                <button className="settings-secondary-button" type="button" onClick={() => setMessage('Password changes are not configured yet.')}>
+                <button
+                  className="settings-secondary-button"
+                  type="button"
+                  onClick={() => {
+                    setMessage('');
+                    setShowPasswordDialog(true);
+                  }}
+                >
                   Change Password
                 </button>
               </div>
@@ -274,6 +340,72 @@ export default function Settings() {
 
         {message && <div className="settings-message" role="status">{message}</div>}
       </section>
+
+      {showPasswordDialog && (
+        <div className="settings-modal-backdrop" role="presentation" onMouseDown={closePasswordDialog}>
+          <form
+            className="settings-password-dialog"
+            onSubmit={handleChangePassword}
+            onMouseDown={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="change-password-title"
+          >
+            <div className="settings-dialog-header">
+              <div>
+                <h3 id="change-password-title">Change Password</h3>
+                <p>Enter your current password, then choose a new password of at least 8 characters.</p>
+              </div>
+              <button type="button" onClick={closePasswordDialog} aria-label="Close change password dialog">×</button>
+            </div>
+
+            <label>
+              Current password
+              <input
+                type="password"
+                value={passwordForm.currentPassword}
+                onChange={(event) => setPasswordForm({ ...passwordForm, currentPassword: event.target.value })}
+                autoComplete="current-password"
+                maxLength={128}
+                autoFocus
+              />
+            </label>
+            <label>
+              New password
+              <input
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={(event) => setPasswordForm({ ...passwordForm, newPassword: event.target.value })}
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+              />
+            </label>
+            <label>
+              Confirm new password
+              <input
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={(event) => setPasswordForm({ ...passwordForm, confirmPassword: event.target.value })}
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+              />
+            </label>
+
+            {passwordError && <div className="settings-password-error" role="alert">{passwordError}</div>}
+
+            <div className="settings-dialog-actions">
+              <button className="settings-secondary-button" type="button" onClick={closePasswordDialog} disabled={changingPassword}>
+                Cancel
+              </button>
+              <button className="settings-primary-button" type="submit" disabled={changingPassword}>
+                {changingPassword ? 'Changing…' : 'Change Password'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </main>
   );
 }

@@ -66,6 +66,14 @@ export async function login(username, password) {
   return response.json();
 }
 
+export async function changeAdminPassword(token, currentPassword, newPassword) {
+  return request('/auth/change-password', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 export async function fetchDeployments(token) {
   return request('/deployments', token);
 }

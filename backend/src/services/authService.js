@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import { signToken } from '../auth.js';
-import { addUser, findUserByUsername, findUserByUsernameOrEmail, updateUser, updateUserLastLogin } from '../repositories/userRepository.js';
+import { addUser, findUserById, findUserByUsername, findUserByUsernameOrEmail, updateUser, updateUserLastLogin } from '../repositories/userRepository.js';
 
 // Demo users are useful for local development and can be disabled by env.
 const mockUsers = [
@@ -28,12 +28,12 @@ export async function authenticateUser(username, password) {
     ? mockUsers.find((item) => item.username.toLowerCase() === normalizedUsername.toLowerCase())
     : null;
   if (demoUser) {
-    const validDemoPassword = await bcrypt.compare(password, demoUser.passwordHash);
+    const persistedDemoUser = await ensureDemoUserRecord(demoUser);
+    const validDemoPassword = await bcrypt.compare(password, persistedDemoUser.passwordHash);
     if (!validDemoPassword) {
       return null;
     }
 
-    const persistedDemoUser = await ensureDemoUserRecord(demoUser);
     const demoRole = persistedDemoUser.role.toLowerCase();
     await updateUserLastLogin(persistedDemoUser.id);
     const demoToken = signToken({ userId: persistedDemoUser.id, username: persistedDemoUser.username, role: demoRole });
@@ -75,6 +75,22 @@ export async function authenticateUser(username, password) {
       role,
     },
   };
+}
+
+export async function changeUserPassword(userId, currentPassword, newPassword) {
+  const user = await findUserById(userId);
+  if (!user?.passwordHash) {
+    return { changed: false, reason: 'not-found' };
+  }
+
+  const currentPasswordMatches = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!currentPasswordMatches) {
+    return { changed: false, reason: 'incorrect-password' };
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await updateUser(user.id, { passwordHash });
+  return { changed: true };
 }
 
 async function ensureDemoUserRecord(demoUser) {

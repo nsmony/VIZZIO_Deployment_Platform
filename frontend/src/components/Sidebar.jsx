@@ -1,4 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
+import vizzioLogo from '../assets/vizziologo.png';
 import '../styles/Sidebar.css';
 
 function SidebarIcon({ type }) {
@@ -59,7 +60,7 @@ export default function Sidebar({ isOpen = true }) {
   return (
     <aside className={isOpen ? 'sidebar' : 'sidebar collapsed'}>
       <div className="sidebar-header">
-        <div className="sidebar-logo">V</div>
+        <img className="sidebar-logo" src={vizzioLogo} alt="VIZZIO logo" />
         <h1>VIZZIO</h1>
       </div>
       <nav className="sidebar-nav">
