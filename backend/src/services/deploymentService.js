@@ -139,7 +139,7 @@ export async function registerVersion(deploymentId, data, userId) {
   }
 }
 
-export async function validatePackage(data, { onProgress } = {}) {
+export async function validatePackage(data, { onProgress, signal } = {}) {
   const sourceType = String(data.sourceType || '');
   const versionNumber = String(data.versionNumber || '').trim();
   if (sourceType === 'stagingFolder' && !versionNumber) {
@@ -154,6 +154,7 @@ export async function validatePackage(data, { onProgress } = {}) {
     // so registration can reuse it instead of reading a large archive again.
     skipChecksum: false,
     onProgress,
+    signal,
   });
   if (sourceType === 'stagingFolder' && (
     packageInfo.packageSource !== 'generatedArchive'

@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  cancelPackagePreparation,
   deleteDeploymentVersion,
   fetchDeploymentDetails,
   fetchDeployments,
@@ -181,6 +182,7 @@ export default function Version() {
   const validatingPackageRef = useRef(initialDraft?.phase === 'preparing');
   const savingRef = useRef(initialDraft?.phase === 'registering');
   const registrationSessionRef = useRef(0);
+  const uploadAbortControllerRef = useRef(null);
   const mountedRef = useRef(true);
 
   // Store deployments and the currently selected deployment.
@@ -224,9 +226,26 @@ export default function Version() {
     if (close) setShowForm(false);
   }
 
+  async function cancelRegistration() {
+    const token = localStorage.getItem('vizzio_token');
+    const jobId = preparationJobId;
+    uploadAbortControllerRef.current?.abort();
+    uploadAbortControllerRef.current = null;
+
+    if (token && jobId) {
+      try {
+        await cancelPackagePreparation(token, jobId);
+      } catch (cancelError) {
+        setError(cancelError.message);
+        return;
+      }
+    }
+    resetRegistrationForm();
+  }
+
   function toggleRegistrationForm() {
     if (showForm) {
-      resetRegistrationForm();
+      void cancelRegistration();
       return;
     }
 
@@ -539,6 +558,8 @@ export default function Version() {
     const uploadFile = selectedFile;
     const registrationSession = registrationSessionRef.current;
     const startedAt = Date.now();
+    const uploadAbortController = new AbortController();
+    uploadAbortControllerRef.current = uploadAbortController;
     validatingPackageRef.current = true;
     setValidatingPackage(true);
     setPackageValidated(false);
@@ -607,7 +628,8 @@ export default function Version() {
             jobId: '',
             progress,
           }, true);
-        }
+        },
+        uploadAbortController.signal
       );
       if (registrationSession !== registrationSessionRef.current) return;
 
@@ -668,6 +690,9 @@ export default function Version() {
         progress: null,
       }, true);
     } finally {
+      if (uploadAbortControllerRef.current === uploadAbortController) {
+        uploadAbortControllerRef.current = null;
+      }
       if (registrationSession === registrationSessionRef.current) {
         validatingPackageRef.current = false;
         setValidatingPackage(false);
@@ -698,6 +723,10 @@ export default function Version() {
       }
       if (job.status === 'failed') {
         throw new Error(job.error || 'Package preparation failed.');
+      }
+      if (job.status === 'cancelled') {
+        resetRegistrationForm();
+        return;
       }
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -821,7 +850,7 @@ export default function Version() {
         <div>
           <p>Register release folders, choose a channel, and control publication status.</p>
         </div>
-        <button className="primary-btn" type="button" disabled={!deployment || saving || validatingPackage} onClick={toggleRegistrationForm}>
+        <button className="primary-btn" type="button" disabled={!deployment || saving} onClick={toggleRegistrationForm}>
           {showForm ? 'Cancel' : '+ Register Version'}
         </button>
       </header>

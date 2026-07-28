@@ -152,6 +152,12 @@ export async function fetchPackagePreparation(token, jobId) {
   return request(`/deployment-versions/package-jobs/${encodeURIComponent(jobId)}`, token);
 }
 
+export async function cancelPackagePreparation(token, jobId) {
+  return request(`/deployment-versions/package-jobs/${encodeURIComponent(jobId)}`, token, {
+    method: 'DELETE',
+  });
+}
+
 export async function deleteDeploymentVersion(token, versionId) {
   return request(`/deployment-versions/${encodeURIComponent(versionId)}`, token, {
     method: 'DELETE',
@@ -184,7 +190,7 @@ export async function resetAdminSettings(token) {
   });
 }
 
-export function uploadPackage(token, file, title, onProgress) {
+export function uploadPackage(token, file, title, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('POST', `${API_BASE}/deployments/uploads`);
@@ -215,6 +221,11 @@ export function uploadPackage(token, file, title, onProgress) {
     });
     request.addEventListener('error', () => reject(new Error('Upload failed because the backend connection was interrupted.')));
     request.addEventListener('abort', () => reject(new Error('Upload was cancelled.')));
+    if (signal?.aborted) {
+      request.abort();
+      return;
+    }
+    signal?.addEventListener('abort', () => request.abort(), { once: true });
     request.send(file);
   });
 }

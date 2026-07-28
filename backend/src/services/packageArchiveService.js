@@ -21,7 +21,8 @@ export function getPackageRoot() {
 }
 
 // Inspect a staged folder, server archive, or uploaded package.
-export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, skipChecksum = false, onProgress }) {
+export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, skipChecksum = false, onProgress, signal }) {
+  throwIfCancelled(signal);
   const rawPackagePath = String(packagePath || '').trim();
   if (!rawPackagePath) throw new Error('Package source path is required.');
   const normalizedSourceType = String(sourceType || '').trim();
@@ -55,7 +56,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       percent: null,
       detail: 'Scanning package files and checking the launch script.',
     });
-    const batchScriptName = await findLaunchBatchScript(resolvedPath);
+    const batchScriptName = await findLaunchBatchScript(resolvedPath, signal);
     if (!batchScriptName) throw new Error('Server staging folder must contain a launch batch script.');
 
     if (!createArchive) {
@@ -77,6 +78,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       versionNumber,
       deploymentId,
       onProgress,
+      signal,
     });
     const archiveStat = await fs.promises.stat(archivePath);
     return {
@@ -85,7 +87,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       fileName: path.basename(archivePath),
       fileType: inferFileType(archivePath),
       packageSize: BigInt(archiveStat.size),
-      checksum: skipChecksum ? null : knownChecksum || await sha256File(archivePath, onProgress),
+      checksum: skipChecksum ? null : knownChecksum || await sha256File(archivePath, onProgress, signal),
       batchScriptName,
     };
   }
@@ -110,7 +112,7 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
     fileName: path.basename(resolvedPath),
     fileType: inferFileType(resolvedPath),
     packageSize: BigInt(stat.size),
-    checksum: skipChecksum ? null : knownChecksum || await sha256File(resolvedPath, onProgress),
+    checksum: skipChecksum ? null : knownChecksum || await sha256File(resolvedPath, onProgress, signal),
     batchScriptName: knownBatchScriptName || batchScriptName,
   };
 }
@@ -129,7 +131,8 @@ export function inferFileType(filePath) {
   return types[extension] || 'application/octet-stream';
 }
 
-export async function sha256File(filePath, onProgress) {
+export async function sha256File(filePath, onProgress, signal) {
+  throwIfCancelled(signal);
   const hash = crypto.createHash('sha256');
   const totalBytes = (await fs.promises.stat(filePath)).size;
   let processedBytes = 0;
@@ -142,7 +145,10 @@ export async function sha256File(filePath, onProgress) {
     totalBytes,
   });
   await new Promise((resolve, reject) => {
-    fs.createReadStream(filePath)
+    const stream = fs.createReadStream(filePath);
+    const abort = () => stream.destroy(createCancellationError());
+    signal?.addEventListener('abort', abort, { once: true });
+    stream
       .on('data', (chunk) => {
         hash.update(chunk);
         processedBytes += chunk.length;
@@ -159,7 +165,8 @@ export async function sha256File(filePath, onProgress) {
         }
       })
       .on('error', reject)
-      .on('end', resolve);
+      .on('end', resolve)
+      .on('close', () => signal?.removeEventListener('abort', abort));
   });
   return hash.digest('hex');
 }
@@ -188,13 +195,15 @@ function resolveInsidePackageRoot(rawPath, packageRoot) {
   return resolvedPath;
 }
 
-async function findLaunchBatchScript(folderPath) {
+async function findLaunchBatchScript(folderPath, signal) {
+  throwIfCancelled(signal);
   const entries = await fs.promises.readdir(folderPath, { withFileTypes: true });
   const batch = entries.find((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.bat'));
   return batch?.name || null;
 }
 
-async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName, versionNumber, deploymentId, onProgress }) {
+async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName, versionNumber, deploymentId, onProgress, signal }) {
+  throwIfCancelled(signal);
   const outputDir = path.join(packageRoot, '_generated', sanitizePathPart(deploymentName || deploymentId || 'deployment'));
   const outputRelativeToSource = path.relative(folderPath, outputDir);
   const outputIsInsideSource = outputRelativeToSource === ''
@@ -208,7 +217,7 @@ async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName
   const activeJob = archiveCreationJobs.get(jobKey);
   if (activeJob) return activeJob;
 
-  const job = createArchiveFromFolderOnce({ folderPath, outputBase, onProgress });
+  const job = createArchiveFromFolderOnce({ folderPath, outputBase, onProgress, signal });
   archiveCreationJobs.set(jobKey, job);
   try {
     return await job;
@@ -219,12 +228,12 @@ async function createArchiveFromFolder({ folderPath, packageRoot, deploymentName
   }
 }
 
-async function createArchiveFromFolderOnce({ folderPath, outputBase, onProgress }) {
+async function createArchiveFromFolderOnce({ folderPath, outputBase, onProgress, signal }) {
   const sevenZipOutputPath = `${outputBase}.7z`;
   const sevenZipTempPath = `${sevenZipOutputPath}.${process.pid}.${Date.now()}.tmp`;
 
   try {
-    if (await trySevenZipArchive(folderPath, sevenZipTempPath, onProgress)) {
+    if (await trySevenZipArchive(folderPath, sevenZipTempPath, onProgress, signal)) {
       // Keep an older completed package until its replacement is ready, then
       // replace it atomically from the caller's perspective.
       await fs.promises.rm(sevenZipOutputPath, { force: true });
@@ -240,9 +249,9 @@ async function createArchiveFromFolderOnce({ folderPath, outputBase, onProgress 
   const zipOutputPath = `${outputBase}.zip`;
   const zipTempPath = `${zipOutputPath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    if (!await trySystemZip(folderPath, zipTempPath)) {
+    if (!await trySystemZip(folderPath, zipTempPath, signal)) {
       await fs.promises.rm(zipTempPath, { force: true });
-      await writeStoredZip(folderPath, zipTempPath, onProgress);
+      await writeStoredZip(folderPath, zipTempPath, onProgress, signal);
     }
     await fs.promises.rm(zipOutputPath, { force: true });
     await fs.promises.rename(zipTempPath, zipOutputPath);
@@ -382,28 +391,40 @@ function parse7ZipInstallSize(output) {
   return totalSize > 0 ? totalSize : null;
 }
 
-async function trySystemZip(folderPath, outputPath) {
+async function trySystemZip(folderPath, outputPath, signal) {
   return new Promise((resolve, reject) => {
+    throwIfCancelled(signal);
     const child = spawn('zip', ['-r', '-q', outputPath, '.'], { cwd: folderPath, stdio: 'ignore' });
+    const abort = () => child.kill();
+    signal?.addEventListener('abort', abort, { once: true });
     child.on('error', (error) => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) reject(createCancellationError());
+      else
       if (error.code === 'ENOENT') resolve(false);
       else reject(error);
     });
-    child.on('exit', (code) => resolve(code === 0));
+    child.on('exit', (code) => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) reject(createCancellationError());
+      else resolve(code === 0);
+    });
   });
 }
 
-async function trySevenZipArchive(folderPath, outputPath, onProgress) {
+async function trySevenZipArchive(folderPath, outputPath, onProgress, signal) {
   for (const executable of SEVEN_ZIP_EXECUTABLES) {
-    const created = await runSevenZipArchive(executable, folderPath, outputPath, onProgress);
+    throwIfCancelled(signal);
+    const created = await runSevenZipArchive(executable, folderPath, outputPath, onProgress, signal);
     if (created) return true;
   }
 
   return false;
 }
 
-function runSevenZipArchive(executable, folderPath, outputPath, onProgress) {
+function runSevenZipArchive(executable, folderPath, outputPath, onProgress, signal) {
   return new Promise((resolve, reject) => {
+    throwIfCancelled(signal);
     onProgress?.({
       phase: 'creatingArchive',
       percent: 0,
@@ -415,6 +436,8 @@ function runSevenZipArchive(executable, folderPath, outputPath, onProgress) {
     });
     let errorOutput = '';
     let lastPercent = -1;
+    const abort = () => child.kill();
+    signal?.addEventListener('abort', abort, { once: true });
 
     child.stdout.on('data', (chunk) => {
       const output = chunk.toString();
@@ -435,6 +458,11 @@ function runSevenZipArchive(executable, folderPath, outputPath, onProgress) {
     });
 
     child.on('error', (error) => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) {
+        reject(createCancellationError());
+        return;
+      }
       if (error.code === 'ENOENT') {
         resolve(false);
         return;
@@ -444,6 +472,11 @@ function runSevenZipArchive(executable, folderPath, outputPath, onProgress) {
     });
 
     child.on('exit', (code) => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) {
+        reject(createCancellationError());
+        return;
+      }
       if (code === 0) {
         resolve(true);
         return;
@@ -454,13 +487,14 @@ function runSevenZipArchive(executable, folderPath, outputPath, onProgress) {
   });
 }
 
-async function writeStoredZip(folderPath, outputPath, onProgress) {
+async function writeStoredZip(folderPath, outputPath, onProgress, signal) {
+  throwIfCancelled(signal);
   onProgress?.({
     phase: 'creatingArchive',
     percent: 0,
     detail: 'Scanning files for built-in ZIP packaging.',
   });
-  const files = await listFiles(folderPath);
+  const files = await listFiles(folderPath, signal);
   assertBuiltInZipCapacity(files);
   const centralDirectory = [];
   let offset = 0;
@@ -471,6 +505,7 @@ async function writeStoredZip(folderPath, outputPath, onProgress) {
     fs.createWriteStream(outputPath),
     async (output) => {
       for (const file of files) {
+        throwIfCancelled(signal);
         const nameBuffer = Buffer.from(file.zipPath, 'utf8');
         const data = await fs.promises.readFile(file.absolutePath);
         const crc = crc32(data);
@@ -501,12 +536,14 @@ async function writeStoredZip(folderPath, outputPath, onProgress) {
   );
 }
 
-async function listFiles(rootPath) {
+async function listFiles(rootPath, signal) {
   const files = [];
 
   async function walk(directory) {
+    throwIfCancelled(signal);
     const entries = await fs.promises.readdir(directory, { withFileTypes: true });
     for (const entry of entries) {
+      throwIfCancelled(signal);
       const absolutePath = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         await walk(absolutePath);
@@ -632,4 +669,14 @@ function sanitizePathPart(value) {
     .replace(/[^a-z0-9._-]+/gi, '-')
     .replace(/^-+|-+$/g, '')
     || 'package';
+}
+
+function createCancellationError() {
+  const error = new Error('Package preparation was cancelled.');
+  error.name = 'AbortError';
+  return error;
+}
+
+function throwIfCancelled(signal) {
+  if (signal?.aborted) throw createCancellationError();
 }

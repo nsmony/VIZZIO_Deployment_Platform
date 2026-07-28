@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  cancelPackagePreparationHandler,
   deleteVersionHandler,
   getPackagePreparationHandler,
   startPackagePreparationHandler,
@@ -12,6 +13,7 @@ const router = express.Router();
 router.post('/validate-package', validatePackageHandler);
 router.post('/package-jobs', startPackagePreparationHandler);
 router.get('/package-jobs/:jobId', getPackagePreparationHandler);
+router.delete('/package-jobs/:jobId', cancelPackagePreparationHandler);
 router.delete('/:versionId', deleteVersionHandler);
 
 export default router;

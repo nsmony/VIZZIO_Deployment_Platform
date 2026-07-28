@@ -15,6 +15,7 @@ import {
 import { signDownloadToken } from '../downloadToken.js';
 import { findUploadedFile, listUploadedFiles, saveUploadedStream } from '../uploadStore.js';
 import {
+  cancelPackagePreparationJob,
   getPackagePreparationJob,
   startPackagePreparationJob,
 } from '../services/packagePreparationJobService.js';
@@ -179,6 +180,14 @@ export function getPackagePreparationHandler(req, res) {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
 
   const job = getPackagePreparationJob(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'Package preparation job was not found or has expired.' });
+  res.json({ job });
+}
+
+export function cancelPackagePreparationHandler(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+
+  const job = cancelPackagePreparationJob(req.params.jobId);
   if (!job) return res.status(404).json({ error: 'Package preparation job was not found or has expired.' });
   res.json({ job });
 }

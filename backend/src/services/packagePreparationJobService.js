@@ -80,11 +80,13 @@ export function startPackagePreparationJob(data) {
     startedAt: now,
     phaseStartedAt: now,
     updatedAt: now,
+    abortController: new AbortController(),
   };
   jobs.set(job.id, job);
   activeJobs.set(key, job.id);
 
   queueMicrotask(async () => {
+    if (job.abortController.signal.aborted) return;
     job.status = 'running';
     updateProgress(job, {
       phase: 'scanning',
@@ -94,7 +96,9 @@ export function startPackagePreparationJob(data) {
     try {
       job.package = await validatePackage(data, {
         onProgress: (progress) => updateProgress(job, progress),
+        signal: job.abortController.signal,
       });
+      if (job.abortController.signal.aborted) return;
       job.status = 'completed';
       updateProgress(job, {
         phase: 'completed',
@@ -103,6 +107,7 @@ export function startPackagePreparationJob(data) {
         processedBytes: job.totalBytes,
       });
     } catch (error) {
+      if (job.abortController.signal.aborted) return;
       job.status = 'failed';
       job.error = error.message || 'Package preparation failed.';
       updateProgress(job, {
@@ -122,4 +127,24 @@ export function startPackagePreparationJob(data) {
 export function getPackagePreparationJob(jobId) {
   const job = jobs.get(jobId);
   return job ? toPublicJob(job) : null;
+}
+
+export function cancelPackagePreparationJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return null;
+  if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+    return toPublicJob(job);
+  }
+
+  job.status = 'cancelled';
+  job.error = '';
+  updateProgress(job, {
+    phase: 'cancelled',
+    percent: null,
+    detail: 'Package preparation was cancelled.',
+  });
+  job.abortController.abort();
+  if (activeJobs.get(job.key) === job.id) activeJobs.delete(job.key);
+  setTimeout(() => jobs.delete(job.id), JOB_RETENTION_MS).unref?.();
+  return toPublicJob(job);
 }

@@ -11,6 +11,7 @@ import { getPackageInstallSize, inspectPackageSource } from '../src/services/pac
 import { findTopLevelBatchScriptInArchive } from '../src/archiveValidation.js';
 import { validatePackage } from '../src/services/deploymentService.js';
 import {
+  cancelPackagePreparationJob,
   getPackagePreparationJob,
   startPackagePreparationJob,
 } from '../src/services/packagePreparationJobService.js';
@@ -277,6 +278,35 @@ test('background preparation jobs report progress and coalesce duplicates', asyn
     assert.equal(job.phasePercent, 100);
     assert.match(job.package.checksum, /^[a-f0-9]{64}$/);
     assert.ok(job.elapsedSeconds >= 0);
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
+    else process.env.PACKAGE_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('package preparation jobs can be cancelled before completion', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
+  const previousRoot = process.env.PACKAGE_ROOT;
+  process.env.PACKAGE_ROOT = tempRoot;
+
+  try {
+    const stagingFolder = path.join(tempRoot, 'cancelled-build');
+    await fs.mkdir(stagingFolder, { recursive: true });
+    await fs.writeFile(path.join(stagingFolder, 'launch.bat'), 'echo launch');
+    const job = startPackagePreparationJob({
+      packagePath: stagingFolder,
+      sourceType: 'stagingFolder',
+      versionNumber: 'v1.0.0',
+      deploymentName: 'Cancelled Build',
+      deploymentId: 'deployment-cancelled',
+    });
+
+    const cancelled = cancelPackagePreparationJob(job.id);
+    assert.equal(cancelled.status, 'cancelled');
+    assert.equal(cancelled.phase, 'cancelled');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(getPackagePreparationJob(job.id).status, 'cancelled');
   } finally {
     if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;
     else process.env.PACKAGE_ROOT = previousRoot;
