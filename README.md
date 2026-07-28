@@ -408,30 +408,47 @@ dotnet build launcher\Launcher.csproj -p:Configuration=Debug
 
 ## 14. Installer and Distribution
 
-Build installer:
+Install the .NET 8 SDK, Inno Setup 6, and 7-Zip on the build computer. The
+default Inno Setup compiler location is:
 
-```powershell
-.\scripts\build_launcher_installer.ps1 -Version "0.1.0"
+```text
+C:\Program Files (x86)\Inno Setup 6\ISCC.exe
 ```
 
-The installer bundles `7z.exe` or `7za.exe` beside `Launcher.exe` so all user
-PCs can extract `.7z` deployment packages without installing 7-Zip manually. The
-build script auto-detects 7-Zip from `launcher\tools`, the standard Windows
-install path, or `PATH`; if no extractor is available, installer creation fails.
+Before distribution, confirm that the default API endpoint in
+`launcher\DownloadManagerApiClient.cs` points to a backend reachable from user
+computers. The production endpoint is:
 
-With explicit Inno path:
-
-```powershell
-.\scripts\build_launcher_installer.ps1 -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```text
+https://vzdeployment.hardyhutajaya.com/api
 ```
 
-With custom client logo:
+Do not use `localhost` for a launcher distributed to another computer.
+
+From the project root, build the installer with:
 
 ```powershell
-.\scripts\build_launcher_installer.ps1 -Version "0.1.0" -ClientLogoPath "C:\Clients\Acme\logo.png"
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\scripts\build_launcher_installer.ps1" `
+  -Version "0.1.0" `
+  -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 
-Artifacts are generated under installer output folders.
+The bypass applies only to the new PowerShell process and does not permanently
+change the system execution policy. With a custom client logo, add:
+
+```powershell
+-ClientLogoPath "C:\Clients\Acme\logo.png"
+```
+
+The completed installer is:
+
+```text
+installer\artifacts\VIZZIO-Launcher-Setup-0.1.0.exe
+```
+
+It includes the .NET runtime and `7z.exe` or `7za.exe`; end users do not need to
+install .NET, 7-Zip, or Inno Setup.
 
 ## 15. Operational Runbook
 

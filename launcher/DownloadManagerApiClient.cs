@@ -18,7 +18,7 @@ namespace Launcher
         private readonly HttpClient _httpClient = new();
         private string _token = "";
 
-        public string ApiBaseUrl { get; set; } = Environment.GetEnvironmentVariable("VIZZIO_API_BASE") ?? "http://localhost:4000/api";
+        public string ApiBaseUrl { get; set; } = Environment.GetEnvironmentVariable("VIZZIO_API_BASE") ?? "https://vzdeployment.hardyhutajaya.com/api";
         public string Token => _token;
 
         public void SetToken(string token)

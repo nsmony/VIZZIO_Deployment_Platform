@@ -71,7 +71,10 @@ $sevenZipFileName = Split-Path $resolvedSevenZip -Leaf
 if ($sevenZipFileName -notin @("7z.exe", "7za.exe")) {
     $sevenZipFileName = "7z.exe"
 }
-Copy-Item -LiteralPath $resolvedSevenZip -Destination (Join-Path $toolsDir $sevenZipFileName) -Force
+$bundledSevenZipPath = Join-Path $toolsDir $sevenZipFileName
+if ([System.IO.Path]::GetFullPath($resolvedSevenZip) -ne [System.IO.Path]::GetFullPath($bundledSevenZipPath)) {
+    Copy-Item -LiteralPath $resolvedSevenZip -Destination $bundledSevenZipPath -Force
+}
 
 dotnet publish $launcherProject `
     --configuration $Configuration `
@@ -83,6 +86,8 @@ dotnet publish $launcherProject `
     /p:FileVersion=$Version `
     /p:PublishSingleFile=false `
     /p:PublishReadyToRun=true
+
+Copy-Item -LiteralPath $resolvedSevenZip -Destination (Join-Path $publishDir $sevenZipFileName) -Force
 
 $publishedSevenZip = Get-ChildItem -Path $publishDir -Filter "7z*.exe" -File -ErrorAction SilentlyContinue
 if (-not $publishedSevenZip) {

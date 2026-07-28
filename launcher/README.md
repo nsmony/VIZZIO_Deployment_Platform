@@ -74,13 +74,33 @@ Client logos may be PNG, JPG, JPEG, or ICO and must be 5 MB or smaller. If the c
 
 ## Installer
 
-Install Inno Setup, then run:
+Install the .NET 8 SDK, Inno Setup 6, and 7-Zip on the build computer. Confirm
+that Inno Setup's compiler exists at:
 
-```powershell
-.\scripts\build_launcher_installer.ps1 -Version 0.1.0
+```text
+C:\Program Files (x86)\Inno Setup 6\ISCC.exe
 ```
 
-The installer is written to `installer\artifacts`.
+The default production API endpoint is configured in
+`DownloadManagerApiClient.cs` as:
+
+```text
+https://vzdeployment.hardyhutajaya.com/api
+```
+
+Do not use `localhost` when building for other computers. From the project root,
+run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\scripts\build_launcher_installer.ps1" `
+  -Version "0.1.0" `
+  -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```
+
+The execution-policy bypass applies only to that PowerShell process. The
+installer is written to
+`installer\artifacts\VIZZIO-Launcher-Setup-0.1.0.exe`.
 The `-Version` value is stamped into both the installer metadata and the
 launcher assembly version used by the self-update check.
 
@@ -104,6 +124,8 @@ To provide the extractor explicitly:
 ```
 
 User settings are stored under `%LOCALAPPDATA%\VIZZIO\Launcher`, and the JWT is stored in Windows Credential Manager, so installer upgrades replace app binaries while preserving user configuration.
+The installer contains the .NET runtime and extractor, so end users do not need
+the .NET SDK, 7-Zip, or Inno Setup.
 
 ## Download Resilience
 
