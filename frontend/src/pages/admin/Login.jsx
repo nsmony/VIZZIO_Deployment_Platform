@@ -37,10 +37,8 @@ export default function Login() {
     // Send the credentials to the backend and show a loading state.
     setLoading(true);
     setError(null);
-    const result = await login(username, password);
-    setLoading(false);
-
-    if (result.token) {
+    try {
+      const result = await login(username.trim(), password);
       // Only admins should be able to enter the admin panel.
       if (result.user?.role && result.user.role.toLowerCase() !== 'admin') {
         clearStoredSession();
@@ -53,8 +51,10 @@ export default function Login() {
       localStorage.setItem('vizzio_username', result.user?.username || username);
       localStorage.setItem('vizzio_role', result.user?.role || 'admin');
       navigate('/dashboard');
-    } else {
-      setError(result.error || 'Login failed');
+    } catch (loginError) {
+      setError(loginError.message || 'Login failed.');
+    } finally {
+      setLoading(false);
     }
   };
 

@@ -1,0 +1,97 @@
+---
+title: 16 Troubleshooting
+description: Practical diagnosis and recovery steps for common VIZZIO platform failures.
+---
+
+Start with the browser or launcher error, then check the reverse proxy, backend
+process, environment configuration, database, and logs in that order. Avoid
+changing several settings at once; record each observation and retest.
+
+## Common HTTP errors
+
+| Status | Typical cause | Recommended action |
+| --- | --- | --- |
+| 401 | Missing, expired, or invalid credentials | Sign in again, verify the token flow, and check authentication logs |
+| 404 | Incorrect API path or proxy rule | Compare the requested route with backend routes and proxy configuration |
+| 500 | Backend exception or database failure | Inspect backend logs and confirm database connectivity and migrations |
+| 502 | Reverse proxy cannot reach the backend | Confirm the backend process, port, host binding, and proxy upstream |
+
+## Frontend loads but login fails
+
+Confirm that the production API base URL is correct and reachable from the
+browser. Inspect the failing network request, its status, and the backend
+authentication logs. For a `401`, verify credentials and token handling; for a
+CORS or mixed-content failure, correct the deployment configuration rather than
+disabling browser security.
+
+## Backend is not running
+
+Check the process manager or service status, then inspect startup logs. Confirm
+the expected Node.js version, installed production dependencies, environment
+variables, database access, and listening port. Restart through the configured
+process manager so the service remains alive after the terminal closes.
+
+## API returns 404
+
+Verify the URL prefix, HTTP method, and route spelling. Ensure the reverse proxy
+preserves or removes `/api` exactly as the backend expects. A frontend build
+using an obsolete API base URL must be rebuilt with the correct production value.
+
+## Authentication returns 401
+
+Sign in again to replace an expired token. Check that the client sends the
+expected authorization header, the server uses the correct signing secret, and
+the user remains enabled and authorized for the requested resource.
+
+## Backend or database returns 500
+
+Use the request timestamp and route to find the backend exception. Validate the
+database connection string, database availability, migrations, and permissions.
+Do not expose detailed stack traces or secrets to the browser.
+
+## Reverse proxy returns 502
+
+Confirm the backend is listening on the upstream host and port configured in the
+proxy. Check local firewall rules, service health, and proxy logs, then reload
+the proxy only after its configuration passes validation.
+
+## CORS errors
+
+Allow the exact production frontend origin in backend CORS settings, including
+the correct scheme and port. Do not use a wildcard origin with credentials.
+
+## HTTPS mixed-content errors
+
+Serve both frontend and API through HTTPS and configure the frontend with an
+HTTPS API URL. Confirm proxy forwarding headers if the backend generates URLs.
+
+## Incorrect production API URL
+
+Check the environment value used at frontend build time and inspect the compiled
+application's requests. Update the environment and rebuild; runtime shell values
+usually cannot change a URL already embedded in a static frontend bundle.
+
+## Database connection failures
+
+Verify hostname, port, database name, credentials, TLS requirements, and network
+reachability from the backend host. Confirm the database service is running and
+that the configured account has the required permissions.
+
+## Launcher update failures
+
+Check launcher logs and reports, update metadata, download authorization,
+artifact availability, file integrity, free disk space, and write permissions.
+Make sure antivirus or a running application has not locked files that must be
+replaced. See [Launcher Self-Update](/docs/launcher/launcher-self-update).
+
+## Missing environment variables
+
+Compare the deployment environment with the documented examples without copying
+placeholder secrets. Supply every required value through the approved service or
+process-manager configuration, then restart the affected process.
+
+## Process stops when the terminal closes
+
+Run production services under the project's configured process manager or
+operating-system service. Enable automatic startup and log persistence, then
+test a logout or host restart before declaring the deployment ready.

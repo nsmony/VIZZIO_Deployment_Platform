@@ -1,0 +1,61 @@
+﻿---
+title: "10 Implementation Verification"
+description: "Executable verification results and implementation coverage for the VIZZIO platform."
+---
+
+This document records the current launcher download-manager implementation status versus requirements, based on code review plus executable checks.
+
+Revalidated on 2026-07-27. The current backend suites contain 17 passing tests,
+including Admin authorization middleware coverage; the launcher suite contains
+14 passing tests.
+
+## Verification Run
+
+- Launcher build: `dotnet build .\launcher\Launcher.csproj -p:Configuration=Debug` (pass)
+- Backend authorization and package/download-manager tests:
+  `node --test backend\test\authMiddleware.test.js backend\test\downloadManagerService.test.js`
+  (17/17 pass)
+- Launcher policy tests:
+  `dotnet test launcher\Launcher.Tests\Launcher.Tests.csproj -p:Configuration=Debug`
+  (14/14 pass)
+- Backend Prisma schema validation from `backend`:
+  `npx.cmd prisma validate` (pass)
+- Frontend admin panel build from `frontend`: `npm.cmd run build` (pass)
+
+## Requirement Coverage Snapshot
+
+### Confirmed Implemented (launcher + download-manager scope)
+
+- Requirement 6.3: launcher blocks entry when credential-store save fails.
+- Requirement 6.6: expired stored JWT is cleared on startup.
+- Requirement 6.7: invalid token without `exp` is not pre-cleared; token is attempted and handled on API call.
+- Requirement 6.8: sign-out clears token from Windows Credential Manager.
+- Requirement 6.10: HTTP 429 login response disables sign-in flow for `Retry-After` duration (default 60s).
+- Requirement 7.5: launcher polling timer runs every 5 minutes.
+- Requirement 7.6: manual refresh is available.
+- Requirement 8.1: launcher creates a download session/token before transfer.
+- Requirement 8.4 and 8.5: download stream count is clamped between 4 and 16.
+- Requirement 8.6 and 8.7: resume uses persisted `.part` chunk files and saved state.
+- Requirement 8.8 and 8.9: Pause/Resume/Cancel controls exist; cancel deletes partial artifacts.
+- Requirement 8.10: after bytes reach 100%, the launcher enters an explicit
+  verifying/extracting phase instead of continuing to show the stale download
+  state.
+- Requirement 8.11 and 8.12: free-space check runs before transfer and reports required vs available space.
+- Requirement 8.14: low free space mid-download pauses transfer and reports shortfall.
+- Requirement 9.2 and 9.3: SHA-256 verification is enforced after download; failed checksum retries up to 3 times.
+- Requirement 9.4: ZIP extraction uses built-in .NET extraction; 7z extraction
+  uses `7z.exe` or `7za.exe` beside the launcher or on `PATH`.
+- Requirement 9.7: launcher blocks installation when checksum metadata is missing.
+
+### Implemented And Aligned Requirements
+
+- Requirement 15.3: current implementation uses 1-hour download-manager tokens and refreshes at 55 minutes or when token expiry is within 60 seconds.
+
+## Notes
+
+- This verification covers launcher authentication/download-manager behavior and its paired backend token/session logic.
+- Version records use `draft`, `released`, `archived`, and `deleted` states.
+  Download sessions separately use runtime states such as `paused`, `canceled`,
+  `failed`, and `completed`.
+- It is not a full-system audit of every requirement in `requirements.md`.
+

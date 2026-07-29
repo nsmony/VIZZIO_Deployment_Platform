@@ -29,7 +29,10 @@ export async function authenticateUser(username, password) {
     : null;
   if (demoUser) {
     const persistedDemoUser = await ensureDemoUserRecord(demoUser);
-    const validDemoPassword = await bcrypt.compare(password, persistedDemoUser.passwordHash);
+    // Demo credentials must remain deterministic. The persisted record may have
+    // been edited through the admin UI, but it is only an identity/relationship
+    // record while ENABLE_DEMO_USERS is active.
+    const validDemoPassword = await bcrypt.compare(password, demoUser.passwordHash);
     if (!validDemoPassword) {
       return null;
     }

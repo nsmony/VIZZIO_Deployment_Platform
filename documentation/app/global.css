@@ -1,0 +1,235 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+:root {
+  --vizzio-accent: #2563eb;
+  --vizzio-accent-strong: #1d4ed8;
+}
+
+.dark {
+  --vizzio-accent: #60a5fa;
+  --vizzio-accent-strong: #93c5fd;
+}
+
+.vizzio-nav-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.vizzio-mark {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 0.55rem;
+  color: white;
+  background: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.docs-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 2.4rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--vizzio-accent) 35%, transparent);
+  border-radius: 0.65rem;
+  color: var(--vizzio-accent-strong);
+  background: color-mix(in srgb, var(--vizzio-accent) 8%, transparent);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.docs-download:hover {
+  background: color-mix(in srgb, var(--vizzio-accent) 15%, transparent);
+}
+
+.docs-download:focus-visible,
+.portal-link:focus-visible,
+.portal-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--vizzio-accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.docs-landing {
+  max-width: 72rem;
+  margin-inline: auto;
+  padding: 2rem 1rem 5rem;
+}
+
+.docs-hero {
+  padding: clamp(2.5rem, 7vw, 5.5rem) 0 3rem;
+  border-bottom: 1px solid var(--color-fd-border);
+}
+
+.docs-eyebrow {
+  color: var(--vizzio-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.docs-hero h1 {
+  max-width: 52rem;
+  margin: 0.7rem 0 1rem;
+  font-size: clamp(2.35rem, 6vw, 4.8rem);
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+}
+
+.docs-hero p {
+  max-width: 47rem;
+  color: var(--color-fd-muted-foreground);
+  font-size: clamp(1rem, 2vw, 1.18rem);
+  line-height: 1.7;
+}
+
+.docs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.7rem;
+}
+
+.portal-link {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1.1rem;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.7rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.portal-link-primary {
+  border-color: #1d4ed8;
+  color: white;
+  background: #1d4ed8;
+}
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-block: 2rem;
+}
+
+.portal-section-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.portal-card {
+  display: block;
+  padding: 1.4rem;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.9rem;
+  color: inherit;
+  background: color-mix(in srgb, var(--color-fd-card) 94%, transparent);
+  text-decoration: none;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.portal-card:hover {
+  border-color: color-mix(in srgb, var(--vizzio-accent) 50%, var(--color-fd-border));
+  transform: translateY(-2px);
+}
+
+.portal-card h3 {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+}
+
+.portal-card p,
+.portal-card span {
+  color: var(--color-fd-muted-foreground);
+  line-height: 1.55;
+}
+
+.featured-card {
+  min-height: 12rem;
+}
+
+.featured-card strong {
+  display: block;
+  margin-top: 1.4rem;
+  color: var(--vizzio-accent-strong);
+}
+
+.getting-started-panel {
+  margin-block: 2.5rem;
+  padding: clamp(1.5rem, 4vw, 2.3rem);
+  border: 1px solid color-mix(in srgb, var(--vizzio-accent) 28%, var(--color-fd-border));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--vizzio-accent) 6%, var(--color-fd-background));
+}
+
+.getting-started-panel ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.2rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-info {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-fd-border);
+}
+
+.project-info dt {
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.project-info dd {
+  margin: 0.25rem 0 0;
+  font-weight: 650;
+}
+
+.prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.prose :where(code, a) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .portal-grid,
+  .portal-section-grid,
+  .project-info {
+    grid-template-columns: 1fr;
+  }
+
+  .docs-download-compact span {
+    display: none;
+  }
+}

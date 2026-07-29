@@ -1,0 +1,47 @@
+---
+title: 02 Platform Overview
+description: Components, roles, and the end-to-end deployment workflow of the VIZZIO platform.
+---
+
+VIZZIO combines a web administration application, backend services, deployment
+storage, a database, and a Windows launcher into one controlled software delivery
+workflow.
+
+## Major components
+
+| Component | Responsibility |
+| --- | --- |
+| Frontend | Browser interface for administration, monitoring, and release tasks |
+| Backend API | Authentication, authorization, deployment logic, reporting, and downloads |
+| Database | Persistent users, groups, deployments, versions, notifications, and audit data |
+| Deployment storage | Validated release archives and downloadable artifacts |
+| Windows launcher | Authorized discovery, resilient download, extraction, and update behavior |
+| Hosted PC / reverse proxy | Production processes, TLS termination, routing, and service availability |
+
+## Deployment workflow
+
+1. Prepare the hosted environment and required configuration.
+2. Build and validate the application package.
+3. Register a deployment and version through the administration interface.
+4. Assign the required users or groups.
+5. Verify metadata, archive integrity, and service readiness.
+6. Let authorized launcher users discover and download the release.
+7. Monitor logs, notifications, and launcher reports.
+8. Communicate the release or perform the documented rollback procedure.
+
+## Roles
+
+- **Administrator:** manages access, content, settings, and routine monitoring.
+- **Developer:** implements and validates application and platform changes.
+- **Deployment engineer:** prepares infrastructure and executes releases.
+- **Maintainer:** owns reliability, incident response, upgrades, and handover.
+
+## Where to go next
+
+- [System Architecture](/docs/architecture/architecture)
+- [Deployment Prerequisites](/docs/getting-started/deployment-prerequisites)
+- [Admin User Guide](/docs/administration/admin-user-guide)
+- [Building the Launcher Installer](/docs/launcher/launcher-installation)
+- [Launcher Self-Update](/docs/launcher/launcher-self-update)
+- [Operations and Publishing](/docs/operations/operations-publishing)
+- [Troubleshooting](/docs/reference/troubleshooting)

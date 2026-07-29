@@ -1,0 +1,20 @@
+{
+  "title": "VIZZIO Deployment Platform",
+  "pages": [
+    "index",
+    "---GETTING STARTED---",
+    "getting-started",
+    "---SYSTEM DESIGN---",
+    "architecture",
+    "---ADMINISTRATION---",
+    "administration",
+    "---DEVELOPMENT---",
+    "development",
+    "---LAUNCHER---",
+    "launcher",
+    "---OPERATIONS---",
+    "operations",
+    "---REFERENCE---",
+    "reference"
+  ]
+}

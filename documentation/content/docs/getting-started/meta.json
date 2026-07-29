@@ -1,0 +1,5 @@
+{
+  "title": "Getting Started",
+  "defaultOpen": true,
+  "pages": ["introduction", "overview", "deployment-prerequisites", "hosted-pc-prerequisites"]
+}

@@ -1,0 +1,56 @@
+---
+title: VIZZIO Deployment Platform
+description: Technical, deployment, administration, launcher, operations, and handover documentation for the VIZZIO platform.
+full: true
+---
+
+<main className="docs-landing">
+  <section className="docs-hero" aria-labelledby="portal-title">
+    <p className="docs-eyebrow">Technical Documentation</p>
+    <h1 id="portal-title">VIZZIO Deployment Platform</h1>
+    <p>
+      Technical, deployment, administration, launcher, operations, and handover
+      documentation for the VIZZIO platform.
+    </p>
+    <div className="docs-actions">
+      <a className="portal-link portal-link-primary" href="/docs/getting-started/introduction">Get Started</a>
+      <a className="portal-link" href="/docs/architecture/architecture">View Architecture</a>
+      <DownloadGuideButton />
+    </div>
+  </section>
+
+  <section aria-label="Featured guides" className="portal-grid">
+    <FeaturedCard
+      title="Platform Architecture"
+      description="Understand the web application, API, database, launcher, and hosted deployment topology."
+      href="/docs/architecture/architecture"
+    />
+    <FeaturedCard
+      title="Deployment Guide"
+      description="Prepare the environment, configure services, and validate the platform before release."
+      href="/docs/getting-started/deployment-prerequisites"
+    />
+  </section>
+
+  <GettingStartedPanel />
+
+  <section aria-labelledby="browse-title">
+    <p className="docs-eyebrow">Documentation library</p>
+    <h2 id="browse-title">Browse by section</h2>
+    <div className="portal-grid portal-section-grid">
+      <SectionCard title="Getting Started" description="Introduction, overview, and prerequisites." href="/docs/getting-started/introduction" />
+      <SectionCard title="Architecture" description="System design and technical diagrams." href="/docs/architecture/architecture" />
+      <SectionCard title="Administration" description="Users, access, deployments, and settings." href="/docs/administration/admin-user-guide" />
+      <SectionCard title="Development" description="Code audits, requirements, and verification." href="/docs/development/code-documentation" />
+      <SectionCard title="Launcher" description="Installer building, self-update, and error-reporting workflows." href="/docs/launcher/launcher-installation" />
+      <SectionCard title="Operations" description="Publishing, validation, and rollback." href="/docs/operations/operations-publishing" />
+      <SectionCard title="Reference" description="Handover guidance and troubleshooting." href="/docs/reference/handover-documentation" />
+    </div>
+  </section>
+
+  <dl className="project-info" aria-label="Project information">
+    <div><dt>Product</dt><dd>VIZZIO Deployment Platform</dd></div>
+    <div><dt>Document type</dt><dd>Technical Documentation</dd></div>
+    <div><dt>Status</dt><dd>Maintained · Version 1.0</dd></div>
+  </dl>
+</main>

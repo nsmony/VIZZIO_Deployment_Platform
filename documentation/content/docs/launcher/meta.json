@@ -1,0 +1,4 @@
+{
+  "title": "Launcher",
+  "pages": ["launcher-installation", "launcher-self-update", "launcher-error-reporting"]
+}

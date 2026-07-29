@@ -58,12 +58,23 @@ function extractApiErrorMessage(data, body, response) {
 }
 
 export async function login(username, password) {
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
-  return response.json();
+  let response;
+  try {
+    response = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    throw new Error(`Could not reach the backend at ${API_BASE}. Check that the backend service is running.`);
+  }
+
+  const body = await response.text().catch(() => '');
+  const data = parseJsonBody(body);
+  if (!response.ok) {
+    throw new Error(extractApiErrorMessage(data, body, response));
+  }
+  return data;
 }
 
 export async function changeAdminPassword(token, currentPassword, newPassword) {
