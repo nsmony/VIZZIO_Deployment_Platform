@@ -21,6 +21,9 @@ DOWNLOAD_DELIVERY_MODE=nginx
 DOWNLOAD_ROOT=/var/www/vizzio/builds
 DOWNLOAD_ACCEL_PREFIX=/_vizzio_downloads
 PACKAGE_ROOT=/var/www/vizzio/builds
+PACKAGE_UPLOAD_ROOT=/var/www/vizzio/uploads
+PACKAGE_UPLOAD_MAX_BYTES=85899345920
+HTTP_REQUEST_TIMEOUT_MS=0
 ```
 
 - Server-path registration only accepts sources inside `PACKAGE_ROOT`, while
@@ -29,4 +32,7 @@ PACKAGE_ROOT=/var/www/vizzio/builds
   supported layout.
 - Admins should copy/drop large packages into that shared private directory,
   then register the full server path in Version Management.
+- The supplied Nginx configuration streams request bodies without proxy
+  buffering and permits packages up to 80 GB. Keep `client_max_body_size` and
+  `PACKAGE_UPLOAD_MAX_BYTES` aligned if the production limit changes.
 - Do not expose `/_vizzio_downloads/` directly; it must remain `internal`.

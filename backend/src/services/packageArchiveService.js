@@ -15,13 +15,14 @@ const ZIP_METHOD_STORE = 0;
 
 let crcTable;
 const archiveCreationJobs = new Map();
+const validatedArchiveMetadata = new Map();
 
 export function getPackageRoot() {
   return path.resolve(process.env.PACKAGE_ROOT || DEFAULT_PACKAGE_ROOT);
 }
 
 // Inspect a staged folder, server archive, or uploaded package.
-export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, skipChecksum = false, onProgress, signal }) {
+export async function inspectPackageSource({ packagePath, sourceType, deploymentName, versionNumber, deploymentId, createArchive, knownChecksum, knownBatchScriptName, knownPackageSize, skipChecksum = false, onProgress, signal }) {
   throwIfCancelled(signal);
   const rawPackagePath = String(packagePath || '').trim();
   if (!rawPackagePath) throw new Error('Package source path is required.');
@@ -81,19 +82,29 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
       signal,
     });
     const archiveStat = await fs.promises.stat(archivePath);
+    const checksum = skipChecksum ? null : knownChecksum || await sha256File(archivePath, onProgress, signal);
+    rememberValidatedArchive(archivePath, archiveStat, {
+      checksum,
+      batchScriptName,
+    });
     return {
       packagePath: archivePath,
       packageSource: 'generatedArchive',
       fileName: path.basename(archivePath),
       fileType: inferFileType(archivePath),
       packageSize: BigInt(archiveStat.size),
-      checksum: skipChecksum ? null : knownChecksum || await sha256File(archivePath, onProgress, signal),
+      checksum,
       batchScriptName,
     };
   }
 
   if (!stat.isFile()) throw new Error('Package source path must point to a file or staging folder.');
   ensureSupportedArchive(resolvedPath);
+  const cached = getValidatedArchive(resolvedPath, stat);
+  const suppliedMetadataMatchesCache = cached
+    && cached.checksum === knownChecksum
+    && cached.batchScriptName === knownBatchScriptName
+    && (!knownPackageSize || BigInt(knownPackageSize) === BigInt(stat.size));
   onProgress?.({
     phase: 'validatingArchive',
     percent: null,
@@ -101,20 +112,52 @@ export async function inspectPackageSource({ packagePath, sourceType, deployment
   });
   // A validated package supplies this value during registration, avoiding a
   // second full archive listing for large 7z files.
-  const batchScriptName = knownBatchScriptName || await findTopLevelBatchScriptInArchive(resolvedPath);
+  const batchScriptName = suppliedMetadataMatchesCache
+    ? cached.batchScriptName
+    : cached?.batchScriptName || await findTopLevelBatchScriptInArchive(resolvedPath);
   if (!batchScriptName) {
     throw new Error('Deployment package archive must contain a launch batch script at the archive root or inside one top-level folder.');
   }
 
+  const checksum = skipChecksum
+    ? null
+    : suppliedMetadataMatchesCache
+      ? cached.checksum
+      : cached?.checksum || await sha256File(resolvedPath, onProgress, signal);
+  rememberValidatedArchive(resolvedPath, stat, { checksum, batchScriptName });
   return {
     packagePath: resolvedPath,
     packageSource: 'serverArchive',
     fileName: path.basename(resolvedPath),
     fileType: inferFileType(resolvedPath),
     packageSize: BigInt(stat.size),
-    checksum: skipChecksum ? null : knownChecksum || await sha256File(resolvedPath, onProgress, signal),
-    batchScriptName: knownBatchScriptName || batchScriptName,
+    checksum,
+    batchScriptName,
   };
+}
+
+function getValidatedArchive(filePath, stat) {
+  const cached = validatedArchiveMetadata.get(normalizeCacheKey(filePath));
+  return cached
+    && cached.size === stat.size
+    && cached.mtimeMs === stat.mtimeMs
+    ? cached
+    : null;
+}
+
+function rememberValidatedArchive(filePath, stat, metadata) {
+  if (!metadata.checksum || !metadata.batchScriptName) return;
+  validatedArchiveMetadata.set(normalizeCacheKey(filePath), {
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+    checksum: metadata.checksum,
+    batchScriptName: metadata.batchScriptName,
+  });
+}
+
+function normalizeCacheKey(filePath) {
+  const resolved = path.resolve(filePath);
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
 export function inferFileType(filePath) {

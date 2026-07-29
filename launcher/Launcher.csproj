@@ -10,7 +10,11 @@
     <PublishReadyToRun>true</PublishReadyToRun>
     <AssemblyName>Launcher</AssemblyName>
     <Version>0.1.0</Version>
+    <VizzioApiBase Condition="'$(VizzioApiBase)' == ''">http://localhost:4000/api</VizzioApiBase>
   </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="VizzioApiBase" Value="$(VizzioApiBase)" />
+  </ItemGroup>
   <ItemGroup>
     <None Update="launcher-branding.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="branding\**\*" CopyToOutputDirectory="PreserveNewest" />

@@ -8,10 +8,11 @@ C# .NET 8 WPF launcher for the VIZZIO Deployment Platform.
 dotnet run --project launcher\Launcher.csproj
 ```
 
-Set `VIZZIO_API_BASE` to point the launcher at a non-local backend:
+Local builds default to `http://localhost:4000/api`. Override it for a single
+run when required:
 
 ```powershell
-$env:VIZZIO_API_BASE = "https://example.com/api"
+$env:VIZZIO_API_BASE = "http://localhost:4000/api"
 dotnet run --project launcher\Launcher.csproj
 ```
 
@@ -81,20 +82,20 @@ that Inno Setup's compiler exists at:
 C:\Program Files (x86)\Inno Setup 6\ISCC.exe
 ```
 
-The default production API endpoint is configured in
-`DownloadManagerApiClient.cs` as:
+The default build is intentionally local-first:
 
 ```text
-https://vzdeployment.hardyhutajaya.com/api
+http://localhost:4000/api
 ```
 
-Do not use `localhost` when building for other computers. From the project root,
-run:
+For a production installer, stamp the reachable hosted endpoint with
+`-ApiBaseUrl`. From the project root, run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File ".\scripts\build_launcher_installer.ps1" `
   -Version "0.1.0" `
+  -ApiBaseUrl "https://your-production-host.example/api" `
   -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 

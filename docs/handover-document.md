@@ -50,6 +50,8 @@ The platform enables controlled software release and distribution with group-bas
 - Publishing new versions: see docs/operations-publishing-guide.md
 - Admin operations: see docs/admin-user-guide.md
 - Architecture reference: see docs/architecture.md and README diagrams
+- Complete local/production configuration and supervisor sign-off:
+  `docs/configuration-and-production-handover.md`
 
 ## 7. Build and Validation Commands
 

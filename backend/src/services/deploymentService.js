@@ -109,6 +109,7 @@ export async function registerVersion(deploymentId, data, userId) {
     createArchive: true,
     knownChecksum: data.checksum,
     knownBatchScriptName: data.batchScriptName,
+    knownPackageSize: data.packageSize,
   });
 
   try {

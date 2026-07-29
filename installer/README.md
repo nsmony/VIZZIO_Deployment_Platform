@@ -8,10 +8,8 @@ Install the .NET 8 SDK, Inno Setup 6, and 7-Zip on the build computer. The
 expected Inno Setup compiler path is
 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`.
 
-Confirm that `launcher\DownloadManagerApiClient.cs` uses a backend URL reachable
-from user computers. The production URL is
-`https://vzdeployment.hardyhutajaya.com/api`; do not distribute a launcher
-configured for `localhost`.
+Local builds intentionally use `http://localhost:4000/api`. Production
+installers must pass an API URL reachable from user computers.
 
 From the project root, run:
 
@@ -19,6 +17,7 @@ From the project root, run:
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File ".\scripts\build_launcher_installer.ps1" `
   -Version "0.1.0" `
+  -ApiBaseUrl "https://your-production-host.example/api" `
   -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 

@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { Readable } from 'node:stream';
 import { parseRangeHeader, validateDownloadTokenFileAccess } from '../src/services/downloadManagerService.js';
 import { signDownloadManagerToken, verifyDownloadManagerToken } from '../src/downloadManagerToken.js';
 import { verifySha256 } from '../src/services/downloadIntegrityService.js';
@@ -15,6 +16,12 @@ import {
   getPackagePreparationJob,
   startPackagePreparationJob,
 } from '../src/services/packagePreparationJobService.js';
+import {
+  appendResumableUploadChunk,
+  completeResumableUploadSession,
+  createResumableUploadSession,
+  getResumableUploadSession,
+} from '../src/uploadStore.js';
 
 test('normal ranged download requests parse a byte range', () => {
   assert.deepEqual(parseRangeHeader('bytes=0-99', 1000), { start: 0, end: 99 });
@@ -201,6 +208,100 @@ test('server archive source rejects staging folder paths', async () => {
   }
 });
 
+test('local archive uploads resume from a persisted confirmed offset', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-upload-root-'));
+  const previousRoot = process.env.PACKAGE_UPLOAD_ROOT;
+  process.env.PACKAGE_UPLOAD_ROOT = tempRoot;
+
+  try {
+    const archivePath = path.join(tempRoot, 'source.zip');
+    await writeSimpleZip(archivePath, [
+      { name: 'launch.bat', content: 'echo launch' },
+      { name: 'content.bin', content: 'resumable package content' },
+    ]);
+    const archive = await fs.readFile(archivePath);
+    await fs.rm(archivePath);
+    const request = {
+      originalName: 'package.zip',
+      title: 'Deployment v1',
+      size: archive.length,
+      fingerprint: `package.zip:${archive.length}:123`,
+      uploadedBy: 'admin-1',
+    };
+    const created = await createResumableUploadSession(request);
+    const split = Math.floor(archive.length / 2);
+    const first = await appendResumableUploadChunk({
+      sessionId: created.id,
+      uploadedBy: 'admin-1',
+      offset: 0,
+      stream: Readable.from(archive.subarray(0, split)),
+    });
+    assert.equal(first.offset, split);
+
+    const resumed = await createResumableUploadSession(request);
+    assert.equal(resumed.id, created.id);
+    assert.equal(resumed.offset, split);
+
+    const second = await appendResumableUploadChunk({
+      sessionId: created.id,
+      uploadedBy: 'admin-1',
+      offset: split,
+      stream: Readable.from(archive.subarray(split)),
+    });
+    assert.equal(second.offset, archive.length);
+
+    const completed = await completeResumableUploadSession(created.id, 'admin-1');
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.package.size, archive.length);
+    assert.equal(
+      completed.package.checksum,
+      crypto.createHash('sha256').update(archive).digest('hex')
+    );
+    assert.equal(completed.package.batchScriptName, 'launch.bat');
+    assert.equal(getResumableUploadSession(created.id, 'other-admin'), null);
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_UPLOAD_ROOT;
+    else process.env.PACKAGE_UPLOAD_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('resumable uploads reject stale offsets without duplicating bytes', async () => {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-upload-root-'));
+  const previousRoot = process.env.PACKAGE_UPLOAD_ROOT;
+  process.env.PACKAGE_UPLOAD_ROOT = tempRoot;
+
+  try {
+    const created = await createResumableUploadSession({
+      originalName: 'package.zip',
+      title: 'Deployment v2',
+      size: 8,
+      fingerprint: 'package.zip:8:456',
+      uploadedBy: 'admin-1',
+    });
+    await appendResumableUploadChunk({
+      sessionId: created.id,
+      uploadedBy: 'admin-1',
+      offset: 0,
+      stream: Readable.from(Buffer.from('1234')),
+    });
+    await assert.rejects(
+      appendResumableUploadChunk({
+        sessionId: created.id,
+        uploadedBy: 'admin-1',
+        offset: 0,
+        stream: Readable.from(Buffer.from('1234')),
+      }),
+      /resume from byte 4/i
+    );
+    assert.equal(getResumableUploadSession(created.id, 'admin-1').offset, 4);
+  } finally {
+    if (previousRoot === undefined) delete process.env.PACKAGE_UPLOAD_ROOT;
+    else process.env.PACKAGE_UPLOAD_ROOT = previousRoot;
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('staging preparation requires a version number', async () => {
   await assert.rejects(
     validatePackage({
@@ -314,24 +415,32 @@ test('package preparation jobs can be cancelled before completion', async () => 
   }
 });
 
-test('validated server archive metadata avoids inspecting the archive again', async () => {
+test('validated server archive metadata is safely reused when the file is unchanged', async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'vizzio-package-root-'));
   const previousRoot = process.env.PACKAGE_ROOT;
   process.env.PACKAGE_ROOT = tempRoot;
 
   try {
-    const archivePath = path.join(tempRoot, 'already-validated.7z');
-    await fs.writeFile(archivePath, 'metadata fast path');
-    const checksum = crypto.createHash('sha256').update('metadata fast path').digest('hex');
+    const archivePath = path.join(tempRoot, 'already-validated.zip');
+    await writeSimpleZip(archivePath, [
+      { name: 'launch.bat', content: 'echo launch' },
+      { name: 'content.bin', content: 'metadata fast path' },
+    ]);
+    const validated = await inspectPackageSource({
+      packagePath: archivePath,
+      sourceType: 'serverArchive',
+      createArchive: false,
+    });
     const result = await inspectPackageSource({
       packagePath: archivePath,
       sourceType: 'serverArchive',
       createArchive: true,
-      knownChecksum: checksum,
+      knownChecksum: validated.checksum,
       knownBatchScriptName: 'launch.bat',
+      knownPackageSize: validated.packageSize,
     });
 
-    assert.equal(result.checksum, checksum);
+    assert.equal(result.checksum, validated.checksum);
     assert.equal(result.batchScriptName, 'launch.bat');
   } finally {
     if (previousRoot === undefined) delete process.env.PACKAGE_ROOT;

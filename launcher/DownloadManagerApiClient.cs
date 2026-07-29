@@ -1,9 +1,11 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,8 +20,22 @@ namespace Launcher
         private readonly HttpClient _httpClient = new();
         private string _token = "";
 
-        public string ApiBaseUrl { get; set; } = Environment.GetEnvironmentVariable("VIZZIO_API_BASE") ?? "https://vzdeployment.hardyhutajaya.com/api";
+        public string ApiBaseUrl { get; set; } = ResolveApiBaseUrl();
         public string Token => _token;
+
+        private static string ResolveApiBaseUrl()
+        {
+            var environmentUrl = Environment.GetEnvironmentVariable("VIZZIO_API_BASE");
+            if (!string.IsNullOrWhiteSpace(environmentUrl)) return environmentUrl.TrimEnd('/');
+
+            var buildUrl = Assembly.GetExecutingAssembly()
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(attribute => attribute.Key == "VizzioApiBase")
+                ?.Value;
+            return string.IsNullOrWhiteSpace(buildUrl)
+                ? "http://localhost:4000/api"
+                : buildUrl.TrimEnd('/');
+        }
 
         public void SetToken(string token)
         {

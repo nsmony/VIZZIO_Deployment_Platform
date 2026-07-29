@@ -320,10 +320,15 @@ JWT_SECRET=replace-with-a-long-random-secret
 DOWNLOAD_SECRET=replace-with-a-different-long-random-secret
 DOWNLOAD_MANAGER_SECRET=replace-with-a-third-long-random-secret
 PACKAGE_ROOT=C:\VIZZIO\packages
+PACKAGE_UPLOAD_ROOT=C:\VIZZIO\uploads
 DOWNLOAD_DELIVERY_MODE=node
 DOWNLOAD_ROOT=/srv/vizzio/packages
 DOWNLOAD_ACCEL_PREFIX=/_vizzio_downloads
 PACKAGE_UPLOAD_MAX_BYTES=85899345920
+HTTP_REQUEST_TIMEOUT_MS=0
+HTTP_HEADERS_TIMEOUT_MS=60000
+HTTP_KEEP_ALIVE_TIMEOUT_MS=5000
+UPLOAD_SESSION_RETENTION_MS=604800000
 LAUNCHER_ERROR_REPORT_ROOT=C:\VIZZIO\launcher-error-reports
 LAUNCHER_LATEST_VERSION=0.1.0
 LAUNCHER_DOWNLOAD_URL=
@@ -335,6 +340,9 @@ ENABLE_DEMO_USERS=false
 For Nginx delivery, every registered or uploaded package that should use
 `X-Accel-Redirect` must resolve inside `DOWNLOAD_ROOT`. The simplest production
 layout is to make `PACKAGE_ROOT` and `DOWNLOAD_ROOT` the same directory.
+Keep `PACKAGE_UPLOAD_ROOT` on durable storage with enough free space for the
+largest concurrent uploads; do not place production uploads inside the source
+checkout. `HTTP_REQUEST_TIMEOUT_MS=0` permits slow multi-GB streaming uploads.
 
 ### 12.2 Frontend Environment (example)
 
@@ -415,15 +423,13 @@ default Inno Setup compiler location is:
 C:\Program Files (x86)\Inno Setup 6\ISCC.exe
 ```
 
-Before distribution, confirm that the default API endpoint in
-`launcher\DownloadManagerApiClient.cs` points to a backend reachable from user
-computers. The production endpoint is:
+Launcher builds are local-first and default to:
 
 ```text
-https://vzdeployment.hardyhutajaya.com/api
+http://localhost:4000/api
 ```
 
-Do not use `localhost` for a launcher distributed to another computer.
+Stamp the reachable endpoint explicitly for every production build.
 
 From the project root, build the installer with:
 
@@ -431,6 +437,7 @@ From the project root, build the installer with:
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File ".\scripts\build_launcher_installer.ps1" `
   -Version "0.1.0" `
+  -ApiBaseUrl "https://your-production-host.example/api" `
   -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
 

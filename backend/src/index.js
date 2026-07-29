@@ -19,7 +19,10 @@ import { downloadUploadedFile } from './controllers/downloadController.js';
 // Backend composition root. Keep middleware and route order obvious here:
 // public auth routes first, protected admin APIs next, download endpoints last.
 const app = express();
-app.use(cors());
+app.use(cors({
+  maxAge: 86_400,
+  exposedHeaders: ['Upload-Offset'],
+}));
 app.use(express.json());
 app.use(rateLimiter);
 
@@ -43,6 +46,21 @@ app.get('/api/health', (req, res) => {
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Backend running on http://localhost:${port}`);
 });
+
+// Multi-GB uploads can legitimately run for hours on slower links.
+server.requestTimeout = getNonNegativeTimeout('HTTP_REQUEST_TIMEOUT_MS', 0);
+server.headersTimeout = getPositiveTimeout('HTTP_HEADERS_TIMEOUT_MS', 60_000);
+server.keepAliveTimeout = getPositiveTimeout('HTTP_KEEP_ALIVE_TIMEOUT_MS', 5_000);
+
+function getNonNegativeTimeout(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function getPositiveTimeout(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}

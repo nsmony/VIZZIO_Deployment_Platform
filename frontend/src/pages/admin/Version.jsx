@@ -5,6 +5,7 @@ import {
   fetchDeploymentDetails,
   fetchDeployments,
   fetchPackagePreparation,
+  fetchUploadedPackages,
   registerDeploymentVersion,
   startPackagePreparation,
   updateDeploymentVersion,
@@ -586,10 +587,27 @@ export default function Version() {
     }, true);
 
     try {
+      // Reuse a completed matching upload after a refresh or a lost final
+      // response. The title ties the archive to this deployment/version, while
+      // name and size prevent accidentally selecting an unrelated package.
+      const expectedTitle = `${deployment.name} ${form.versionNumber}`.trim();
+      const existingResult = await fetchUploadedPackages(token);
+      const existingUpload = existingResult.packages?.find((item) =>
+        item.title === expectedTitle
+        && item.originalName === uploadFile.name
+        && Number(item.size) === uploadFile.size
+        && item.checksum
+        && item.batchScriptName
+      );
+      if (existingUpload) {
+        applyCompletedUpload(existingUpload, uploadFile, startedAt);
+        return;
+      }
+
       const uploaded = await uploadPackage(
         token,
         uploadFile,
-        `${deployment.name} ${form.versionNumber}`.trim(),
+        expectedTitle,
         ({ loaded, total }) => {
           if (registrationSession !== registrationSessionRef.current) return;
           const elapsedSeconds = Math.max(0.1, (Date.now() - startedAt) / 1000);
@@ -633,52 +651,28 @@ export default function Version() {
       );
       if (registrationSession !== registrationSessionRef.current) return;
 
-      const uploadedPackage = uploaded.package;
-      if (
-        !uploadedPackage?.fileId
-        || !uploadedPackage.originalName
-        || !uploadedPackage.size
-        || !uploadedPackage.checksum
-        || !uploadedPackage.batchScriptName
-      ) {
-        throw new Error('Local archive validation returned incomplete metadata. Please upload it again.');
-      }
-
-      const preparedForm = {
-        ...form,
-        packagePath: uploadedPackage.fileId,
-        fileName: uploadedPackage.originalName,
-        fileType: uploadFile.type || form.fileType || 'application/octet-stream',
-        packageSize: String(uploadedPackage.size),
-        checksum: uploadedPackage.checksum,
-        batchScriptName: uploadedPackage.batchScriptName,
-        preparedPackagePath: '',
-      };
-      pendingUploadFile = null;
-      setSelectedFile(null);
-      setForm(preparedForm);
-      setPackageValidated(true);
-      const completedProgress = {
-        status: 'completed',
-        phase: 'completed',
-        phasePercent: 100,
-        detail: 'Local archive uploaded and validated.',
-        processedBytes: uploadedPackage.size,
-        totalBytes: uploadedPackage.size,
-        elapsedSeconds: Math.round((Date.now() - startedAt) / 1000),
-        etaSeconds: 0,
-      };
-      setPreparationProgress(completedProgress);
-      storeRegistrationDraft({
-        deploymentId: deployment.id,
-        form: preparedForm,
-        phase: 'ready',
-        error: '',
-        jobId: '',
-        progress: completedProgress,
-      }, true);
+      applyCompletedUpload(uploaded.package, uploadFile, startedAt);
     } catch (uploadError) {
       if (registrationSession !== registrationSessionRef.current) return;
+      // A large request can finish on the backend just as a proxy or browser
+      // drops the long-lived connection. Reconcile with the upload manifest so
+      // the admin does not have to transfer the same multi-GB archive again.
+      try {
+        const result = await fetchUploadedPackages(token);
+        const completedUpload = result.packages?.find((item) =>
+          item.originalName === uploadFile.name
+          && Number(item.size) === uploadFile.size
+          && Date.parse(item.uploadedAt) >= startedAt - 5000
+          && item.checksum
+          && item.batchScriptName
+        );
+        if (completedUpload) {
+          applyCompletedUpload(completedUpload, uploadFile, startedAt);
+          return;
+        }
+      } catch {
+        // Preserve the original upload error when reconciliation is unavailable.
+      }
       setPackageValidated(false);
       setError(uploadError.message);
       storeRegistrationDraft({
@@ -698,6 +692,53 @@ export default function Version() {
         setValidatingPackage(false);
       }
     }
+  }
+
+  function applyCompletedUpload(uploadedPackage, uploadFile, startedAt) {
+    if (
+      !uploadedPackage?.fileId
+      || !uploadedPackage.originalName
+      || !uploadedPackage.size
+      || !uploadedPackage.checksum
+      || !uploadedPackage.batchScriptName
+    ) {
+      throw new Error('Local archive validation returned incomplete metadata. Please upload it again.');
+    }
+
+    const preparedForm = {
+      ...form,
+      packagePath: uploadedPackage.fileId,
+      fileName: uploadedPackage.originalName,
+      fileType: uploadFile.type || form.fileType || 'application/octet-stream',
+      packageSize: String(uploadedPackage.size),
+      checksum: uploadedPackage.checksum,
+      batchScriptName: uploadedPackage.batchScriptName,
+      preparedPackagePath: '',
+    };
+    pendingUploadFile = null;
+    setSelectedFile(null);
+    setForm(preparedForm);
+    setPackageValidated(true);
+    setError('');
+    const completedProgress = {
+      status: 'completed',
+      phase: 'completed',
+      phasePercent: 100,
+      detail: 'Local archive uploaded and validated.',
+      processedBytes: uploadedPackage.size,
+      totalBytes: uploadedPackage.size,
+      elapsedSeconds: Math.round((Date.now() - startedAt) / 1000),
+      etaSeconds: 0,
+    };
+    setPreparationProgress(completedProgress);
+    storeRegistrationDraft({
+      deploymentId: deployment.id,
+      form: preparedForm,
+      phase: 'ready',
+      error: '',
+      jobId: '',
+      progress: completedProgress,
+    }, true);
   }
 
   async function pollPackagePreparation(jobId, baseForm, registrationSession) {

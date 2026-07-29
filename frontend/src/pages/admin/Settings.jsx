@@ -36,8 +36,8 @@ export default function Settings() {
 
   const username = localStorage.getItem('vizzio_username') || 'Admin';
   const role = localStorage.getItem('vizzio_role') || 'Administrator';
-  const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
-  const downloadBase = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
+  const apiBase = import.meta.env.VITE_API_BASE || `${window.location.origin}/api`;
+  const downloadBase = import.meta.env.VITE_DOWNLOAD_BASE || `${window.location.origin}/downloads`;
   const token = localStorage.getItem('vizzio_token');
 
   useEffect(() => {

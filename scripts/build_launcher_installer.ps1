@@ -2,6 +2,7 @@ param(
     [string]$Version = "0.1.0",
     [string]$Configuration = "Release",
     [string]$Runtime = "win-x64",
+    [string]$ApiBaseUrl = "http://localhost:4000/api",
     [string]$InnoCompiler = "iscc.exe",
     [string]$SevenZipPath = "",
     [string]$ClientLogoPath = ""
@@ -84,6 +85,7 @@ dotnet publish $launcherProject `
     /p:Version=$Version `
     /p:AssemblyVersion=$Version `
     /p:FileVersion=$Version `
+    /p:VizzioApiBase=$ApiBaseUrl `
     /p:PublishSingleFile=false `
     /p:PublishReadyToRun=true
 

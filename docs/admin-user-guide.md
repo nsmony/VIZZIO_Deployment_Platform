@@ -241,7 +241,11 @@ change state.
    **Upload & validate archive**. The page displays transfer percentage, bytes,
    elapsed time, and estimated remaining time. The backend calculates SHA-256
    while streaming the upload to disk, then checks its structure and launch
-   script. Server-folder preparation and
+   script. Local archives transfer in resumable 64 MB chunks. If the network
+   drops, the page retries from the last byte confirmed by the backend instead
+   of restarting the complete file. After a browser refresh, select the same
+   local file again to reconnect to its persisted upload session.
+   Server-folder preparation and
    server-archive validation calculate the package checksum during this step.
 8. Select the initial status: **Draft**, **Released**, or **Archived**.
 9. Optionally enter a description.
@@ -256,7 +260,8 @@ Navigating to another admin page does not cancel preparation or registration.
 The current draft and phase are retained for the browser session and restored
 when returning to **Versions**. If registration finishes while another page is
 open, the registered version appears when the Versions list reloads. Closing or
-refreshing the browser is not a supported way to monitor an active request.
+refreshing the browser pauses a local upload until the same file is selected
+again; server-side preparation jobs continue and are restored from the draft.
 After a server package is prepared or validated, registration reuses its
 calculated checksum instead of reading the complete archive a second time.
 The page enables registration only after preparation returns a generated

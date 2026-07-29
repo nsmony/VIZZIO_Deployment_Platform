@@ -25,10 +25,15 @@ DOWNLOAD_SECRET=replace-this-with-a-different-long-random-secret
 DOWNLOAD_MANAGER_SECRET=replace-this-with-a-third-long-random-secret
 PORT=4000
 PACKAGE_ROOT=C:\VIZZIO\packages
-DOWNLOAD_ROOT=C:\VIZZIO\downloads
+PACKAGE_UPLOAD_ROOT=C:\VIZZIO\uploads
+DOWNLOAD_ROOT=C:\VIZZIO\packages
 DOWNLOAD_DELIVERY_MODE=node
 DOWNLOAD_ACCEL_PREFIX=/_vizzio_downloads
 PACKAGE_UPLOAD_MAX_BYTES=85899345920
+UPLOAD_SESSION_RETENTION_MS=604800000
+HTTP_REQUEST_TIMEOUT_MS=0
+HTTP_HEADERS_TIMEOUT_MS=60000
+HTTP_KEEP_ALIVE_TIMEOUT_MS=5000
 LAUNCHER_ERROR_REPORT_ROOT=C:\VIZZIO\launcher-error-reports
 LAUNCHER_LATEST_VERSION=0.1.0
 LAUNCHER_DOWNLOAD_URL=https://example.com/VIZZIO-Launcher-Setup-0.1.0.exe
@@ -125,8 +130,14 @@ VITE_DOWNLOAD_BASE=https://your-cloudflare-hostname.example/downloads
 ```
 
 For the Windows launcher, point it at the Cloudflare backend URL in the Server
-URL field, or set:
+URL field for a diagnostic session, or stamp it into the production build:
 
 ```powershell
-$env:VIZZIO_API_BASE = "https://your-cloudflare-hostname.example/api"
+.\scripts\build_launcher_installer.ps1 `
+  -Version "0.1.0" `
+  -ApiBaseUrl "https://your-cloudflare-hostname.example/api" `
+  -InnoCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 ```
+
+See `docs/configuration-and-production-handover.md` for the complete local
+acceptance, production promotion, and supervisor sign-off checklist.

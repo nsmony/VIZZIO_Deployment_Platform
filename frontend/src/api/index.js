@@ -1,5 +1,5 @@
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
-const DOWNLOAD_BASE = import.meta.env.VITE_DOWNLOAD_BASE || 'http://localhost:4000/downloads';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const DOWNLOAD_BASE = import.meta.env.VITE_DOWNLOAD_BASE || '/downloads';
 
 import { clearStoredSession } from '../hooks/useAuth.js';
 
@@ -190,43 +190,118 @@ export async function resetAdminSettings(token) {
   });
 }
 
-export function uploadPackage(token, file, title, onProgress, signal) {
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('POST', `${API_BASE}/deployments/uploads`);
-    if (token) request.setRequestHeader('Authorization', `Bearer ${token}`);
-    request.setRequestHeader('Content-Type', 'application/octet-stream');
-    request.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
-    request.setRequestHeader('X-Package-Title', encodeURIComponent(title || file.name));
+const UPLOAD_CHUNK_BYTES = 64 * 1024 * 1024;
+const UPLOAD_CHUNK_RETRIES = 5;
 
-    request.upload.addEventListener('progress', (event) => {
+export async function uploadPackage(token, file, title, onProgress, signal) {
+  const fingerprint = `${file.name}:${file.size}:${file.lastModified}`;
+  const created = await request('/deployments/uploads/sessions', token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      originalName: file.name,
+      title: title || file.name,
+      size: file.size,
+      fingerprint,
+    }),
+    signal,
+  });
+  let session = created.session;
+  if (session.status === 'completed' && session.package) {
+    onProgress?.({ loaded: file.size, total: file.size });
+    return { package: session.package };
+  }
+
+  let offset = Number(session.offset || 0);
+  while (offset < file.size) {
+    if (signal?.aborted) throw new DOMException('Upload was cancelled.', 'AbortError');
+    const end = Math.min(offset + UPLOAD_CHUNK_BYTES, file.size);
+    const chunk = file.slice(offset, end);
+    let lastError;
+
+    for (let attempt = 0; attempt < UPLOAD_CHUNK_RETRIES; attempt += 1) {
+      try {
+        const result = await uploadChunk(token, session.id, chunk, offset, file.size, onProgress, signal);
+        session = result.session;
+        offset = Number(session.offset);
+        lastError = null;
+        break;
+      } catch (error) {
+        if (signal?.aborted || error.name === 'AbortError') throw error;
+        lastError = error;
+        const status = await request(`/deployments/uploads/sessions/${encodeURIComponent(session.id)}`, token, { signal });
+        session = status.session;
+        const confirmedOffset = Number(session.offset || 0);
+        if (confirmedOffset > offset) {
+          offset = confirmedOffset;
+          lastError = null;
+          break;
+        }
+        if (error.status && error.status < 500 && error.status !== 409) throw error;
+        await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 500 * 2 ** attempt)));
+      }
+    }
+    if (lastError) throw lastError;
+  }
+
+  // Completion performs archive inspection and the final SHA-256 pass. It is
+  // idempotent, so a lost response can safely be retried or recovered later.
+  try {
+    const completed = await request(
+      `/deployments/uploads/sessions/${encodeURIComponent(session.id)}/complete`,
+      token,
+      { method: 'POST', signal }
+    );
+    return { package: completed.package };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    const recovered = await request(`/deployments/uploads/sessions/${encodeURIComponent(session.id)}`, token);
+    if (recovered.session.status === 'completed' && recovered.session.package) {
+      return { package: recovered.session.package };
+    }
+    throw error;
+  }
+}
+
+function uploadChunk(token, sessionId, chunk, offset, total, onProgress, signal) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PATCH', `${API_BASE}/deployments/uploads/sessions/${encodeURIComponent(sessionId)}`);
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('Upload-Offset', String(offset));
+
+    xhr.upload.addEventListener('progress', (event) => {
       onProgress?.({
-        loaded: event.loaded,
-        total: event.lengthComputable ? event.total : file.size,
+        loaded: Math.min(total, offset + event.loaded),
+        total,
       });
     });
-    request.addEventListener('load', () => {
+    xhr.addEventListener('load', () => {
       let data = {};
       try {
-        data = JSON.parse(request.responseText || '{}');
+        data = JSON.parse(xhr.responseText || '{}');
       } catch {
         data = {};
       }
-      if (request.status >= 200 && request.status < 300) {
+      if (xhr.status >= 200 && xhr.status < 300) {
         resolve(data);
         return;
       }
-      if (request.status === 401) clearStoredSession();
-      reject(new Error(data.error || `Upload failed with status ${request.status}`));
+      if (xhr.status === 401) clearStoredSession();
+      const error = new Error(data.error || `Upload chunk failed with status ${xhr.status}`);
+      error.status = xhr.status;
+      error.offset = Number(data.offset);
+      reject(error);
     });
-    request.addEventListener('error', () => reject(new Error('Upload failed because the backend connection was interrupted.')));
-    request.addEventListener('abort', () => reject(new Error('Upload was cancelled.')));
+    xhr.addEventListener('error', () => reject(new Error('Upload chunk was interrupted. Retrying from the confirmed offset.')));
+    xhr.addEventListener('abort', () => reject(new DOMException('Upload was cancelled.', 'AbortError')));
     if (signal?.aborted) {
-      request.abort();
+      xhr.abort();
       return;
     }
-    signal?.addEventListener('abort', () => request.abort(), { once: true });
-    request.send(file);
+    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
+    xhr.send(chunk);
   });
 }
 
@@ -237,7 +312,10 @@ export async function requestDownloadToken(token, fileId) {
 // Browser downloads use a short-lived token in the URL. Do not replace this
 // with a bearer header unless the backend download controller changes too.
 export function buildDownloadUrl(fileId, downloadToken) {
-  const url = new URL(`${DOWNLOAD_BASE.replace(/\/$/, '')}/${encodeURIComponent(fileId)}`);
+  const url = new URL(
+    `${DOWNLOAD_BASE.replace(/\/$/, '')}/${encodeURIComponent(fileId)}`,
+    window.location.origin
+  );
   url.searchParams.set('token', downloadToken);
   return url.toString();
 }
@@ -265,7 +343,10 @@ export async function updateDownloadManagerSession(token, sessionId, updates) {
 export function buildManagedDownloadUrl(fileId, downloadToken) {
   // Launcher managed downloads use the API range endpoint so pause/resume can
   // rely on HTTP byte-range requests.
-  const url = new URL(`${API_BASE.replace(/\/$/, '')}/download-manager/files/${encodeURIComponent(fileId)}`);
+  const url = new URL(
+    `${API_BASE.replace(/\/$/, '')}/download-manager/files/${encodeURIComponent(fileId)}`,
+    window.location.origin
+  );
   url.searchParams.set('token', downloadToken);
   return url.toString();
 }

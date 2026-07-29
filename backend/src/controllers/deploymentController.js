@@ -13,7 +13,16 @@ import {
   validatePackage,
 } from '../services/deploymentService.js';
 import { signDownloadToken } from '../downloadToken.js';
-import { findUploadedFile, listUploadedFiles, saveUploadedStream } from '../uploadStore.js';
+import {
+  appendResumableUploadChunk,
+  cancelResumableUploadSession,
+  completeResumableUploadSession,
+  createResumableUploadSession,
+  findUploadedFile,
+  getResumableUploadSession,
+  listUploadedFiles,
+  saveUploadedStream,
+} from '../uploadStore.js';
 import {
   cancelPackagePreparationJob,
   getPackagePreparationJob,
@@ -164,6 +173,62 @@ export async function uploadPackage(req, res) {
   } catch (error) {
     res.status(error.status || 400).json({ error: error.message });
   }
+}
+
+export async function createUploadSession(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+  try {
+    const session = await createResumableUploadSession({
+      ...req.body,
+      uploadedBy: req.user.userId,
+    });
+    res.status(201).json({ session });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
+  }
+}
+
+export function getUploadSession(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+  const session = getResumableUploadSession(req.params.sessionId, req.user.userId);
+  if (!session) return res.status(404).json({ error: 'Upload session was not found.' });
+  res.json({ session });
+}
+
+export async function appendUploadChunk(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+  try {
+    const session = await appendResumableUploadChunk({
+      sessionId: req.params.sessionId,
+      uploadedBy: req.user.userId,
+      offset: req.headers['upload-offset'],
+      stream: req,
+    });
+    if (!session) return res.status(404).json({ error: 'Upload session was not found.' });
+    res.setHeader('Upload-Offset', session.offset);
+    res.json({ session });
+  } catch (error) {
+    if (error.offset !== undefined) res.setHeader('Upload-Offset', error.offset);
+    res.status(error.status || 400).json({ error: error.message, offset: error.offset });
+  }
+}
+
+export async function completeUploadSession(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+  try {
+    const session = await completeResumableUploadSession(req.params.sessionId, req.user.userId);
+    if (!session) return res.status(404).json({ error: 'Upload session was not found.' });
+    res.json({ session, package: session.package });
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message, offset: error.offset });
+  }
+}
+
+export async function cancelUploadSession(req, res) {
+  if (!isAdmin(req)) return res.status(403).json({ error: 'Admin access is required' });
+  const session = await cancelResumableUploadSession(req.params.sessionId, req.user.userId);
+  if (!session) return res.status(404).json({ error: 'Upload session was not found.' });
+  res.json({ session });
 }
 
 export function startPackagePreparationHandler(req, res) {
